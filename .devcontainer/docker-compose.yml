@@ -1,0 +1,32 @@
+version: "3.8"
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - ..:/workspace:cached   # host → /workspace in container
+    command: sleep infinity
+    depends_on:
+      - db
+    # ✂️  DELETE the line below —— it is what caused the container to exit
+    # network_mode: service:db
+
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: pft
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:
+
+networks:
+  pftnet:

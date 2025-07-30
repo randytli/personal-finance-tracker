@@ -191,8 +191,3 @@ cd pft
 - **调试前端**：`npm run dev` → http://localhost:3000  
 - **调试后端**：`uvicorn app.main:app --reload --port 8000`  
 - **刷新历史 3 年数据**：`python scripts/backfill.py --from 2022-06-01`
-
----
-
-> **现在文档已包含新的重复剔除思路与实现细节。**  
-> 如果需要生成 PDF/README 或补充任意模块，告诉我！

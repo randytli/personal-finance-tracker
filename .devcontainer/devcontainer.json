@@ -1,0 +1,27 @@
+// For format details, see https://aka.ms/devcontainer.json. For config options, see the
+// README at: https://github.com/devcontainers/templates/tree/main/src/javascript-node-postgres
+{
+  //    📝 1-a  Give the container a clearer name
+  "name": "PFT Dev",
+  //    📝 1-b  Dev Containers will compose → we point to the compose file
+  "dockerComposeFile": "docker-compose.yml",
+  //    📝 1-c  service must equal the service key in docker-compose.yml
+  "service": "app",
+  "workspaceFolder": "/workspace",
+  //    📝 1-d  👉 FEATURES block
+  //             - Node is already baked into the base image
+  //             - We add Python 3.12 so FastAPI can run
+  "features": {
+  "ghcr.io/devcontainers/features/python": {
+    "version": "3.12"
+  }
+},
+  //    📝 1-e  Put shared env-vars here so both Next.js & FastAPI can read them
+  "containerEnv": {
+    "DATABASE_URL": "postgresql://postgres:postgres@db:5432/pft"
+  },
+  //    📝 1-f  Auto-install deps after first boot
+  //"postCreateCommand": "pnpm install && pip install -r api/requirements.txt",
+  // optional – forward web / api ports
+  "forwardPorts": [3000, 8000]
+}
