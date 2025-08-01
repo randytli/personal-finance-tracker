@@ -1,0 +1,45 @@
+services:
+  # web:
+  #   build:
+  #     context: ./web           # Next.js 目录
+  #   command: pnpm dev
+  #   volumes:
+  #     - ./web:/web
+  #   ports:
+  #     - "3000:3000"
+  #   environment:
+  #     NODE_ENV: development
+  #     NEXT_PUBLIC_API_URL: http://localhost:8000
+  #     DATABASE_URL: ${DATABASE_URL}
+
+  # api:
+  #   build:
+  #     context: ./api           # FastAPI 目录
+  #   command: uvicorn main:app --reload --port 8000 --host 0.0.0.0
+  #   volumes:
+  #     - ./api:/api
+  #   depends_on:
+  #     - db
+  #   ports:
+  #     - "8000:8000"
+  #   environment:
+  #     DATABASE_URL: ${DATABASE_URL}
+
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: supabase
+      POSTGRES_PASSWORD: supabase
+      POSTGRES_DB: pft
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U supabase"]
+      interval: 10s
+      retries: 5
+      start_period: 5s
+volumes:
+  pgdata:
