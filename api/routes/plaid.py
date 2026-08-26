@@ -35,6 +35,10 @@ SPENDING_CATEGORIES = {
     "TRANSPORTATION",
     "TRAVEL",
 }
+CARD_BENEFIT_DESCRIPTIONS = {
+    "AMEX LULULEMON CREDIT",
+    "AMEX RESY CREDIT",
+}
 
 def classify_transaction(transaction):
     category = transaction.plaid_category
@@ -48,6 +52,8 @@ def classify_transaction(transaction):
         return "income", False, False
     if category == "LOAN_PAYMENTS":
         return "payment", False, None
+    if amount > 0 and _normalized_match_text(description) in CARD_BENEFIT_DESCRIPTIONS:
+        return "card_benefit", False, False
     if category in {"TRANSFER_IN", "TRANSFER_OUT"}:
         return "transfer", False, None
     if amount < 0 and category in SPENDING_CATEGORIES:
@@ -385,6 +391,7 @@ async def classify_transactions():
         1 for values in classifications.values() if values[2] is True
     ) // 2
     counts = {
+        "card_benefit": 0,
         "expense": 0,
         "income": 0,
         "payment": 0,

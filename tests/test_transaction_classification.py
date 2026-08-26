@@ -94,8 +94,18 @@ class InternalTransferClassificationTests(unittest.TestCase):
 
 
 class CardBenefitClassificationTests(unittest.TestCase):
-    @unittest.expectedFailure
-    def test_partial_restaurant_credit_is_future_card_benefit(self):
+    def card_benefit_transaction(self, description, amount="50", category="FOOD_AND_DRINK"):
+        return SimpleNamespace(
+            transaction_id="statement-credit",
+            account_id="amex-card",
+            transaction_date=date(2026, 1, 2),
+            amount=Decimal(amount),
+            merchant_name=None,
+            description=description,
+            plaid_category=category,
+        )
+
+    def test_partial_restaurant_credit_is_card_benefit(self):
         transactions = [
             SimpleNamespace(
                 transaction_id="restaurant-expense",
@@ -119,7 +129,65 @@ class CardBenefitClassificationTests(unittest.TestCase):
 
         classifications, _ = build_classifications(transactions)
 
-        self.assertEqual(classifications["resy-credit"][0], "card_benefit")
+        self.assertEqual(
+            classifications["resy-credit"],
+            ("card_benefit", False, False),
+        )
+
+    def test_amex_lululemon_credit_is_card_benefit(self):
+        transaction = self.card_benefit_transaction("AMEX LULULEMON CREDIT")
+
+        classifications, _ = build_classifications([transaction])
+
+        self.assertEqual(
+            classifications[transaction.transaction_id],
+            ("card_benefit", False, False),
+        )
+
+    def test_allowlisted_descriptions_with_negative_amount_are_not_card_benefits(self):
+        for description in ("AMEX RESY CREDIT", "AMEX LULULEMON CREDIT"):
+            with self.subTest(description=description):
+                transaction = self.card_benefit_transaction(description, amount="-50")
+                classifications, _ = build_classifications([transaction])
+                self.assertNotEqual(
+                    classifications[transaction.transaction_id][0],
+                    "card_benefit",
+                )
+
+    def test_generic_lululemon_credit_is_not_card_benefit(self):
+        transaction = self.card_benefit_transaction("LULULEMON CREDIT")
+
+        classifications, _ = build_classifications([transaction])
+
+        self.assertEqual(classifications[transaction.transaction_id], (None, None, None))
+
+    def test_unrelated_positive_credit_is_not_card_benefit(self):
+        transaction = self.card_benefit_transaction("OTHER STATEMENT CREDIT")
+
+        classifications, _ = build_classifications([transaction])
+
+        self.assertEqual(classifications[transaction.transaction_id], (None, None, None))
+
+    def test_generic_transfer_in_behavior_is_unchanged(self):
+        transaction = self.card_benefit_transaction(
+            "ACCOUNT TRANSFER",
+            category="TRANSFER_IN",
+        )
+
+        classifications, _ = build_classifications([transaction])
+
+        self.assertEqual(
+            classifications[transaction.transaction_id],
+            ("transfer", False, None),
+        )
+
+    def test_card_benefit_classification_is_idempotent(self):
+        transaction = self.card_benefit_transaction("AMEX RESY CREDIT")
+
+        first, _ = build_classifications([transaction])
+        second, _ = build_classifications([transaction])
+
+        self.assertEqual(first, second)
 
 
 if __name__ == "__main__":
