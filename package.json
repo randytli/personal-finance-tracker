@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "api:dev": "cd api && uvicorn app.main:app --reload --port 8000",
+    "api:dev": "uvicorn api.main:app --reload --port 8000",
     "db:up": "docker-compose up db -d",
     "db:down": "docker-compose down",
     "test": "jest",
