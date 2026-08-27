@@ -1,9 +1,28 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
+import { useState, useEffect, type ReactNode } from 'react'
 import { DollarSign, TrendingDown, Calendar, PieChart } from 'lucide-react'
+import PlaidLinkButton from '@/components/plaid-link-button'
+
+function Card({ children, className = '' }: { children: ReactNode; className?: string }) {
+  return <section className={`rounded-lg border bg-white shadow-sm ${className}`}>{children}</section>
+}
+
+function CardHeader({ children, className = '' }: { children: ReactNode; className?: string }) {
+  return <div className={`p-6 ${className}`}>{children}</div>
+}
+
+function CardTitle({ children, className = '' }: { children: ReactNode; className?: string }) {
+  return <h2 className={`font-semibold ${className}`}>{children}</h2>
+}
+
+function CardDescription({ children }: { children: ReactNode }) {
+  return <p className="mt-1 text-sm text-muted-foreground">{children}</p>
+}
+
+function CardContent({ children }: { children: ReactNode }) {
+  return <div className="px-6 pb-6">{children}</div>
+}
 
 export default function HomePage() {
   const [isLoading, setIsLoading] = useState(true)
@@ -154,9 +173,7 @@ export default function HomePage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <Button size="lg">
-            Connect with Plaid
-          </Button>
+          <PlaidLinkButton />
         </CardContent>
       </Card>
     </div>

@@ -1,11 +1,13 @@
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
-from api.db import engine, init_db
+from api.db import engine, init_db, verify_database_name
 from api.routes import analytics, plaid
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    plaid.validate_runtime_configuration()
+    await verify_database_name()
     await init_db()
     yield
     await engine.dispose()

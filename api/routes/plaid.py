@@ -1,5 +1,7 @@
+from cryptography.fernet import Fernet, InvalidToken
 from fastapi import APIRouter, HTTPException
 from fastapi.encoders import jsonable_encoder
+from pydantic import BaseModel, Field
 import plaid
 from decimal import Decimal
 from difflib import SequenceMatcher
@@ -20,6 +22,87 @@ from api.models import Account, Item, RawTransaction, Transaction
 import os, uuid
 
 router = APIRouter(prefix="/plaid")
+ENCRYPTED_TOKEN_PREFIX = "fernet:v1:"
+
+
+class PublicTokenExchange(BaseModel):
+    public_token: str = Field(min_length=1)
+
+
+def is_production():
+    return os.environ.get("PLAID_ENV", "").lower() == "production"
+
+
+def _fernet():
+    key = os.environ.get("PLAID_TOKEN_ENCRYPTION_KEY", "")
+    try:
+        return Fernet(key.encode())
+    except (TypeError, ValueError) as exc:
+        raise RuntimeError("PLAID_TOKEN_ENCRYPTION_KEY is missing or invalid") from exc
+
+
+def encrypt_access_token(access_token):
+    if not is_production():
+        return access_token
+    ciphertext = _fernet().encrypt(access_token.encode()).decode()
+    return f"{ENCRYPTED_TOKEN_PREFIX}{ciphertext}"
+
+
+def decrypt_access_token(stored_token):
+    if not is_production():
+        return stored_token
+    if not stored_token.startswith(ENCRYPTED_TOKEN_PREFIX):
+        raise RuntimeError("Production access token is not encrypted")
+    ciphertext = stored_token.removeprefix(ENCRYPTED_TOKEN_PREFIX)
+    try:
+        return _fernet().decrypt(ciphertext.encode()).decode()
+    except InvalidToken as exc:
+        raise RuntimeError("Production access token cannot be decrypted") from exc
+
+
+def validate_runtime_configuration():
+    environment = os.environ.get("PLAID_ENV", "").lower()
+    if environment not in {"sandbox", "production"}:
+        raise RuntimeError("PLAID_ENV must be sandbox or production")
+    for name in ("PLAID_CLIENT_ID", "PLAID_SECRET"):
+        if not os.environ.get(name):
+            raise RuntimeError(f"{name} is required")
+    if not is_production():
+        return
+
+    for name in (
+        "EXPECTED_DATABASE_NAME",
+        "PLAID_PILOT_USER_ID",
+        "PLAID_REDIRECT_URI",
+        "PLAID_TOKEN_ENCRYPTION_KEY",
+    ):
+        if not os.environ.get(name):
+            raise RuntimeError(f"{name} is required in Production")
+    if not os.environ["PLAID_REDIRECT_URI"].startswith("https://"):
+        raise RuntimeError("PLAID_REDIRECT_URI must use HTTPS in Production")
+    enabled = os.environ.get("PLAID_PILOT_LINK_ENABLED", "false").lower()
+    if enabled not in {"true", "false"}:
+        raise RuntimeError("PLAID_PILOT_LINK_ENABLED must be true or false")
+    _fernet()
+
+
+def _require_production_link_enabled():
+    if is_production() and os.environ.get(
+        "PLAID_PILOT_LINK_ENABLED", "false"
+    ).lower() != "true":
+        raise HTTPException(status_code=403, detail="Production pilot Link is disabled")
+
+
+async def _production_item_exists():
+    if not is_production():
+        return False
+    async with SessionLocal() as db:
+        result = await db.execute(select(Item.item_id).limit(1))
+        return result.scalar_one_or_none() is not None
+
+
+def _plaid_failure():
+    return HTTPException(status_code=502, detail="Plaid request failed")
 
 SPENDING_CATEGORIES = {
     "BANK_FEES",
@@ -155,7 +238,10 @@ def get_client():
         "sandbox": plaid.Environment.Sandbox,
         "production": plaid.Environment.Production,
     }
-    environment = environments[os.environ["PLAID_ENV"].lower()]
+    environment_name = os.environ.get("PLAID_ENV", "").lower()
+    if environment_name not in environments:
+        raise RuntimeError("PLAID_ENV must be sandbox or production")
+    environment = environments[environment_name]
     configuration = plaid.Configuration(
         host=environment,
         api_key={
@@ -167,15 +253,30 @@ def get_client():
 
 @router.post("/link-token")
 async def create_link_token():
+    _require_production_link_enabled()
+    if await _production_item_exists():
+        raise HTTPException(status_code=409, detail="Production pilot Item already exists")
+
     client = get_client()
-    request = LinkTokenCreateRequest(
-        user=LinkTokenCreateRequestUser(client_user_id=str(uuid.uuid4())),
-        products=[Products("transactions")],
-        client_name="PFT",
-        country_codes=[CountryCode("US")],
-        language="en",
+    client_user_id = (
+        os.environ["PLAID_PILOT_USER_ID"] if is_production() else str(uuid.uuid4())
     )
-    resp = client.link_token_create(request)
+    request_data = {
+        "user": LinkTokenCreateRequestUser(client_user_id=client_user_id),
+        "products": [Products("transactions")],
+        "client_name": "PFT",
+        "country_codes": [CountryCode("US")],
+        "language": "en",
+    }
+    if is_production():
+        request_data["redirect_uri"] = os.environ["PLAID_REDIRECT_URI"]
+    request = LinkTokenCreateRequest(
+        **request_data,
+    )
+    try:
+        resp = client.link_token_create(request)
+    except plaid.ApiException as exc:
+        raise _plaid_failure() from exc
     return resp["link_token"]
 
 @router.post("/sandbox/public-token")
@@ -188,26 +289,33 @@ async def create_sandbox_public_token():
         institution_id="ins_109508",
         initial_products=[Products("transactions")],
     )
-    resp = client.sandbox_public_token_create(request)
+    try:
+        resp = client.sandbox_public_token_create(request)
+    except plaid.ApiException as exc:
+        raise _plaid_failure() from exc
     return resp["public_token"]
 
 @router.post("/exchange")
-async def exchange_public_token(data: dict):
+async def exchange_public_token(data: PublicTokenExchange):
+    _require_production_link_enabled()
+    if await _production_item_exists():
+        raise HTTPException(status_code=409, detail="Production pilot Item already exists")
+
     try:
         client = get_client()
-        request = ItemPublicTokenExchangeRequest(public_token=data["public_token"])
+        request = ItemPublicTokenExchangeRequest(public_token=data.public_token)
         exchange = client.item_public_token_exchange(request)
         async with SessionLocal() as db:
-            db.add(Item(item_id=exchange["item_id"],
-                        access_token=exchange["access_token"]))
+            db.add(
+                Item(
+                    item_id=exchange["item_id"],
+                    access_token=encrypt_access_token(exchange["access_token"]),
+                )
+            )
             await db.commit()
         return {"status": "linked"}
-    except plaid.ApiException as e:
-        print(f"Plaid API error: {e}")
-        return {"error": str(e)}
-    except Exception as e:
-        print(f"Internal server error: {e}")
-        return {"error": "Internal server error"}
+    except plaid.ApiException as exc:
+        raise _plaid_failure() from exc
 
 @router.get("/transactions")
 async def get_transactions():
@@ -221,6 +329,7 @@ async def get_transactions():
         raise HTTPException(status_code=404, detail="No linked Item")
 
     client = get_client()
+    access_token = decrypt_access_token(item.access_token)
     added = []
     modified = []
     removed = []
@@ -228,11 +337,14 @@ async def get_transactions():
     pages_fetched = 0
 
     while True:
-        request_data = {"access_token": item.access_token}
+        request_data = {"access_token": access_token}
         if cursor is not None:
             request_data["cursor"] = cursor
         request = TransactionsSyncRequest(**request_data)
-        response = client.transactions_sync(request).to_dict()
+        try:
+            response = client.transactions_sync(request).to_dict()
+        except plaid.ApiException as exc:
+            raise _plaid_failure() from exc
         added.extend(response["added"])
         modified.extend(response["modified"])
         removed.extend(response["removed"])
@@ -306,8 +418,11 @@ async def get_accounts():
         raise HTTPException(status_code=404, detail="No linked Item")
 
     client = get_client()
-    request = AccountsGetRequest(access_token=item.access_token)
-    accounts = client.accounts_get(request).to_dict()["accounts"]
+    request = AccountsGetRequest(access_token=decrypt_access_token(item.access_token))
+    try:
+        accounts = client.accounts_get(request).to_dict()["accounts"]
+    except plaid.ApiException as exc:
+        raise _plaid_failure() from exc
 
     async with SessionLocal() as db:
         async with db.begin():

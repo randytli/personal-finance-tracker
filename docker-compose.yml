@@ -41,5 +41,24 @@ services:
       interval: 10s
       retries: 5
       start_period: 5s
+
+  db-production-pilot:
+    image: postgres:16
+    profiles: ["production-pilot"]
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${PFT_PILOT_DB_USER:?Set PFT_PILOT_DB_USER}
+      POSTGRES_PASSWORD: ${PFT_PILOT_DB_PASSWORD:?Set PFT_PILOT_DB_PASSWORD}
+      POSTGRES_DB: ${PFT_PILOT_DB_NAME:-pft_production_pilot}
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - pgdata_production_pilot:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      retries: 5
+      start_period: 5s
 volumes:
   pgdata:
+  pgdata_production_pilot:

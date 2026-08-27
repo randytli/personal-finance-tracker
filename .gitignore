@@ -9,6 +9,7 @@ pnpm-lock.yaml
 # Python
 __pycache__/
 .env
+.env*.local
 *.pyc
 
 # Docker
