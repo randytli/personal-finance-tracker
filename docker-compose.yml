@@ -59,6 +59,25 @@ services:
       interval: 10s
       retries: 5
       start_period: 5s
+
+  db-production-backfill:
+    image: postgres:16
+    profiles: ["production-backfill"]
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${PFT_BACKFILL_DB_USER:?Set PFT_BACKFILL_DB_USER}
+      POSTGRES_PASSWORD: ${PFT_BACKFILL_DB_PASSWORD:?Set PFT_BACKFILL_DB_PASSWORD}
+      POSTGRES_DB: ${PFT_BACKFILL_DB_NAME:-pft_production_backfill}
+    ports:
+      - "127.0.0.1:5434:5432"
+    volumes:
+      - pgdata_production_backfill:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      retries: 5
+      start_period: 5s
 volumes:
   pgdata:
   pgdata_production_pilot:
+  pgdata_production_backfill:

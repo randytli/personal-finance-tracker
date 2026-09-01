@@ -1,4 +1,5 @@
 import asyncio
+import json
 import os
 import unittest
 from unittest.mock import AsyncMock, patch
@@ -58,6 +59,17 @@ class _LinkClient:
         if self.error:
             raise self.error
         return self.response
+
+
+class _PlaidErrorResponse:
+    status = 400
+    reason = "Bad Request"
+
+    def __init__(self, data):
+        self.data = json.dumps(data)
+
+    def getheaders(self):
+        return {}
 
 
 class PlaidProductionSafetyTests(unittest.TestCase):
@@ -177,6 +189,7 @@ class PlaidProductionSafetyTests(unittest.TestCase):
             request["redirect_uri"],
             "https://temporary.example/plaid-oauth",
         )
+        self.assertEqual(request["transactions"]["days_requested"], 730)
 
     def test_sandbox_link_keeps_random_user_and_has_no_redirect(self):
         client = _LinkClient()
@@ -195,6 +208,7 @@ class PlaidProductionSafetyTests(unittest.TestCase):
         self.assertEqual(result, "test-link-token")
         self.assertNotEqual(request["user"]["client_user_id"], "local-pilot-user")
         self.assertNotIn("redirect_uri", request)
+        self.assertNotIn("transactions", request)
 
     def test_sandbox_helper_remains_blocked_in_production(self):
         with patch.dict(os.environ, production_environment(self.key), clear=True):
@@ -203,21 +217,45 @@ class PlaidProductionSafetyTests(unittest.TestCase):
         self.assertEqual(error.exception.status_code, 403)
 
     def test_plaid_errors_are_sanitized(self):
-        client = _LinkClient(error=plaid.ApiException(status=400, reason="sensitive"))
+        plaid_secret = "secret-value-that-must-not-be-logged"
+        access_token = "access-production-token-that-must-not-be-logged"
+        public_token = "public-production-token-that-must-not-be-logged"
+        response = _PlaidErrorResponse(
+            {
+                "error_type": "INVALID_REQUEST",
+                "error_code": "INVALID_FIELD",
+                "display_message": "The redirect URI is not registered.",
+                "request_id": "request-id-123",
+                "access_token": access_token,
+                "public_token": public_token,
+                "secret": plaid_secret,
+            }
+        )
+        client = _LinkClient(error=plaid.ApiException(http_resp=response))
+        environment = production_environment(self.key)
+        environment["PLAID_SECRET"] = plaid_secret
         with (
-            patch.dict(os.environ, production_environment(self.key), clear=True),
+            patch.dict(os.environ, environment, clear=True),
             patch.object(
                 plaid_routes,
                 "_production_item_exists",
                 AsyncMock(return_value=False),
             ),
             patch.object(plaid_routes, "get_client", return_value=client),
+            self.assertLogs(plaid_routes.logger, level="WARNING") as logs,
         ):
             with self.assertRaises(HTTPException) as error:
                 asyncio.run(plaid_routes.create_link_token())
         self.assertEqual(error.exception.status_code, 502)
         self.assertEqual(error.exception.detail, "Plaid request failed")
-        self.assertNotIn("sensitive", error.exception.detail)
+        log_output = "\n".join(logs.output)
+        self.assertIn("error_type='INVALID_REQUEST'", log_output)
+        self.assertIn("error_code='INVALID_FIELD'", log_output)
+        self.assertIn("message='The redirect URI is not registered.'", log_output)
+        self.assertIn("request_id='request-id-123'", log_output)
+        self.assertNotIn(plaid_secret, log_output)
+        self.assertNotIn(access_token, log_output)
+        self.assertNotIn(public_token, log_output)
 
 
 class DatabaseGuardTests(unittest.TestCase):

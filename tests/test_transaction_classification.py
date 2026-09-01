@@ -43,6 +43,190 @@ class RefundClassificationTests(unittest.TestCase):
         self.assertEqual(classifications["credit"], (None, None, None))
         self.assertEqual(refund_matches, 0)
 
+    def test_recurring_expenses_use_unique_recent_exact_match(self):
+        transactions = [
+            united_transaction("older-expense", 1, "-500"),
+            united_transaction("recent-expense", 20, "-500"),
+            united_transaction("credit", 24, "500"),
+        ]
+
+        classifications, refund_matches = build_classifications(transactions)
+
+        self.assertEqual(classifications["credit"], ("refund", False, False))
+        self.assertEqual(refund_matches, 1)
+
+    def test_multiple_recent_expenses_remain_ambiguous(self):
+        transactions = [
+            united_transaction("recent-expense-1", 20, "-500"),
+            united_transaction("recent-expense-2", 21, "-500"),
+            united_transaction("credit", 24, "500"),
+        ]
+
+        classifications, refund_matches = build_classifications(transactions)
+
+        self.assertEqual(classifications["credit"], (None, None, None))
+        self.assertEqual(refund_matches, 0)
+
+    def test_unique_historical_refund_outside_seven_days_still_matches(self):
+        transactions = [
+            united_transaction("expense", 1, "-500"),
+            united_transaction("credit", 20, "500"),
+        ]
+
+        classifications, refund_matches = build_classifications(transactions)
+
+        self.assertEqual(classifications["credit"], ("refund", False, False))
+        self.assertEqual(refund_matches, 1)
+
+    def test_same_day_aws_reversal_is_refund(self):
+        transactions = [
+            SimpleNamespace(
+                transaction_id="aws-expense",
+                account_id="credit-card",
+                transaction_date=date(2026, 9, 1),
+                amount=Decimal("-1"),
+                merchant_name="Amazon Web Services",
+                description="AWS",
+                plaid_category="GENERAL_SERVICES",
+            ),
+            SimpleNamespace(
+                transaction_id="aws-credit",
+                account_id="credit-card",
+                transaction_date=date(2026, 9, 1),
+                amount=Decimal("1"),
+                merchant_name="Amazon Web Services",
+                description="AWS",
+                plaid_category="GENERAL_SERVICES",
+            ),
+        ]
+
+        classifications, refund_matches = build_classifications(transactions)
+
+        self.assertEqual(classifications["aws-expense"][0], "expense")
+        self.assertEqual(classifications["aws-credit"], ("refund", False, False))
+        self.assertEqual(refund_matches, 1)
+
+    def test_multiple_same_day_reversals_remain_ambiguous(self):
+        transactions = [
+            SimpleNamespace(
+                transaction_id=transaction_id,
+                account_id="credit-card",
+                transaction_date=date(2026, 9, 1),
+                amount=Decimal(amount),
+                merchant_name="Amazon Web Services",
+                description="AWS",
+                plaid_category="GENERAL_SERVICES",
+            )
+            for transaction_id, amount in (
+                ("aws-expense-1", "-1"),
+                ("aws-expense-2", "-1"),
+                ("aws-credit", "1"),
+            )
+        ]
+
+        classifications, refund_matches = build_classifications(transactions)
+
+        self.assertEqual(classifications["aws-credit"], (None, None, None))
+        self.assertEqual(refund_matches, 0)
+
+    def test_partial_amazon_refund_without_exact_amount_remains_unclassified(self):
+        transactions = [
+            SimpleNamespace(
+                transaction_id="amazon-expense",
+                account_id="credit-card",
+                transaction_date=date(2026, 6, 1),
+                amount=Decimal("-55.49"),
+                merchant_name="Amazon",
+                description="Amazon.com*ORDER",
+                plaid_category="GENERAL_MERCHANDISE",
+            ),
+            SimpleNamespace(
+                transaction_id="amazon-credit",
+                account_id="credit-card",
+                transaction_date=date(2026, 6, 10),
+                amount=Decimal("36.03"),
+                merchant_name="Amazon",
+                description="Amazon.com",
+                plaid_category="GENERAL_MERCHANDISE",
+            ),
+        ]
+
+        classifications, refund_matches = build_classifications(transactions)
+
+        self.assertEqual(classifications["amazon-credit"], (None, None, None))
+        self.assertEqual(refund_matches, 0)
+
+
+class CreditCardPaymentClassificationTests(unittest.TestCase):
+    def transaction(
+        self,
+        transaction_id="credit-payment",
+        account_id="credit-card",
+        amount="1002.17",
+        description="Payment Thank You-Mobile",
+        category="LOAN_DISBURSEMENTS",
+        day=2,
+    ):
+        return SimpleNamespace(
+            transaction_id=transaction_id,
+            account_id=account_id,
+            transaction_date=date(2026, 1, day),
+            amount=Decimal(amount),
+            merchant_name=None,
+            description=description,
+            plaid_category=category,
+        )
+
+    def test_chase_mobile_payment_amounts_are_payments_on_credit_account(self):
+        for amount in ("1002.17", "30.65"):
+            with self.subTest(amount=amount):
+                transaction = self.transaction(amount=amount)
+                classifications, _ = build_classifications(
+                    [transaction],
+                    {"credit-card"},
+                )
+                self.assertEqual(
+                    classifications[transaction.transaction_id],
+                    ("payment", False, None),
+                )
+
+    def test_payment_rule_requires_credit_account_positive_amount_exact_text_and_category(self):
+        cases = (
+            self.transaction(account_id="checking"),
+            self.transaction(amount="-1002.17"),
+            self.transaction(description="Payment Thank You"),
+            self.transaction(category="TRANSFER_IN"),
+        )
+        for transaction in cases:
+            with self.subTest(transaction=transaction):
+                classifications, _ = build_classifications(
+                    [transaction],
+                    {"credit-card"},
+                )
+                self.assertNotEqual(
+                    classifications[transaction.transaction_id][0],
+                    "payment",
+                )
+
+    def test_credit_payment_can_match_checking_payment_as_internal(self):
+        credit = self.transaction(amount="100", day=2)
+        checking = self.transaction(
+            transaction_id="checking-payment",
+            account_id="checking",
+            amount="-100",
+            description="Credit card payment",
+            category="LOAN_PAYMENTS",
+            day=1,
+        )
+
+        classifications, _ = build_classifications(
+            [checking, credit],
+            {"credit-card"},
+        )
+
+        self.assertEqual(classifications[credit.transaction_id], ("payment", False, True))
+        self.assertEqual(classifications[checking.transaction_id], ("payment", False, True))
+
 
 def transfer_transaction(transaction_id, account_id, day, amount, category):
     return SimpleNamespace(

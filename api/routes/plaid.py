@@ -2,6 +2,8 @@ from cryptography.fernet import Fernet, InvalidToken
 from fastapi import APIRouter, HTTPException
 from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel, Field
+import json
+import logging
 import plaid
 from decimal import Decimal
 from difflib import SequenceMatcher
@@ -12,6 +14,7 @@ from plaid.model.accounts_get_request import AccountsGetRequest
 from plaid.model.item_public_token_exchange_request import ItemPublicTokenExchangeRequest
 from plaid.model.link_token_create_request import LinkTokenCreateRequest
 from plaid.model.link_token_create_request_user import LinkTokenCreateRequestUser
+from plaid.model.link_token_transactions import LinkTokenTransactions
 from plaid.model.products import Products
 from plaid.model.sandbox_public_token_create_request import SandboxPublicTokenCreateRequest
 from plaid.model.transactions_sync_request import TransactionsSyncRequest
@@ -23,6 +26,7 @@ import os, uuid
 
 router = APIRouter(prefix="/plaid")
 ENCRYPTED_TOKEN_PREFIX = "fernet:v1:"
+logger = logging.getLogger(__name__)
 
 
 class PublicTokenExchange(BaseModel):
@@ -104,6 +108,52 @@ async def _production_item_exists():
 def _plaid_failure():
     return HTTPException(status_code=502, detail="Plaid request failed")
 
+
+def _sanitize_plaid_diagnostic(value, max_length=300):
+    if not isinstance(value, str):
+        return None
+    sanitized = " ".join(value.split())
+    secret = os.environ.get("PLAID_SECRET")
+    if secret:
+        sanitized = sanitized.replace(secret, "[REDACTED]")
+    sanitized = re.sub(
+        r"(?i)\b(?:access|public|link)[_-]?token\b\s*[:=]\s*[^\s,;]+",
+        "token=[REDACTED]",
+        sanitized,
+    )
+    sanitized = re.sub(
+        r"(?i)\b(?:access|public|link)-(?:sandbox|development|production)-[A-Za-z0-9_-]+",
+        "[REDACTED]",
+        sanitized,
+    )
+    return sanitized[:max_length] or None
+
+
+def _log_link_token_plaid_error(exc):
+    details = {}
+    if isinstance(exc.body, (str, bytes)):
+        try:
+            details = json.loads(exc.body)
+        except (json.JSONDecodeError, UnicodeDecodeError, TypeError):
+            details = {}
+    if not isinstance(details, dict):
+        details = {}
+
+    error_type = _sanitize_plaid_diagnostic(details.get("error_type"), 100)
+    error_code = _sanitize_plaid_diagnostic(details.get("error_code"), 100)
+    message = _sanitize_plaid_diagnostic(
+        details.get("display_message") or details.get("error_message")
+    )
+    request_id = _sanitize_plaid_diagnostic(details.get("request_id"), 100)
+    logger.warning(
+        "Plaid link-token request failed: error_type=%r error_code=%r "
+        "message=%r request_id=%r",
+        error_type,
+        error_code,
+        message,
+        request_id,
+    )
+
 SPENDING_CATEGORIES = {
     "BANK_FEES",
     "ENTERTAINMENT",
@@ -122,8 +172,11 @@ CARD_BENEFIT_DESCRIPTIONS = {
     "AMEX LULULEMON CREDIT",
     "AMEX RESY CREDIT",
 }
+CREDIT_CARD_PAYMENT_DESCRIPTIONS = {
+    "PAYMENT THANK YOU MOBILE",
+}
 
-def classify_transaction(transaction):
+def classify_transaction(transaction, credit_account_ids=frozenset()):
     category = transaction.plaid_category
     amount = transaction.amount
     description = (transaction.description or "").upper()
@@ -134,6 +187,13 @@ def classify_transaction(transaction):
     ):
         return "income", False, False
     if category == "LOAN_PAYMENTS":
+        return "payment", False, None
+    if (
+        amount > 0
+        and transaction.account_id in credit_account_ids
+        and category == "LOAN_DISBURSEMENTS"
+        and _normalized_match_text(description) in CREDIT_CARD_PAYMENT_DESCRIPTIONS
+    ):
         return "payment", False, None
     if amount > 0 and _normalized_match_text(description) in CARD_BENEFIT_DESCRIPTIONS:
         return "card_benefit", False, False
@@ -166,9 +226,26 @@ def _is_same_merchant_or_description(expense, credit):
         credit_description,
     ).ratio() >= 0.9
 
-def build_classifications(transactions):
+def _has_exact_merchant_or_description(expense, credit):
+    expense_merchant = _normalized_match_text(expense.merchant_name)
+    credit_merchant = _normalized_match_text(credit.merchant_name)
+    expense_description = _normalized_match_text(expense.description)
+    credit_description = _normalized_match_text(credit.description)
+    return bool(
+        (expense_merchant and expense_merchant == credit_merchant)
+        or (
+            expense_description
+            and expense_description == credit_description
+        )
+    )
+
+
+def build_classifications(transactions, credit_account_ids=frozenset()):
     classifications = {
-        transaction.transaction_id: classify_transaction(transaction)
+        transaction.transaction_id: classify_transaction(
+            transaction,
+            credit_account_ids,
+        )
         for transaction in transactions
     }
     expenses = [
@@ -181,7 +258,21 @@ def build_classifications(transactions):
     for credit in transactions:
         if credit.amount <= 0 or classifications[credit.transaction_id][0] is not None:
             continue
-        candidates = [
+        same_day_candidates = [
+            expense
+            for expense in expenses
+            if expense.account_id == credit.account_id
+            and expense.transaction_date == credit.transaction_date
+            and abs(expense.amount) == credit.amount
+            and expense.plaid_category == credit.plaid_category
+            and _has_exact_merchant_or_description(expense, credit)
+        ]
+        if len(same_day_candidates) == 1:
+            classifications[credit.transaction_id] = ("refund", False, False)
+            refund_matches += 1
+            continue
+
+        historical_candidates = [
             expense
             for expense in expenses
             if expense.account_id == credit.account_id
@@ -189,7 +280,19 @@ def build_classifications(transactions):
             and abs(expense.amount) == credit.amount
             and _is_same_merchant_or_description(expense, credit)
         ]
-        if len(candidates) == 1:
+        if len(historical_candidates) == 1:
+            classifications[credit.transaction_id] = ("refund", False, False)
+            refund_matches += 1
+            continue
+
+        recent_exact_candidates = [
+            expense
+            for expense in historical_candidates
+            if (credit.transaction_date - expense.transaction_date).days <= 7
+            and _normalized_match_text(expense.description)
+            == _normalized_match_text(credit.description)
+        ]
+        if len(recent_exact_candidates) == 1:
             classifications[credit.transaction_id] = ("refund", False, False)
             refund_matches += 1
 
@@ -270,12 +373,14 @@ async def create_link_token():
     }
     if is_production():
         request_data["redirect_uri"] = os.environ["PLAID_REDIRECT_URI"]
+        request_data["transactions"] = LinkTokenTransactions(days_requested=730)
     request = LinkTokenCreateRequest(
         **request_data,
     )
     try:
         resp = client.link_token_create(request)
     except plaid.ApiException as exc:
+        _log_link_token_plaid_error(exc)
         raise _plaid_failure() from exc
     return resp["link_token"]
 
@@ -500,8 +605,15 @@ async def classify_transactions():
     async with SessionLocal() as db:
         result = await db.execute(select(Transaction))
         transactions = result.scalars().all()
+        result = await db.execute(
+            select(Account.account_id).where(Account.type == "credit")
+        )
+        credit_account_ids = set(result.scalars().all())
 
-    classifications, refund_matches = build_classifications(transactions)
+    classifications, refund_matches = build_classifications(
+        transactions,
+        credit_account_ids,
+    )
     internal_transfer_matches = sum(
         1 for values in classifications.values() if values[2] is True
     ) // 2
