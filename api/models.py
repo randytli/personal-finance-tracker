@@ -74,3 +74,24 @@ class Transaction(Base):
     is_internal_transfer = Column(Boolean, nullable=True)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
+class ManualClassificationOverride(Base):
+    __tablename__ = "manual_classification_overrides"
+    __table_args__ = (
+        CheckConstraint(
+            "transaction_type IS NULL OR transaction_type IN "
+            "('expense', 'refund', 'income', 'card_benefit', 'payment', 'transfer', "
+            "'adjustment')",
+            name="ck_manual_override_transaction_type",
+        ),
+        Index("ix_manual_overrides_updated_at", "updated_at"),
+    )
+    transaction_id = Column(String, ForeignKey("transactions.transaction_id"), primary_key=True)
+    transaction_type = Column(String, nullable=True)
+    created_by = Column(String, nullable=False)
+    created_at = Column(DateTime, nullable=False, server_default=func.now())
+    updated_by = Column(String, nullable=False)
+    updated_at = Column(DateTime, nullable=False, server_default=func.now())
+    cleared_by = Column(String, nullable=True)
+    cleared_at = Column(DateTime, nullable=True)

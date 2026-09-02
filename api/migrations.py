@@ -67,3 +67,29 @@ async def migrate_multi_institution(connection):
     await connection.execute(text(
         "CREATE INDEX IF NOT EXISTS ix_transactions_date ON transactions (transaction_date)"
     ))
+    await connection.execute(text(
+        "CREATE TABLE IF NOT EXISTS manual_classification_overrides ("
+        "transaction_id VARCHAR PRIMARY KEY REFERENCES transactions(transaction_id), "
+        "transaction_type VARCHAR NULL, created_by VARCHAR NOT NULL, "
+        "created_at TIMESTAMP NOT NULL DEFAULT now(), updated_by VARCHAR NOT NULL, "
+        "updated_at TIMESTAMP NOT NULL DEFAULT now(), cleared_by VARCHAR NULL, "
+        "cleared_at TIMESTAMP NULL)"
+    ))
+    await connection.execute(text(
+        "DO $$ BEGIN "
+        "IF NOT EXISTS ("
+        "SELECT 1 FROM pg_constraint WHERE conname='ck_manual_override_transaction_type' "
+        "AND pg_get_constraintdef(oid) LIKE '%adjustment%'"
+        ") THEN "
+        "ALTER TABLE manual_classification_overrides DROP CONSTRAINT IF EXISTS "
+        "ck_manual_override_transaction_type; "
+        "ALTER TABLE manual_classification_overrides ADD CONSTRAINT "
+        "ck_manual_override_transaction_type CHECK ("
+        "transaction_type IS NULL OR transaction_type IN "
+        "('expense','refund','income','card_benefit','payment','transfer','adjustment')); "
+        "END IF; END $$"
+    ))
+    await connection.execute(text(
+        "CREATE INDEX IF NOT EXISTS ix_manual_overrides_updated_at "
+        "ON manual_classification_overrides (updated_at)"
+    ))

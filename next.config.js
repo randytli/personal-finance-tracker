@@ -7,6 +7,10 @@ const nextConfig = {
         source: '/api/pft/plaid/:path*',
         destination: `${apiBaseUrl}/plaid/:path*`,
       },
+      {
+        source: '/api/pft/review/:path*',
+        destination: `${apiBaseUrl}/review/:path*`,
+      },
     ]
   },
 }

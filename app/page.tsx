@@ -3,6 +3,7 @@
 import { useState, useEffect, type ReactNode } from 'react'
 import { DollarSign, TrendingDown, Calendar, PieChart } from 'lucide-react'
 import PlaidLinkButton from '@/components/plaid-link-button'
+import Link from 'next/link'
 
 function Card({ children, className = '' }: { children: ReactNode; className?: string }) {
   return <section className={`rounded-lg border bg-white shadow-sm ${className}`}>{children}</section>
@@ -47,6 +48,9 @@ export default function HomePage() {
         <p className="text-muted-foreground mt-2">
           Track your spending, categorize transactions, and gain insights into your financial habits.
         </p>
+        <Link className="mt-3 inline-block text-sm font-medium text-blue-700 underline" href="/review">
+          Review ambiguous transactions
+        </Link>
       </div>
 
       {/* Quick Stats */}

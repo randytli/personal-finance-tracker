@@ -8,7 +8,8 @@ from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy import select
 
 from api.db import SessionLocal
-from api.models import Item, RawTransaction, Transaction
+from api.classification import effective_classification
+from api.models import Item, ManualClassificationOverride, RawTransaction, Transaction
 
 
 router = APIRouter(prefix="/analytics")
@@ -34,12 +35,20 @@ def _month_bounds(month):
 async def _active_month_rows(month, category=None):
     start_date, end_date = _month_bounds(month)
     statement = (
-        select(Transaction, RawTransaction.is_removed)
+        select(
+            Transaction,
+            RawTransaction.is_removed,
+            ManualClassificationOverride.transaction_type,
+        )
         .join(
             RawTransaction,
             RawTransaction.transaction_id == Transaction.transaction_id,
         )
         .join(Item, Item.item_id == RawTransaction.item_id)
+        .outerjoin(
+            ManualClassificationOverride,
+            ManualClassificationOverride.transaction_id == Transaction.transaction_id,
+        )
         .where(
             Transaction.transaction_date >= start_date,
             Transaction.transaction_date <= end_date,
@@ -63,19 +72,24 @@ def summarize_monthly_transactions(rows):
     unclassified_count = 0
     categories = {}
 
-    for transaction, is_removed in rows:
+    for row in rows:
+        transaction, is_removed, override_type = _analytics_row(row)
         if is_removed:
             continue
 
         amount = Decimal(transaction.amount)
         category = transaction.plaid_category or "UNCATEGORIZED"
-        transaction_type = transaction.transaction_type
+        transaction_type, is_spending, is_internal_transfer = effective_classification(
+            transaction, override_type
+        )
 
         if transaction_type is None:
             unclassified_count += 1
+        elif is_internal_transfer is True:
+            continue
         elif (
             transaction_type == "expense"
-            and transaction.is_spending is True
+            and is_spending is True
             and amount < 0
         ):
             value = -amount
@@ -113,18 +127,24 @@ def summarize_category_transactions(rows, category):
     refunds = ZERO
     transaction_count = 0
 
-    for transaction, is_removed in rows:
+    for row in rows:
+        transaction, is_removed, override_type = _analytics_row(row)
         if is_removed or transaction.plaid_category != category:
             continue
         amount = Decimal(transaction.amount)
+        transaction_type, is_spending, is_internal_transfer = effective_classification(
+            transaction, override_type
+        )
+        if is_internal_transfer is True:
+            continue
         if (
-            transaction.transaction_type == "expense"
-            and transaction.is_spending is True
+            transaction_type == "expense"
+            and is_spending is True
             and amount < 0
         ):
             gross_spending -= amount
             transaction_count += 1
-        elif transaction.transaction_type == "refund" and amount > 0:
+        elif transaction_type == "refund" and amount > 0:
             refunds += amount
             transaction_count += 1
 
@@ -138,17 +158,22 @@ def summarize_category_transactions(rows, category):
 
 def category_transaction_details(rows, category):
     relevant = []
-    for transaction, is_removed in rows:
+    for row in rows:
+        transaction, is_removed, override_type = _analytics_row(row)
+        transaction_type, _, is_internal_transfer = effective_classification(
+            transaction, override_type
+        )
         if (
             is_removed
+            or is_internal_transfer is True
             or transaction.plaid_category != category
-            or transaction.transaction_type not in {"expense", "refund"}
+            or transaction_type not in {"expense", "refund"}
         ):
             continue
-        relevant.append(transaction)
+        relevant.append((transaction, transaction_type))
 
     relevant.sort(
-        key=lambda transaction: (transaction.transaction_date, transaction.transaction_id),
+        key=lambda value: (value[0].transaction_date, value[0].transaction_id),
         reverse=True,
     )
     return [
@@ -158,11 +183,19 @@ def category_transaction_details(rows, category):
             "merchant_name": transaction.merchant_name,
             "description": transaction.description,
             "amount": _money(Decimal(transaction.amount)),
-            "transaction_type": transaction.transaction_type,
+            "transaction_type": transaction_type,
             "plaid_category": transaction.plaid_category,
         }
-        for transaction in relevant
+        for transaction, transaction_type in relevant
     ]
+
+
+def _analytics_row(row):
+    """Accept legacy two-value rows used by pure summary callers."""
+    if len(row) == 2:
+        transaction, is_removed = row
+        return transaction, is_removed, None
+    return row
 
 
 @router.get("/monthly")
