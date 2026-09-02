@@ -26,7 +26,8 @@ export default function PlaidLinkButton({ resumeOAuth = false }: { resumeOAuth?:
 
   useEffect(() => {
     if (!resumeOAuth) return
-    const savedToken = window.sessionStorage.getItem(LINK_TOKEN_KEY)
+    const savedToken = window.localStorage.getItem(LINK_TOKEN_KEY)
+      || window.sessionStorage.getItem(LINK_TOKEN_KEY)
     if (!savedToken) {
       setStatus('OAuth session not found. Return to the home page and start again.')
       return
@@ -53,6 +54,7 @@ export default function PlaidLinkButton({ resumeOAuth = false }: { resumeOAuth?:
         }),
       })
       if (!response.ok) throw new Error('exchange failed')
+      window.localStorage.removeItem(LINK_TOKEN_KEY)
       window.sessionStorage.removeItem(LINK_TOKEN_KEY)
       setStatus('Institution saved as pending. Disable the Link gate, then sync and review it.')
     } catch {
@@ -85,7 +87,8 @@ export default function PlaidLinkButton({ resumeOAuth = false }: { resumeOAuth?:
       if (!response.ok) throw new Error('link token failed')
       const token = await response.json()
       if (typeof token !== 'string' || !token) throw new Error('invalid link token')
-      window.sessionStorage.setItem(LINK_TOKEN_KEY, token)
+      window.localStorage.setItem(LINK_TOKEN_KEY, token)
+      window.sessionStorage.removeItem(LINK_TOKEN_KEY)
       setLinkToken(token)
       setShouldOpen(true)
       setStatus('')
