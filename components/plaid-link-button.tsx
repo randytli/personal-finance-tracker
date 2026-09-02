@@ -14,6 +14,15 @@ export default function PlaidLinkButton({ resumeOAuth = false }: { resumeOAuth?:
   const [receivedRedirectUri, setReceivedRedirectUri] = useState<string | undefined>()
   const [shouldOpen, setShouldOpen] = useState(false)
   const [status, setStatus] = useState<string>('')
+  const [items, setItems] = useState<Array<{ item_id: string; institution_name: string; status: string }>>([])
+
+  useEffect(() => {
+    if (resumeOAuth) return
+    fetch('/api/pft/plaid/items')
+      .then((response) => response.ok ? response.json() : Promise.reject())
+      .then((data) => setItems(Array.isArray(data.items) ? data.items : []))
+      .catch(() => setStatus('Connected institutions could not be loaded.'))
+  }, [resumeOAuth])
 
   useEffect(() => {
     if (!resumeOAuth) return
@@ -27,17 +36,25 @@ export default function PlaidLinkButton({ resumeOAuth = false }: { resumeOAuth?:
     setShouldOpen(true)
   }, [resumeOAuth])
 
-  const onSuccess = useCallback<PlaidLinkOnSuccess>(async (publicToken) => {
+  const onSuccess = useCallback<PlaidLinkOnSuccess>(async (publicToken, metadata) => {
     setStatus('Finishing secure connection…')
     try {
+      const institution = metadata.institution
+      if (!institution?.institution_id || !institution.name) {
+        throw new Error('institution metadata missing')
+      }
       const response = await fetch('/api/pft/plaid/exchange', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ public_token: publicToken }),
+        body: JSON.stringify({
+          public_token: publicToken,
+          institution_id: institution.institution_id,
+          institution_name: institution.name,
+        }),
       })
       if (!response.ok) throw new Error('exchange failed')
       window.sessionStorage.removeItem(LINK_TOKEN_KEY)
-      setStatus('Institution connected. Disable the pilot Link gate now.')
+      setStatus('Institution saved as pending. Disable the Link gate, then sync and review it.')
     } catch {
       setStatus('Connection could not be saved. Check the local API logs and try again.')
     }
@@ -80,14 +97,22 @@ export default function PlaidLinkButton({ resumeOAuth = false }: { resumeOAuth?:
   return (
     <div className="space-y-3">
       {!resumeOAuth && (
-        <button
-          type="button"
-          onClick={startLink}
-          disabled={shouldOpen}
-          className="rounded-md bg-black px-5 py-3 font-medium text-white disabled:opacity-50"
-        >
-          Connect with Plaid
-        </button>
+        <>
+          {items.length > 0 && (
+            <ul className="space-y-1 text-sm">
+              {items.map((item) => <li key={item.item_id}>{item.institution_name} — {item.status}</li>)}
+            </ul>
+          )}
+          <p className="text-sm text-muted-foreground">Choose your institution securely inside Plaid Link.</p>
+          <button
+            type="button"
+            onClick={startLink}
+            disabled={shouldOpen}
+            className="rounded-md bg-black px-5 py-3 font-medium text-white disabled:opacity-50"
+          >
+            Connect new institution
+          </button>
+        </>
       )}
       {status && <p role="status" className="text-sm text-muted-foreground">{status}</p>}
     </div>

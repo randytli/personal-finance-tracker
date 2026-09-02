@@ -1,4 +1,7 @@
-from sqlalchemy import Boolean, Column, Date, DateTime, ForeignKey, Numeric, String, func
+from sqlalchemy import (
+    Boolean, CheckConstraint, Column, Date, DateTime, ForeignKey, Index, Numeric,
+    String, UniqueConstraint, func,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import declarative_base
 
@@ -6,7 +9,20 @@ Base = declarative_base()
 
 class Item(Base):
     __tablename__ = "items"
+    __table_args__ = (
+        UniqueConstraint("user_id", "institution_id", name="uq_items_user_institution"),
+        CheckConstraint(
+            "status IN ('pending', 'active', 'disabled')",
+            name="ck_items_status",
+        ),
+        Index("ix_items_user_status", "user_id", "status"),
+        Index("ix_items_institution_id", "institution_id"),
+    )
     item_id = Column(String, primary_key=True)
+    user_id = Column(String, nullable=False)
+    institution_id = Column(String, nullable=False)
+    institution_name = Column(String, nullable=False)
+    status = Column(String, nullable=False, default="pending", server_default="pending")
     access_token = Column(String, nullable=False)
     transactions_cursor = Column(String, nullable=True)
     created_at = Column(DateTime, server_default=func.now())
@@ -23,6 +39,8 @@ class RawTransaction(Base):
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
+    __table_args__ = (Index("ix_raw_transactions_item_active", "item_id", "is_removed"),)
+
 class Account(Base):
     __tablename__ = "accounts"
     account_id = Column(String, primary_key=True)
@@ -35,8 +53,11 @@ class Account(Base):
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
+    __table_args__ = (Index("ix_accounts_item_id", "item_id"),)
+
 class Transaction(Base):
     __tablename__ = "transactions"
+    __table_args__ = (Index("ix_transactions_date", "transaction_date"),)
     transaction_id = Column(
         String,
         ForeignKey("raw_transactions.transaction_id"),

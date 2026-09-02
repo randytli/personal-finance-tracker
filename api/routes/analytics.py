@@ -1,13 +1,14 @@
 from calendar import monthrange
 from datetime import date
 from decimal import Decimal
+import os
 import re
 
 from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy import select
 
 from api.db import SessionLocal
-from api.models import RawTransaction, Transaction
+from api.models import Item, RawTransaction, Transaction
 
 
 router = APIRouter(prefix="/analytics")
@@ -38,10 +39,13 @@ async def _active_month_rows(month, category=None):
             RawTransaction,
             RawTransaction.transaction_id == Transaction.transaction_id,
         )
+        .join(Item, Item.item_id == RawTransaction.item_id)
         .where(
             Transaction.transaction_date >= start_date,
             Transaction.transaction_date <= end_date,
             RawTransaction.is_removed.is_(False),
+            Item.status == "active",
+            Item.user_id == os.environ.get("PLAID_PILOT_USER_ID", "local-sandbox-user"),
         )
     )
     if category is not None:

@@ -1,5 +1,5 @@
 from cryptography.fernet import Fernet, InvalidToken
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel, Field
 import json
@@ -12,6 +12,8 @@ from plaid.api import plaid_api
 from plaid.model.country_code import CountryCode
 from plaid.model.accounts_get_request import AccountsGetRequest
 from plaid.model.item_public_token_exchange_request import ItemPublicTokenExchangeRequest
+from plaid.model.item_get_request import ItemGetRequest
+from plaid.model.institutions_get_by_id_request import InstitutionsGetByIdRequest
 from plaid.model.link_token_create_request import LinkTokenCreateRequest
 from plaid.model.link_token_create_request_user import LinkTokenCreateRequestUser
 from plaid.model.link_token_transactions import LinkTokenTransactions
@@ -19,6 +21,7 @@ from plaid.model.products import Products
 from plaid.model.sandbox_public_token_create_request import SandboxPublicTokenCreateRequest
 from plaid.model.transactions_sync_request import TransactionsSyncRequest
 from sqlalchemy import func, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.dialects.postgresql import insert
 from api.db import SessionLocal
 from api.models import Account, Item, RawTransaction, Transaction
@@ -31,6 +34,12 @@ logger = logging.getLogger(__name__)
 
 class PublicTokenExchange(BaseModel):
     public_token: str = Field(min_length=1)
+    institution_id: str = Field(pattern=r"^ins_[A-Za-z0-9]+$")
+    institution_name: str = Field(min_length=1, max_length=200)
+
+
+class ItemStatusUpdate(BaseModel):
+    status: str
 
 
 def is_production():
@@ -97,12 +106,34 @@ def _require_production_link_enabled():
         raise HTTPException(status_code=403, detail="Production pilot Link is disabled")
 
 
-async def _production_item_exists():
+def _user_id():
+    return os.environ.get("PLAID_PILOT_USER_ID", "local-sandbox-user")
+
+
+async def _institution_exists(institution_id):
     if not is_production():
         return False
     async with SessionLocal() as db:
-        result = await db.execute(select(Item.item_id).limit(1))
+        result = await db.execute(
+            select(Item.item_id).where(
+                Item.user_id == _user_id(),
+                Item.institution_id == institution_id,
+            ).limit(1)
+        )
         return result.scalar_one_or_none() is not None
+
+
+async def _get_item(item_id, allowed_statuses=("active",)):
+    async with SessionLocal() as db:
+        result = await db.execute(select(Item).where(
+            Item.item_id == item_id,
+            Item.user_id == _user_id(),
+            Item.status.in_(allowed_statuses),
+        ))
+        item = result.scalar_one_or_none()
+    if item is None:
+        raise HTTPException(status_code=404, detail="Item not found")
+    return item
 
 
 def _plaid_failure():
@@ -171,12 +202,30 @@ SPENDING_CATEGORIES = {
 CARD_BENEFIT_DESCRIPTIONS = {
     "AMEX LULULEMON CREDIT",
     "AMEX RESY CREDIT",
+    "AMEX AIRLINE FEE REIMBURSEMENT",
+    "AMEX DINING CREDIT",
+    "PLATINUM DIGITAL ENTERTAINMENT CREDIT",
+    "PLATINUM HOTEL CREDIT",
+    "PLATINUM LULULEMON CREDIT",
+    "PLATINUM RESY CREDIT",
+    "PLATINUM SAKS CREDIT",
+    "PLATINUM UBER ONE CREDIT",
 }
+AMEX_MERCHANT_BENEFIT_ACCOUNT_NAMES = {
+    "DUNKIN DONUTS": "AMERICAN EXPRESS GOLD CARD",
+    "WALMART": "PLATINUM CARD",
+}
+AMERICAN_EXPRESS_INSTITUTION_ID = "ins_10"
 CREDIT_CARD_PAYMENT_DESCRIPTIONS = {
     "PAYMENT THANK YOU MOBILE",
 }
 
-def classify_transaction(transaction, credit_account_ids=frozenset()):
+def classify_transaction(
+    transaction,
+    credit_account_ids=frozenset(),
+    amex_benefit_account_ids=frozenset(),
+    amex_merchant_benefit_account_ids=None,
+):
     category = transaction.plaid_category
     amount = transaction.amount
     description = (transaction.description or "").upper()
@@ -195,7 +244,18 @@ def classify_transaction(transaction, credit_account_ids=frozenset()):
         and _normalized_match_text(description) in CREDIT_CARD_PAYMENT_DESCRIPTIONS
     ):
         return "payment", False, None
-    if amount > 0 and _normalized_match_text(description) in CARD_BENEFIT_DESCRIPTIONS:
+    normalized_description = _normalized_match_text(description)
+    merchant_benefit_account_ids = (
+        amex_merchant_benefit_account_ids or {}
+    ).get(normalized_description, frozenset())
+    if (
+        amount > 0
+        and transaction.account_id in amex_benefit_account_ids
+        and (
+            normalized_description in CARD_BENEFIT_DESCRIPTIONS
+            or transaction.account_id in merchant_benefit_account_ids
+        )
+    ):
         return "card_benefit", False, False
     if category in {"TRANSFER_IN", "TRANSFER_OUT"}:
         return "transfer", False, None
@@ -240,11 +300,18 @@ def _has_exact_merchant_or_description(expense, credit):
     )
 
 
-def build_classifications(transactions, credit_account_ids=frozenset()):
+def build_classifications(
+    transactions,
+    credit_account_ids=frozenset(),
+    amex_benefit_account_ids=frozenset(),
+    amex_merchant_benefit_account_ids=None,
+):
     classifications = {
         transaction.transaction_id: classify_transaction(
             transaction,
             credit_account_ids,
+            amex_benefit_account_ids,
+            amex_merchant_benefit_account_ids,
         )
         for transaction in transactions
     }
@@ -354,15 +421,73 @@ def get_client():
     )
     return plaid_api.PlaidApi(plaid.ApiClient(configuration))
 
+
+def fetch_transaction_pages(client, access_token, starting_cursor):
+    """Fetch one Item's complete sync without mutating another Item's cursor."""
+    added, modified, removed = [], [], []
+    cursor = starting_cursor
+    pages_fetched = 0
+    while True:
+        request_data = {"access_token": access_token}
+        if cursor is not None:
+            request_data["cursor"] = cursor
+        try:
+            response = client.transactions_sync(
+                TransactionsSyncRequest(**request_data)
+            ).to_dict()
+        except plaid.ApiException as exc:
+            raise _plaid_failure() from exc
+        added.extend(response["added"])
+        modified.extend(response["modified"])
+        removed.extend(response["removed"])
+        cursor = response["next_cursor"]
+        pages_fetched += 1
+        if not response["has_more"]:
+            return added, modified, removed, cursor, pages_fetched
+
+@router.get("/items")
+async def get_items():
+    async with SessionLocal() as db:
+        result = await db.execute(
+            select(Item).where(Item.user_id == _user_id()).order_by(Item.created_at)
+        )
+        items = result.scalars().all()
+    return {"items": [item_metadata(item) for item in items]}
+
+
+def item_metadata(item):
+    return {
+        "item_id": item.item_id,
+        "institution_id": item.institution_id,
+        "institution_name": item.institution_name,
+        "status": item.status,
+        "created_at": item.created_at,
+        "updated_at": item.updated_at,
+    }
+
+
+@router.patch("/items/{item_id}/status")
+async def update_item_status(item_id: str, data: ItemStatusUpdate):
+    if data.status not in {"active", "disabled"}:
+        raise HTTPException(status_code=422, detail="status must be active or disabled")
+    item = await _get_item(item_id, ("pending", "active", "disabled"))
+    if item.status == "active" and data.status == "disabled":
+        raise HTTPException(status_code=409, detail="Active Items cannot be disabled through this endpoint")
+    async with SessionLocal() as db:
+        await db.execute(
+            update(Item).where(Item.item_id == item_id).values(status=data.status)
+        )
+        await db.commit()
+    return {"item_id": item_id, "status": data.status}
+
+
 @router.post("/link-token")
 async def create_link_token():
     _require_production_link_enabled()
-    if await _production_item_exists():
-        raise HTTPException(status_code=409, detail="Production pilot Item already exists")
 
     client = get_client()
     client_user_id = (
-        os.environ["PLAID_PILOT_USER_ID"] if is_production() else str(uuid.uuid4())
+        _user_id() if is_production() else str(uuid.uuid4())
     )
     request_data = {
         "user": LinkTokenCreateRequestUser(client_user_id=client_user_id),
@@ -403,60 +528,61 @@ async def create_sandbox_public_token():
 @router.post("/exchange")
 async def exchange_public_token(data: PublicTokenExchange):
     _require_production_link_enabled()
-    if await _production_item_exists():
-        raise HTTPException(status_code=409, detail="Production pilot Item already exists")
+    institution_name = " ".join(data.institution_name.split())
+    if not institution_name:
+        raise HTTPException(status_code=422, detail="Institution metadata is required")
+    if await _institution_exists(data.institution_id):
+        raise HTTPException(status_code=409, detail="Institution is already connected")
 
     try:
         client = get_client()
         request = ItemPublicTokenExchangeRequest(public_token=data.public_token)
         exchange = client.item_public_token_exchange(request)
+        item_response = client.item_get(
+            ItemGetRequest(access_token=exchange["access_token"])
+        ).to_dict()
+        institution_id = item_response["item"].get("institution_id")
+        if institution_id != data.institution_id:
+            raise HTTPException(status_code=409, detail="Connected institution did not match selection")
+        if await _institution_exists(institution_id):
+            raise HTTPException(status_code=409, detail="Institution is already connected")
+        institution = client.institutions_get_by_id(
+            InstitutionsGetByIdRequest(
+                institution_id=institution_id,
+                country_codes=[CountryCode("US")],
+            )
+        ).to_dict()["institution"]
+        if institution["name"].casefold() != institution_name.casefold():
+            raise HTTPException(status_code=409, detail="Connected institution name did not match selection")
         async with SessionLocal() as db:
             db.add(
                 Item(
                     item_id=exchange["item_id"],
+                    user_id=_user_id(),
+                    institution_id=institution_id,
+                    institution_name=institution["name"],
+                    status="pending",
                     access_token=encrypt_access_token(exchange["access_token"]),
                 )
             )
-            await db.commit()
-        return {"status": "linked"}
+            try:
+                await db.commit()
+            except IntegrityError as exc:
+                await db.rollback()
+                raise HTTPException(status_code=409, detail="Institution is already connected") from exc
+        return {"status": "pending", "item_id": exchange["item_id"]}
     except plaid.ApiException as exc:
         raise _plaid_failure() from exc
 
 @router.get("/transactions")
-async def get_transactions():
-    async with SessionLocal() as db:
-        result = await db.execute(
-            select(Item).order_by(Item.created_at.desc()).limit(1)
-        )
-        item = result.scalar_one_or_none()
-
-    if item is None:
-        raise HTTPException(status_code=404, detail="No linked Item")
+async def get_transactions(item_id: str = Query(..., min_length=1)):
+    item = await _get_item(item_id, ("pending", "active"))
 
     client = get_client()
     access_token = decrypt_access_token(item.access_token)
-    added = []
-    modified = []
-    removed = []
-    cursor = item.transactions_cursor
-    pages_fetched = 0
-
-    while True:
-        request_data = {"access_token": access_token}
-        if cursor is not None:
-            request_data["cursor"] = cursor
-        request = TransactionsSyncRequest(**request_data)
-        try:
-            response = client.transactions_sync(request).to_dict()
-        except plaid.ApiException as exc:
-            raise _plaid_failure() from exc
-        added.extend(response["added"])
-        modified.extend(response["modified"])
-        removed.extend(response["removed"])
-        cursor = response["next_cursor"]
-        pages_fetched += 1
-        if not response["has_more"]:
-            break
+    added, modified, removed, cursor, pages_fetched = fetch_transaction_pages(
+        client, access_token, item.transactions_cursor
+    )
 
     async with SessionLocal() as db:
         async with db.begin():
@@ -478,7 +604,10 @@ async def get_transactions():
                 payload = jsonable_encoder(transaction)
                 await db.execute(
                     update(RawTransaction)
-                    .where(RawTransaction.transaction_id == transaction["transaction_id"])
+                    .where(
+                        RawTransaction.transaction_id == transaction["transaction_id"],
+                        RawTransaction.item_id == item.item_id,
+                    )
                     .values(
                         account_id=transaction["account_id"],
                         transaction_date=transaction["date"],
@@ -490,7 +619,10 @@ async def get_transactions():
             for transaction in removed:
                 await db.execute(
                     update(RawTransaction)
-                    .where(RawTransaction.transaction_id == transaction["transaction_id"])
+                    .where(
+                        RawTransaction.transaction_id == transaction["transaction_id"],
+                        RawTransaction.item_id == item.item_id,
+                    )
                     .values(is_removed=True)
                 )
 
@@ -512,15 +644,8 @@ async def get_transactions():
     }
 
 @router.get("/accounts")
-async def get_accounts():
-    async with SessionLocal() as db:
-        result = await db.execute(
-            select(Item).order_by(Item.created_at.desc()).limit(1)
-        )
-        item = result.scalar_one_or_none()
-
-    if item is None:
-        raise HTTPException(status_code=404, detail="No linked Item")
+async def get_accounts(item_id: str = Query(..., min_length=1)):
+    item = await _get_item(item_id, ("pending", "active"))
 
     client = get_client()
     request = AccountsGetRequest(access_token=decrypt_access_token(item.access_token))
@@ -546,7 +671,11 @@ async def get_accounts():
                     statement.on_conflict_do_update(
                         index_elements=["account_id"],
                         set_={
-                            **values,
+                            "name": values["name"],
+                            "official_name": values["official_name"],
+                            "type": values["type"],
+                            "subtype": values["subtype"],
+                            "mask": values["mask"],
                             "updated_at": func.now(),
                         },
                     )
@@ -558,10 +687,14 @@ async def get_accounts():
     }
 
 @router.post("/transactions/normalize")
-async def normalize_transactions():
+async def normalize_transactions(item_id: str = Query(..., min_length=1)):
+    item = await _get_item(item_id, ("pending", "active"))
     async with SessionLocal() as db:
         result = await db.execute(
-            select(RawTransaction).where(RawTransaction.is_removed.is_(False))
+            select(RawTransaction).where(
+                RawTransaction.item_id == item.item_id,
+                RawTransaction.is_removed.is_(False),
+            )
         )
         raw_transactions = result.scalars().all()
 
@@ -603,16 +736,57 @@ async def normalize_transactions():
 @router.post("/transactions/classify")
 async def classify_transactions():
     async with SessionLocal() as db:
-        result = await db.execute(select(Transaction))
+        result = await db.execute(
+            select(Transaction)
+            .join(RawTransaction, RawTransaction.transaction_id == Transaction.transaction_id)
+            .join(Item, Item.item_id == RawTransaction.item_id)
+            .where(
+                Item.user_id == _user_id(),
+                Item.status.in_(("active", "pending")),
+                RawTransaction.is_removed.is_(False),
+            )
+        )
         transactions = result.scalars().all()
         result = await db.execute(
-            select(Account.account_id).where(Account.type == "credit")
+            select(Account.account_id)
+            .join(Item, Item.item_id == Account.item_id)
+            .where(
+                Account.type == "credit",
+                Item.user_id == _user_id(),
+                Item.status.in_(("active", "pending")),
+            )
         )
         credit_account_ids = set(result.scalars().all())
+        result = await db.execute(
+            select(Account.account_id, Account.name)
+            .join(Item, Item.item_id == Account.item_id)
+            .where(
+                Account.type == "credit",
+                Item.institution_id == AMERICAN_EXPRESS_INSTITUTION_ID,
+                Item.user_id == _user_id(),
+                Item.status.in_(("active", "pending")),
+            )
+        )
+        amex_credit_accounts = result.all()
+        amex_benefit_account_ids = {
+            account_id for account_id, _ in amex_credit_accounts
+        }
+        amex_merchant_benefit_account_ids = {
+            description: {
+                account_id
+                for account_id, account_name in amex_credit_accounts
+                if _normalized_match_text(account_name) == required_account_name
+            }
+            for description, required_account_name in (
+                AMEX_MERCHANT_BENEFIT_ACCOUNT_NAMES.items()
+            )
+        }
 
     classifications, refund_matches = build_classifications(
         transactions,
         credit_account_ids,
+        amex_benefit_account_ids,
+        amex_merchant_benefit_account_ids,
     )
     internal_transfer_matches = sum(
         1 for values in classifications.values() if values[2] is True

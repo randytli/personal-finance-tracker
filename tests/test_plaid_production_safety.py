@@ -131,6 +131,27 @@ class PlaidProductionSafetyTests(unittest.TestCase):
     def test_exchange_body_is_typed(self):
         with self.assertRaises(ValidationError):
             plaid_routes.PublicTokenExchange(public_token="")
+        with self.assertRaises(ValidationError):
+            plaid_routes.PublicTokenExchange(
+                public_token="public-production-test",
+                institution_id="not-an-institution-id",
+                institution_name="American Express",
+            )
+
+    def test_blank_link_institution_name_is_rejected_before_plaid_call(self):
+        body = plaid_routes.PublicTokenExchange(
+            public_token="public-production-test",
+            institution_id="ins_10",
+            institution_name="   ",
+        )
+        with (
+            patch.dict(os.environ, production_environment(self.key), clear=True),
+            patch.object(plaid_routes, "get_client") as get_client,
+        ):
+            with self.assertRaises(HTTPException) as error:
+                asyncio.run(plaid_routes.exchange_public_token(body))
+        self.assertEqual(error.exception.status_code, 422)
+        get_client.assert_not_called()
 
     def test_production_link_is_disabled_by_default(self):
         environment = production_environment(self.key)
@@ -140,26 +161,17 @@ class PlaidProductionSafetyTests(unittest.TestCase):
                 asyncio.run(plaid_routes.create_link_token())
         self.assertEqual(error.exception.status_code, 403)
 
-    def test_existing_production_item_blocks_link(self):
-        with (
-            patch.dict(os.environ, production_environment(self.key), clear=True),
-            patch.object(
-                plaid_routes,
-                "_production_item_exists",
-                AsyncMock(return_value=True),
-            ),
-        ):
-            with self.assertRaises(HTTPException) as error:
-                asyncio.run(plaid_routes.create_link_token())
-        self.assertEqual(error.exception.status_code, 409)
-
     def test_existing_production_item_blocks_exchange_before_plaid_call(self):
-        body = plaid_routes.PublicTokenExchange(public_token="public-production-test")
+        body = plaid_routes.PublicTokenExchange(
+            public_token="public-production-test",
+            institution_id="ins_56",
+            institution_name="Chase",
+        )
         with (
             patch.dict(os.environ, production_environment(self.key), clear=True),
             patch.object(
                 plaid_routes,
-                "_production_item_exists",
+                "_institution_exists",
                 AsyncMock(return_value=True),
             ),
             patch.object(plaid_routes, "get_client") as get_client,
@@ -173,11 +185,6 @@ class PlaidProductionSafetyTests(unittest.TestCase):
         client = _LinkClient()
         with (
             patch.dict(os.environ, production_environment(self.key), clear=True),
-            patch.object(
-                plaid_routes,
-                "_production_item_exists",
-                AsyncMock(return_value=False),
-            ),
             patch.object(plaid_routes, "get_client", return_value=client),
         ):
             result = asyncio.run(plaid_routes.create_link_token())
@@ -190,6 +197,7 @@ class PlaidProductionSafetyTests(unittest.TestCase):
             "https://temporary.example/plaid-oauth",
         )
         self.assertEqual(request["transactions"]["days_requested"], 730)
+        self.assertNotIn("institution_id", request)
 
     def test_sandbox_link_keeps_random_user_and_has_no_redirect(self):
         client = _LinkClient()
@@ -236,11 +244,6 @@ class PlaidProductionSafetyTests(unittest.TestCase):
         environment["PLAID_SECRET"] = plaid_secret
         with (
             patch.dict(os.environ, environment, clear=True),
-            patch.object(
-                plaid_routes,
-                "_production_item_exists",
-                AsyncMock(return_value=False),
-            ),
             patch.object(plaid_routes, "get_client", return_value=client),
             self.assertLogs(plaid_routes.logger, level="WARNING") as logs,
         ):

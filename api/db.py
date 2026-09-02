@@ -4,6 +4,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 
 from api.models import Base
+from api.migrations import migrate_multi_institution
 
 DATABASE_URL = os.environ["DATABASE_URL"]   # postgresql+asyncpg://supabase:...
 
@@ -13,6 +14,7 @@ SessionLocal = async_sessionmaker(engine, expire_on_commit=False)
 async def init_db():
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
+        await migrate_multi_institution(connection)
 
 
 async def verify_database_name():
