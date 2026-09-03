@@ -43,6 +43,8 @@ class MonthlyAnalyticsTests(unittest.TestCase):
         self.assertEqual(result["refunds"], "25.00")
         self.assertEqual(result["card_benefits"], "10.00")
         self.assertEqual(result["net_spending"], "105.00")
+        self.assertEqual(result["income"], "1000.00")
+        self.assertEqual(result["net_savings"], "895.00")
         self.assertEqual(result["unclassified_count"], 1)
         self.assertEqual(
             result["category_breakdown"],
@@ -52,12 +54,14 @@ class MonthlyAnalyticsTests(unittest.TestCase):
                     "gross_spending": "100.00",
                     "refunds": "25.00",
                     "net_spending": "75.00",
+                    "spending_transaction_count": 2,
                 },
                 {
                     "category": "UNCATEGORIZED",
                     "gross_spending": "40.00",
                     "refunds": "0.00",
                     "net_spending": "40.00",
+                    "spending_transaction_count": 1,
                 },
             ],
         )
@@ -70,10 +74,27 @@ class MonthlyAnalyticsTests(unittest.TestCase):
                 "refunds": "0.00",
                 "card_benefits": "0.00",
                 "net_spending": "0.00",
+                "income": "0.00",
+                "net_savings": "0.00",
                 "category_breakdown": [],
                 "unclassified_count": 0,
             },
         )
+
+    def test_adjustment_and_internal_transfer_do_not_change_metrics(self):
+        internal = transaction("-500", "expense", is_spending=True)
+        internal.is_internal_transfer = True
+        result = summarize_monthly_transactions(
+            [
+                (transaction("100", None), False, "adjustment"),
+                (transaction("-100", None), False, "adjustment"),
+                (internal, False),
+            ]
+        )
+        self.assertEqual(result["gross_spending"], "0.00")
+        self.assertEqual(result["net_spending"], "0.00")
+        self.assertEqual(result["net_savings"], "0.00")
+        self.assertEqual(result["unclassified_count"], 0)
 
     def test_invalid_month_returns_422(self):
         with self.assertRaises(HTTPException) as error:

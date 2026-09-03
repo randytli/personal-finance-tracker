@@ -3,7 +3,7 @@ import inspect
 from types import SimpleNamespace
 
 from api.models import Item
-from api.routes.analytics import _active_month_rows
+from api.routes.analytics import _active_analytics_rows
 from api.routes.plaid import fetch_transaction_pages, get_accounts, get_transactions, item_metadata, normalize_transactions
 
 
@@ -38,7 +38,7 @@ class MultiInstitutionTests(unittest.TestCase):
         self.assertEqual(amex_result[3], "amex-next")
 
     def test_active_analytics_query_filters_item_status(self):
-        constants = _active_month_rows.__code__.co_consts
+        constants = _active_analytics_rows.__code__.co_consts
         self.assertIn("active", constants)
 
     def test_sync_and_normalization_require_item_id(self):

@@ -64,7 +64,7 @@ class CategoryAnalyticsTests(unittest.TestCase):
                 "gross_spending": "140.00",
                 "refunds": "25.00",
                 "net_spending": "115.00",
-                "transaction_count": 3,
+                "spending_transaction_count": 3,
             },
         )
 
@@ -75,7 +75,7 @@ class CategoryAnalyticsTests(unittest.TestCase):
                 "gross_spending": "0.00",
                 "refunds": "0.00",
                 "net_spending": "0.00",
-                "transaction_count": 0,
+                "spending_transaction_count": 0,
             },
         )
 

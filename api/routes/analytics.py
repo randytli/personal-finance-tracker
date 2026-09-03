@@ -7,17 +7,18 @@ import re
 from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy import select
 
+from api.classification import ALLOWED_TRANSACTION_TYPES, effective_classification
 from api.db import SessionLocal
-from api.classification import effective_classification
-from api.models import Item, ManualClassificationOverride, RawTransaction, Transaction
+from api.models import Account, Item, ManualClassificationOverride, RawTransaction, Transaction
 
 
 router = APIRouter(prefix="/analytics")
 ZERO = Decimal("0")
+DETAIL_TYPES = ALLOWED_TRANSACTION_TYPES | {"unclassified"}
 
 
 def _money(value):
-    return format(value.quantize(Decimal("0.01")), "f")
+    return format(Decimal(value).quantize(Decimal("0.01")), "f")
 
 
 def _month_bounds(month):
@@ -32,19 +33,28 @@ def _month_bounds(month):
     return start_date, end_date
 
 
-async def _active_month_rows(month, category=None):
-    start_date, end_date = _month_bounds(month)
+def _shift_month(month, offset):
+    start, _ = _month_bounds(month)
+    ordinal = start.year * 12 + start.month - 1 + offset
+    return f"{ordinal // 12:04d}-{ordinal % 12 + 1:02d}"
+
+
+async def _active_analytics_rows(start_date, end_date):
     statement = (
         select(
             Transaction,
             RawTransaction.is_removed,
             ManualClassificationOverride.transaction_type,
+            Item,
+            Account,
         )
-        .join(
-            RawTransaction,
-            RawTransaction.transaction_id == Transaction.transaction_id,
-        )
+        .join(RawTransaction, RawTransaction.transaction_id == Transaction.transaction_id)
         .join(Item, Item.item_id == RawTransaction.item_id)
+        .join(
+            Account,
+            (Account.account_id == Transaction.account_id)
+            & (Account.item_id == Item.item_id),
+        )
         .outerjoin(
             ManualClassificationOverride,
             ManualClassificationOverride.transaction_id == Transaction.transaction_id,
@@ -57,51 +67,95 @@ async def _active_month_rows(month, category=None):
             Item.user_id == os.environ.get("PLAID_PILOT_USER_ID", "local-sandbox-user"),
         )
     )
-    if category is not None:
-        statement = statement.where(Transaction.plaid_category == category)
-
     async with SessionLocal() as db:
-        result = await db.execute(statement)
-        return result.all()
+        return (await db.execute(statement)).all()
+
+
+async def _active_month_rows(month, category=None):
+    start_date, end_date = _month_bounds(month)
+    rows = await _active_analytics_rows(start_date, end_date)
+    if category is None:
+        return rows
+    return [row for row in rows if _category(_analytics_row(row)[0]) == category]
+
+
+def _analytics_row(row):
+    """Normalize database rows and compact rows used by pure unit tests."""
+    if len(row) == 2:
+        transaction, is_removed = row
+        return transaction, is_removed, None, None, None
+    if len(row) == 3:
+        transaction, is_removed, override_type = row
+        return transaction, is_removed, override_type, None, None
+    return row
+
+
+def _category(transaction):
+    return transaction.plaid_category or "UNCATEGORIZED"
+
+
+def _empty_metrics():
+    return {
+        "gross_spending": ZERO,
+        "refunds": ZERO,
+        "card_benefits": ZERO,
+        "net_spending": ZERO,
+        "income": ZERO,
+        "net_savings": ZERO,
+        "unclassified_count": 0,
+    }
+
+
+def _accumulate(metrics, transaction, override_type):
+    amount = Decimal(transaction.amount)
+    transaction_type, is_spending, is_internal_transfer = effective_classification(
+        transaction, override_type
+    )
+    if transaction_type is None:
+        metrics["unclassified_count"] += 1
+    elif is_internal_transfer is True:
+        return
+    elif transaction_type == "expense" and is_spending is True and amount < 0:
+        metrics["gross_spending"] -= amount
+    elif transaction_type == "refund" and amount > 0:
+        metrics["refunds"] += amount
+    elif transaction_type == "card_benefit" and amount > 0:
+        metrics["card_benefits"] += amount
+    elif transaction_type == "income" and amount > 0:
+        metrics["income"] += amount
+
+
+def _finalize_metrics(metrics):
+    values = dict(metrics)
+    values["net_spending"] = values["gross_spending"] - values["refunds"] - values["card_benefits"]
+    values["net_savings"] = values["income"] - values["net_spending"]
+    return {
+        key: value if key == "unclassified_count" else _money(value)
+        for key, value in values.items()
+    }
 
 
 def summarize_monthly_transactions(rows):
-    gross_spending = ZERO
-    refunds = ZERO
-    card_benefits = ZERO
-    unclassified_count = 0
+    metrics = _empty_metrics()
     categories = {}
-
     for row in rows:
-        transaction, is_removed, override_type = _analytics_row(row)
+        transaction, is_removed, override_type, _, _ = _analytics_row(row)
         if is_removed:
             continue
-
-        amount = Decimal(transaction.amount)
-        category = transaction.plaid_category or "UNCATEGORIZED"
+        _accumulate(metrics, transaction, override_type)
         transaction_type, is_spending, is_internal_transfer = effective_classification(
             transaction, override_type
         )
-
-        if transaction_type is None:
-            unclassified_count += 1
-        elif is_internal_transfer is True:
+        if is_internal_transfer is True:
             continue
-        elif (
-            transaction_type == "expense"
-            and is_spending is True
-            and amount < 0
-        ):
-            value = -amount
-            gross_spending += value
-            category_values = categories.setdefault(category, [ZERO, ZERO])
-            category_values[0] += value
+        amount = Decimal(transaction.amount)
+        values = categories.setdefault(_category(transaction), [ZERO, ZERO, 0])
+        if transaction_type == "expense" and is_spending is True and amount < 0:
+            values[0] -= amount
+            values[2] += 1
         elif transaction_type == "refund" and amount > 0:
-            refunds += amount
-            category_values = categories.setdefault(category, [ZERO, ZERO])
-            category_values[1] += amount
-        elif transaction_type == "card_benefit" and amount > 0:
-            card_benefits += amount
+            values[1] += amount
+            values[2] += 1
 
     category_breakdown = [
         {
@@ -109,124 +163,163 @@ def summarize_monthly_transactions(rows):
             "gross_spending": _money(values[0]),
             "refunds": _money(values[1]),
             "net_spending": _money(values[0] - values[1]),
+            "spending_transaction_count": values[2],
         }
         for category, values in sorted(categories.items())
+        if values[2]
     ]
-    return {
-        "gross_spending": _money(gross_spending),
-        "refunds": _money(refunds),
-        "card_benefits": _money(card_benefits),
-        "net_spending": _money(gross_spending - refunds - card_benefits),
-        "category_breakdown": category_breakdown,
-        "unclassified_count": unclassified_count,
-    }
+    return {**_finalize_metrics(metrics), "category_breakdown": category_breakdown}
 
 
 def summarize_category_transactions(rows, category):
     gross_spending = ZERO
     refunds = ZERO
-    transaction_count = 0
-
+    count = 0
     for row in rows:
-        transaction, is_removed, override_type = _analytics_row(row)
-        if is_removed or transaction.plaid_category != category:
+        transaction, is_removed, override_type, _, _ = _analytics_row(row)
+        if is_removed or _category(transaction) != category:
             continue
-        amount = Decimal(transaction.amount)
         transaction_type, is_spending, is_internal_transfer = effective_classification(
             transaction, override_type
         )
         if is_internal_transfer is True:
             continue
-        if (
-            transaction_type == "expense"
-            and is_spending is True
-            and amount < 0
-        ):
+        amount = Decimal(transaction.amount)
+        if transaction_type == "expense" and is_spending is True and amount < 0:
             gross_spending -= amount
-            transaction_count += 1
+            count += 1
         elif transaction_type == "refund" and amount > 0:
             refunds += amount
-            transaction_count += 1
-
+            count += 1
     return {
         "gross_spending": _money(gross_spending),
         "refunds": _money(refunds),
         "net_spending": _money(gross_spending - refunds),
-        "transaction_count": transaction_count,
+        "spending_transaction_count": count,
     }
 
 
-def category_transaction_details(rows, category):
+def transaction_details(rows, category=None, transaction_type=None):
     relevant = []
     for row in rows:
-        transaction, is_removed, override_type = _analytics_row(row)
-        transaction_type, _, is_internal_transfer = effective_classification(
-            transaction, override_type
-        )
-        if (
-            is_removed
-            or is_internal_transfer is True
-            or transaction.plaid_category != category
-            or transaction_type not in {"expense", "refund"}
-        ):
+        transaction, is_removed, override_type, item, account = _analytics_row(row)
+        if is_removed or (category is not None and _category(transaction) != category):
             continue
-        relevant.append((transaction, transaction_type))
-
-    relevant.sort(
-        key=lambda value: (value[0].transaction_date, value[0].transaction_id),
-        reverse=True,
-    )
+        effective_type, is_spending, is_internal = effective_classification(transaction, override_type)
+        type_label = effective_type or "unclassified"
+        if transaction_type is not None and type_label != transaction_type:
+            continue
+        relevant.append((transaction, item, account, type_label, is_spending, is_internal))
+    relevant.sort(key=lambda value: (value[0].transaction_date, value[0].transaction_id), reverse=True)
     return [
         {
             "transaction_id": transaction.transaction_id,
             "transaction_date": transaction.transaction_date.isoformat(),
+            "institution_name": getattr(item, "institution_name", None),
+            "account_name": getattr(account, "name", None),
+            "account_mask": getattr(account, "mask", None),
+            "account_type": getattr(account, "type", None),
+            "account_subtype": getattr(account, "subtype", None),
             "merchant_name": transaction.merchant_name,
             "description": transaction.description,
-            "amount": _money(Decimal(transaction.amount)),
-            "transaction_type": transaction_type,
-            "plaid_category": transaction.plaid_category,
+            "amount": _money(transaction.amount),
+            "transaction_type": type_label,
+            "is_spending": is_spending,
+            "is_internal_transfer": is_internal,
+            "plaid_category": _category(transaction),
         }
-        for transaction, transaction_type in relevant
+        for transaction, item, account, type_label, is_spending, is_internal in relevant
     ]
 
 
-def _analytics_row(row):
-    """Accept legacy two-value rows used by pure summary callers."""
-    if len(row) == 2:
-        transaction, is_removed = row
-        return transaction, is_removed, None
-    return row
+def category_transaction_details(rows, category):
+    return [detail for detail in transaction_details(rows, category) if detail["transaction_type"] in {"expense", "refund"}]
+
+
+def summarize_breakdown(rows, group_by):
+    groups = {}
+    for row in rows:
+        transaction, is_removed, override_type, item, account = _analytics_row(row)
+        if is_removed or item is None or account is None:
+            continue
+        if group_by == "institution":
+            key = item.institution_id
+            metadata = {"institution_id": item.institution_id, "institution_name": item.institution_name}
+        else:
+            key = account.account_id
+            metadata = {
+                "institution_id": item.institution_id,
+                "institution_name": item.institution_name,
+                "account_id": account.account_id,
+                "account_name": account.name,
+                "account_mask": account.mask,
+                "account_type": account.type,
+                "account_subtype": account.subtype,
+            }
+        entry = groups.setdefault(key, {"metadata": metadata, "metrics": _empty_metrics()})
+        _accumulate(entry["metrics"], transaction, override_type)
+    result = [{**entry["metadata"], **_finalize_metrics(entry["metrics"])} for entry in groups.values()]
+    return sorted(result, key=lambda value: (Decimal(value["net_spending"]), str(value)), reverse=True)
 
 
 @router.get("/monthly")
 async def monthly_spending(month: str = Query(..., pattern=r"^\d{4}-\d{2}$")):
-    rows = await _active_month_rows(month)
-    return {"month": month, **summarize_monthly_transactions(rows)}
+    return {"month": month, **summarize_monthly_transactions(await _active_month_rows(month))}
 
 
 @router.get("/category")
-async def category_spending(
+async def category_spending(month: str = Query(..., pattern=r"^\d{4}-\d{2}$"), category: str = Query(..., min_length=1)):
+    rows = await _active_month_rows(month)
+    return {"month": month, "category": category, **summarize_category_transactions(rows, category)}
+
+
+@router.get("/trend")
+async def spending_trend(end_month: str = Query(..., pattern=r"^\d{4}-\d{2}$")):
+    start_month = _shift_month(end_month, -11)
+    start_date, _ = _month_bounds(start_month)
+    _, end_date = _month_bounds(end_month)
+    rows = await _active_analytics_rows(start_date, end_date)
+    by_month = {month: [] for month in (_shift_month(start_month, offset) for offset in range(12))}
+    for row in rows:
+        transaction = _analytics_row(row)[0]
+        by_month[transaction.transaction_date.strftime("%Y-%m")].append(row)
+    months = []
+    for month, month_rows in by_month.items():
+        summary = summarize_monthly_transactions(month_rows)
+        months.append({"month": month, **{key: summary[key] for key in ("net_spending", "income", "net_savings")}})
+    return {"start_month": start_month, "end_month": end_month, "months": months}
+
+
+@router.get("/breakdown")
+async def spending_breakdown(
     month: str = Query(..., pattern=r"^\d{4}-\d{2}$"),
-    category: str = Query(..., min_length=1),
+    group_by: str = Query("institution", pattern=r"^(institution|account)$"),
 ):
-    rows = await _active_month_rows(month, category)
-    return {
-        "month": month,
-        "category": category,
-        **summarize_category_transactions(rows, category),
-    }
+    return {"month": month, "group_by": group_by, "groups": summarize_breakdown(await _active_month_rows(month), group_by)}
 
 
 @router.get("/transactions")
-async def category_transactions(
+async def analytics_transactions(
     month: str = Query(..., pattern=r"^\d{4}-\d{2}$"),
-    category: str = Query(..., min_length=1),
+    category: str | None = Query(None, min_length=1),
+    transaction_type: str | None = Query(None),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
 ):
-    rows = await _active_month_rows(month, category)
-    transactions = category_transaction_details(rows, category)
+    if transaction_type is not None and transaction_type not in DETAIL_TYPES:
+        raise HTTPException(status_code=422, detail="unsupported transaction type")
+    details = transaction_details(await _active_month_rows(month), category, transaction_type)
+    page = details[offset : offset + limit]
     return {
         "month": month,
         "category": category,
-        "transactions": transactions,
-        "transaction_count": len(transactions),
+        "transaction_type": transaction_type,
+        "total": len(details),
+        "limit": limit,
+        "offset": offset,
+        "transactions": page,
+        "transaction_count": len(page),
     }
+
+
+category_transactions = analytics_transactions
