@@ -13,6 +13,7 @@ import {
   YAxis,
 } from 'recharts'
 import AccountBadge from '@/components/account-badge'
+import InstitutionBadge from '@/components/institution-badge'
 import PlaidLinkButton from '@/components/plaid-link-button'
 
 type Category = {
@@ -273,7 +274,7 @@ export default function HomePage() {
                 <div key={group.account_id || group.institution_id} className="rounded-md border p-4">
                   {group.account_name ? (
                     <AccountBadge institutionName={group.institution_name} accountName={group.account_name} accountMask={group.account_mask || null} accountType={group.account_type || ''} accountSubtype={group.account_subtype} />
-                  ) : <p className="font-semibold">{group.institution_name}</p>}
+                  ) : <InstitutionBadge institutionName={group.institution_name} />}
                   <p className="mt-3 text-xl font-bold">{money(group.net_spending)}</p>
                   <p className="text-xs text-muted-foreground">net spending</p>
                 </div>
