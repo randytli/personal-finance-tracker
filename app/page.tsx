@@ -98,7 +98,9 @@ export default function HomePage() {
   const [groupBy, setGroupBy] = useState<'institution' | 'account'>('institution')
   const [breakdown, setBreakdown] = useState<BreakdownGroup[]>([])
   const [categoryMode, setCategoryMode] = useState<'gross' | 'refunds'>('gross')
-  const [detailFilter, setDetailFilter] = useState<{ category?: string; transactionType?: string } | null>(null)
+  const [detailFilter, setDetailFilter] = useState<{
+    category?: string; transactionType?: string; secondary?: BreakdownGroup
+  } | null>(null)
   const [details, setDetails] = useState<Detail[]>([])
   const [detailTotal, setDetailTotal] = useState(0)
   const [loading, setLoading] = useState(true)
@@ -109,39 +111,56 @@ export default function HomePage() {
     setError('')
     setDetailFilter(null)
     try {
-      const [monthlyResponse, trendResponse, breakdownResponse] = await Promise.all([
+      const [monthlyResponse, trendResponse] = await Promise.all([
         fetch(`/api/pft/analytics/monthly?month=${month}`),
         fetch(`/api/pft/analytics/trend?end_month=${month}`),
-        fetch(`/api/pft/analytics/breakdown?month=${month}&group_by=${groupBy}`),
       ])
-      if (!monthlyResponse.ok || !trendResponse.ok || !breakdownResponse.ok) throw new Error('request failed')
-      const [monthlyData, trendData, breakdownData] = await Promise.all([
-        monthlyResponse.json(), trendResponse.json(), breakdownResponse.json(),
+      if (!monthlyResponse.ok || !trendResponse.ok) throw new Error('request failed')
+      const [monthlyData, trendData] = await Promise.all([
+        monthlyResponse.json(), trendResponse.json(),
       ])
       setMonthly(monthlyData)
       setTrend(trendData.months || [])
-      setBreakdown(breakdownData.groups || [])
     } catch {
       setError('Analytics could not be loaded. Confirm the local API is running.')
     } finally {
       setLoading(false)
     }
-  }, [month, groupBy])
+  }, [month])
 
   useEffect(() => { void loadDashboard() }, [loadDashboard])
 
   useEffect(() => {
+    let active = true
+    setBreakdown([])
+    fetch(`/api/pft/analytics/breakdown?month=${month}&group_by=${groupBy}`)
+      .then((response) => response.ok ? response.json() : Promise.reject())
+      .then((data) => { if (active) setBreakdown(data.groups || []) })
+      .catch(() => { if (active) setError('Spending breakdown could not be loaded.') })
+    return () => { active = false }
+  }, [month, groupBy])
+
+  useEffect(() => {
     if (!detailFilter) return
+    let active = true
+    setDetails([])
+    setDetailTotal(0)
     const parameters = new URLSearchParams({ month, limit: '100' })
     if (detailFilter.category) parameters.set('category', detailFilter.category)
     if (detailFilter.transactionType) parameters.set('transaction_type', detailFilter.transactionType)
+    if (detailFilter.category && detailFilter.secondary) {
+      parameters.set('institution_id', detailFilter.secondary.institution_id)
+      if (detailFilter.secondary.account_id) parameters.set('account_id', detailFilter.secondary.account_id)
+    }
     fetch(`/api/pft/analytics/transactions?${parameters}`)
       .then((response) => response.ok ? response.json() : Promise.reject())
       .then((data) => {
+        if (!active) return
         setDetails(data.transactions || [])
         setDetailTotal(data.total || 0)
       })
-      .catch(() => setError('Transaction details could not be loaded.'))
+      .catch(() => { if (active) setError('Transaction details could not be loaded.') })
+    return () => { active = false }
   }, [detailFilter, month])
 
   const chartData = useMemo(() => trend.map((value) => ({
@@ -168,6 +187,17 @@ export default function HomePage() {
     setDetailFilter(null)
     setDetails([])
     setDetailTotal(0)
+  }
+
+  function selectSecondary(group: BreakdownGroup) {
+    setDetailFilter((current) => {
+      if (!current?.category) return current
+      const selected = current.secondary
+      const same = group.account_id
+        ? selected?.account_id === group.account_id
+        : selected?.institution_id === group.institution_id
+      return { ...current, secondary: same ? undefined : group }
+    })
   }
 
   return (
@@ -271,13 +301,27 @@ export default function HomePage() {
             </div>
             <div className="grid gap-3 border-t p-5 md:grid-cols-2 lg:grid-cols-4">
               {breakdown.map((group) => (
-                <div key={group.account_id || group.institution_id} className="rounded-md border p-4">
+                <button
+                  type="button"
+                  key={group.account_id || group.institution_id}
+                  disabled={!detailFilter?.category}
+                  onClick={() => selectSecondary(group)}
+                  aria-pressed={Boolean(detailFilter?.secondary && (group.account_id
+                    ? detailFilter.secondary.account_id === group.account_id
+                    : detailFilter.secondary.institution_id === group.institution_id))}
+                  className={`rounded-md border p-4 text-left ${detailFilter?.category ? 'hover:border-blue-500' : ''} ${
+                    detailFilter?.secondary && (group.account_id
+                      ? detailFilter.secondary.account_id === group.account_id
+                      : detailFilter.secondary.institution_id === group.institution_id)
+                      ? 'border-blue-600 ring-2 ring-blue-200' : ''
+                  }`}
+                >
                   {group.account_name ? (
                     <AccountBadge institutionName={group.institution_name} accountName={group.account_name} accountMask={group.account_mask || null} accountType={group.account_type || ''} accountSubtype={group.account_subtype} />
                   ) : <InstitutionBadge institutionName={group.institution_name} />}
                   <p className="mt-3 text-xl font-bold">{money(group.net_spending)}</p>
                   <p className="text-xs text-muted-foreground">net spending</p>
-                </div>
+                </button>
               ))}
             </div>
           </Card>
@@ -285,7 +329,18 @@ export default function HomePage() {
           {detailFilter && (
             <Card className="mt-6 overflow-hidden">
               <div className="flex items-start justify-between p-5">
-                <div><h2 className="text-lg font-semibold">Transaction Details</h2><p className="text-sm text-muted-foreground">{detailTotal} matching transactions</p></div>
+                <div>
+                  <h2 className="text-lg font-semibold">Transaction Details</h2>
+                  <p className="text-sm text-muted-foreground">{month} · {detailFilter.category || detailFilter.transactionType}</p>
+                  {detailFilter.secondary && (
+                    <button type="button" className="my-2 rounded-full border border-blue-300 bg-blue-50 px-3 py-1 text-sm" onClick={() => setDetailFilter({ ...detailFilter, secondary: undefined })}>
+                      {detailFilter.secondary.institution_name}
+                      {detailFilter.secondary.account_name ? ` · ${detailFilter.secondary.account_name} · ${detailFilter.secondary.account_mask || ''}` : ''}
+                      {' · Clear ×'}
+                    </button>
+                  )}
+                  <p className="text-sm text-muted-foreground">{detailTotal} matching transactions</p>
+                </div>
                 <button type="button" className="text-sm text-blue-700 underline" onClick={() => setDetailFilter(null)}>Close</button>
               </div>
               <div className="divide-y">

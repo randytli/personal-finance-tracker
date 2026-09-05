@@ -31,6 +31,37 @@ def transaction(identifier, day, amount, kind, category="GENERAL_MERCHANDISE"):
 
 
 class AnalyticsPhaseOneTests(unittest.TestCase):
+    def test_secondary_filters_intersect_category_effective_type_and_preserve_order(self):
+        amex = SimpleNamespace(institution_id="ins_10", institution_name="American Express")
+        chase = SimpleNamespace(institution_id="ins_56", institution_name="Chase")
+        gold = SimpleNamespace(account_id="gold", name="Gold")
+        platinum = SimpleNamespace(account_id="platinum", name="Platinum")
+        card = SimpleNamespace(account_id="chase", name="Card")
+        rows = [
+            (transaction("gold-expense", date(2026, 8, 1), "-10", "expense"), False, None, amex, gold),
+            (transaction("platinum-expense", date(2026, 8, 2), "-20", "expense"), False, None, amex, platinum),
+            (transaction("chase-expense", date(2026, 8, 3), "-30", "expense"), False, None, chase, card),
+            (transaction("manual-refund", date(2026, 8, 4), "5", None), False, "refund", amex, gold),
+            (transaction("benefit", date(2026, 8, 5), "5", "card_benefit"), False, None, amex, gold),
+        ]
+        baseline = summarize_monthly_transactions(rows)
+        def ids(institution=None, account=None, kind="expense"):
+            return [detail["transaction_id"] for detail in transaction_details(
+                rows, "GENERAL_MERCHANDISE", kind, institution, account
+            )]
+        self.assertEqual(ids(), ["chase-expense", "platinum-expense", "gold-expense"])
+        self.assertEqual(ids("ins_10"), ["platinum-expense", "gold-expense"])
+        self.assertEqual(ids("ins_10", "gold"), ["gold-expense"])
+        self.assertEqual(ids("ins_56", "gold"), [])
+        self.assertEqual(ids("ins_10", "gold", "refund"), ["manual-refund"])
+        self.assertEqual(summarize_monthly_transactions(rows), baseline)
+        with patch("api.routes.analytics._active_month_rows", AsyncMock(return_value=rows)):
+            result = asyncio.run(analytics_transactions(
+                "2026-08", "GENERAL_MERCHANDISE", "expense", 1, 1, "ins_10", None
+            ))
+        self.assertEqual(result["total"], 2)
+        self.assertEqual(result["transactions"][0]["transaction_id"], "gold-expense")
+
     def test_manual_override_drives_monthly_metrics(self):
         value = transaction("override", date(2026, 8, 1), "25", None)
         result = summarize_monthly_transactions([(value, False, "refund")])

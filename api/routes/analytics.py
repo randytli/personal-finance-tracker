@@ -209,11 +209,15 @@ def summarize_category_transactions(rows, category):
     }
 
 
-def transaction_details(rows, category=None, transaction_type=None):
+def transaction_details(rows, category=None, transaction_type=None, institution_id=None, account_id=None):
     relevant = []
     for row in rows:
         transaction, is_removed, override_type, item, account = _analytics_row(row)
         if is_removed or (category is not None and _category(transaction) != category):
+            continue
+        if institution_id is not None and getattr(item, "institution_id", None) != institution_id:
+            continue
+        if account_id is not None and getattr(account, "account_id", None) != account_id:
             continue
         effective_type, is_spending, is_internal = effective_classification(transaction, override_type)
         type_label = effective_type or "unclassified"
@@ -315,10 +319,14 @@ async def analytics_transactions(
     transaction_type: str | None = Query(None),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
+    institution_id: str | None = None,
+    account_id: str | None = None,
 ):
     if transaction_type is not None and transaction_type not in DETAIL_TYPES:
         raise HTTPException(status_code=422, detail="unsupported transaction type")
-    details = transaction_details(await _active_month_rows(month), category, transaction_type)
+    details = transaction_details(
+        await _active_month_rows(month), category, transaction_type, institution_id, account_id
+    )
     page = details[offset : offset + limit]
     return {
         "month": month,
