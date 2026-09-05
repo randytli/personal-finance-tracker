@@ -55,6 +55,8 @@ class MonthlyAnalyticsTests(unittest.TestCase):
                     "refunds": "25.00",
                     "net_spending": "75.00",
                     "spending_transaction_count": 2,
+                    "expense_transaction_count": 1,
+                    "refund_transaction_count": 1,
                 },
                 {
                     "category": "UNCATEGORIZED",
@@ -62,6 +64,8 @@ class MonthlyAnalyticsTests(unittest.TestCase):
                     "refunds": "0.00",
                     "net_spending": "40.00",
                     "spending_transaction_count": 1,
+                    "expense_transaction_count": 1,
+                    "refund_transaction_count": 0,
                 },
             ],
         )

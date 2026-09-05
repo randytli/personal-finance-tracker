@@ -37,6 +37,32 @@ class AnalyticsPhaseOneTests(unittest.TestCase):
         self.assertEqual(result["refunds"], "25.00")
         self.assertEqual(result["unclassified_count"], 0)
 
+    def test_category_totals_expose_separate_expense_and_refund_counts(self):
+        rows = [
+            (transaction("expense", date(2026, 8, 1), "-40", "expense", "FOOD_AND_DRINK"), False),
+            (transaction("refund", date(2026, 8, 2), "10", "refund", "FOOD_AND_DRINK"), False),
+            (transaction("benefit", date(2026, 8, 3), "5", "card_benefit", "FOOD_AND_DRINK"), False),
+        ]
+        result = summarize_monthly_transactions(rows)
+        category = result["category_breakdown"][0]
+        self.assertEqual(category["gross_spending"], "40.00")
+        self.assertEqual(category["refunds"], "10.00")
+        self.assertEqual(category["expense_transaction_count"], 1)
+        self.assertEqual(category["refund_transaction_count"], 1)
+        self.assertEqual(category["spending_transaction_count"], 2)
+        self.assertEqual(result["card_benefits"], "5.00")
+
+    def test_category_drilldowns_separate_expenses_refunds_and_benefits(self):
+        rows = [
+            (transaction("expense", date(2026, 8, 1), "-40", "expense"), False),
+            (transaction("refund", date(2026, 8, 2), "10", "refund"), False),
+            (transaction("benefit", date(2026, 8, 3), "5", "card_benefit"), False),
+        ]
+        expenses = transaction_details(rows, "GENERAL_MERCHANDISE", "expense")
+        refunds = transaction_details(rows, "GENERAL_MERCHANDISE", "refund")
+        self.assertEqual([row["transaction_id"] for row in expenses], ["expense"])
+        self.assertEqual([row["transaction_id"] for row in refunds], ["refund"])
+
     def test_twelve_month_trend_is_chronological_and_zero_filled(self):
         rows = [
             (transaction("income", date(2026, 8, 1), "100", "income"), False),

@@ -149,13 +149,15 @@ def summarize_monthly_transactions(rows):
         if is_internal_transfer is True:
             continue
         amount = Decimal(transaction.amount)
-        values = categories.setdefault(_category(transaction), [ZERO, ZERO, 0])
+        values = categories.setdefault(_category(transaction), [ZERO, ZERO, 0, 0, 0])
         if transaction_type == "expense" and is_spending is True and amount < 0:
             values[0] -= amount
             values[2] += 1
+            values[3] += 1
         elif transaction_type == "refund" and amount > 0:
             values[1] += amount
             values[2] += 1
+            values[4] += 1
 
     category_breakdown = [
         {
@@ -164,6 +166,8 @@ def summarize_monthly_transactions(rows):
             "refunds": _money(values[1]),
             "net_spending": _money(values[0] - values[1]),
             "spending_transaction_count": values[2],
+            "expense_transaction_count": values[3],
+            "refund_transaction_count": values[4],
         }
         for category, values in sorted(categories.items())
         if values[2]
@@ -175,6 +179,8 @@ def summarize_category_transactions(rows, category):
     gross_spending = ZERO
     refunds = ZERO
     count = 0
+    expense_count = 0
+    refund_count = 0
     for row in rows:
         transaction, is_removed, override_type, _, _ = _analytics_row(row)
         if is_removed or _category(transaction) != category:
@@ -188,14 +194,18 @@ def summarize_category_transactions(rows, category):
         if transaction_type == "expense" and is_spending is True and amount < 0:
             gross_spending -= amount
             count += 1
+            expense_count += 1
         elif transaction_type == "refund" and amount > 0:
             refunds += amount
             count += 1
+            refund_count += 1
     return {
         "gross_spending": _money(gross_spending),
         "refunds": _money(refunds),
         "net_spending": _money(gross_spending - refunds),
         "spending_transaction_count": count,
+        "expense_transaction_count": expense_count,
+        "refund_transaction_count": refund_count,
     }
 
 

@@ -21,6 +21,8 @@ type Category = {
   refunds: string
   net_spending: string
   spending_transaction_count: number
+  expense_transaction_count: number
+  refund_transaction_count: number
 }
 
 type Monthly = {
@@ -94,6 +96,7 @@ export default function HomePage() {
   const [trend, setTrend] = useState<TrendMonth[]>([])
   const [groupBy, setGroupBy] = useState<'institution' | 'account'>('institution')
   const [breakdown, setBreakdown] = useState<BreakdownGroup[]>([])
+  const [categoryMode, setCategoryMode] = useState<'gross' | 'refunds'>('gross')
   const [detailFilter, setDetailFilter] = useState<{ category?: string; transactionType?: string } | null>(null)
   const [details, setDetails] = useState<Detail[]>([])
   const [detailTotal, setDetailTotal] = useState(0)
@@ -146,10 +149,25 @@ export default function HomePage() {
     income: Number(value.income),
     netSavings: Number(value.net_savings),
   })), [trend])
-  const categories = useMemo(
-    () => [...(monthly?.category_breakdown || [])].sort((a, b) => Number(b.net_spending) - Number(a.net_spending)),
-    [monthly],
-  )
+  const categories = useMemo(() => {
+    const included = (monthly?.category_breakdown || []).filter((category) => (
+      categoryMode === 'gross'
+        ? category.expense_transaction_count > 0
+        : category.refund_transaction_count > 0
+    ))
+    return [...included].sort((a, b) => (
+      categoryMode === 'gross'
+        ? Number(b.gross_spending) - Number(a.gross_spending)
+        : Number(b.refunds) - Number(a.refunds)
+    ))
+  }, [monthly, categoryMode])
+
+  function selectCategoryMode(mode: 'gross' | 'refunds') {
+    setCategoryMode(mode)
+    setDetailFilter(null)
+    setDetails([])
+    setDetailTotal(0)
+  }
 
   return (
     <main className="container mx-auto max-w-7xl px-4 py-8">
@@ -179,11 +197,11 @@ export default function HomePage() {
         <>
           <section className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <MetricCard label="Net Spending" value={money(monthly.net_spending)} />
-            <MetricCard label="Gross Spending" value={money(monthly.gross_spending)} onClick={() => setDetailFilter({ transactionType: 'expense' })} />
+            <MetricCard label="Gross Spending" value={money(monthly.gross_spending)} onClick={() => selectCategoryMode('gross')} />
             <MetricCard label="Income" value={money(monthly.income)} onClick={() => setDetailFilter({ transactionType: 'income' })} />
             <MetricCard label="Net Savings" value={money(monthly.net_savings)} />
-            <MetricCard label="Refunds" value={money(monthly.refunds)} onClick={() => setDetailFilter({ transactionType: 'refund' })} />
-            <MetricCard label="Card Benefits" value={money(monthly.card_benefits)} onClick={() => setDetailFilter({ transactionType: 'card_benefit' })} />
+            <MetricCard label="Refunds" value={money(monthly.refunds)} onClick={() => selectCategoryMode('refunds')} />
+            <MetricCard label="Card Benefits" value={money(monthly.card_benefits)} />
             <MetricCard label="Needs Review" value={String(monthly.unclassified_count)} onClick={() => setDetailFilter({ transactionType: 'unclassified' })} />
           </section>
 
@@ -208,17 +226,33 @@ export default function HomePage() {
 
             <Card className="overflow-hidden">
               <div className="p-5">
-                <h2 className="text-lg font-semibold">Category Spending</h2>
-                <p className="text-xs text-muted-foreground">Card benefits are reflected in monthly totals, not allocated to categories.</p>
+                <h2 className="text-lg font-semibold">
+                  {categoryMode === 'gross' ? 'Gross Spending by Category' : 'Refunds by Category'}
+                </h2>
+                <p className="text-xs text-muted-foreground">Card benefits are not allocated to categories.</p>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
-                  <thead className="bg-slate-50 text-left"><tr><th className="p-3">Category</th><th>Gross</th><th>Refunds</th><th>Net</th><th>Transactions</th></tr></thead>
+                  <thead className="bg-slate-50 text-left">
+                    <tr>
+                      <th className="p-3">Category</th>
+                      <th>{categoryMode === 'gross' ? 'Gross' : 'Refunds'}</th>
+                      <th>Transactions</th>
+                    </tr>
+                  </thead>
                   <tbody>
                     {categories.map((category) => (
-                      <tr key={category.category} className="cursor-pointer border-t hover:bg-slate-50" onClick={() => setDetailFilter({ category: category.category })}>
+                      <tr
+                        key={category.category}
+                        className="cursor-pointer border-t hover:bg-slate-50"
+                        onClick={() => setDetailFilter({
+                          category: category.category,
+                          transactionType: categoryMode === 'gross' ? 'expense' : 'refund',
+                        })}
+                      >
                         <td className="p-3 font-medium">{category.category.replace(/_/g, ' ')}</td>
-                        <td>{money(category.gross_spending)}</td><td>{money(category.refunds)}</td><td>{money(category.net_spending)}</td><td>{category.spending_transaction_count}</td>
+                        <td>{money(categoryMode === 'gross' ? category.gross_spending : category.refunds)}</td>
+                        <td>{categoryMode === 'gross' ? category.expense_transaction_count : category.refund_transaction_count}</td>
                       </tr>
                     ))}
                   </tbody>
