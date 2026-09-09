@@ -3,6 +3,13 @@ import os
 from sqlalchemy import text
 
 
+async def migrate_manual_categories(connection):
+    from api.models import ManualCategoryOverride
+    await connection.run_sync(
+        lambda sync: ManualCategoryOverride.__table__.create(sync, checkfirst=True)
+    )
+
+
 async def migrate_multi_institution(connection):
     """Idempotently upgrade the original single-Item schema without rewriting data."""
     user_id = os.environ.get("PLAID_PILOT_USER_ID", "local-sandbox-user")

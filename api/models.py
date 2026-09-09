@@ -4,8 +4,25 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import declarative_base
+from api.categories import CATEGORY_CHECK
 
 Base = declarative_base()
+
+
+class ManualCategoryOverride(Base):
+    __tablename__ = 'manual_category_overrides'
+    __table_args__ = (
+        CheckConstraint(CATEGORY_CHECK, name='ck_manual_category'),
+        Index('ix_manual_category_updated_at', 'updated_at'),
+    )
+    transaction_id = Column(String, ForeignKey('transactions.transaction_id'), primary_key=True)
+    category = Column(String, nullable=True)
+    created_by = Column(String, nullable=False)
+    created_at = Column(DateTime, nullable=False, server_default=func.now())
+    updated_by = Column(String, nullable=False)
+    updated_at = Column(DateTime, nullable=False, server_default=func.now())
+    cleared_by = Column(String, nullable=True)
+    cleared_at = Column(DateTime, nullable=True)
 
 class Item(Base):
     __tablename__ = "items"

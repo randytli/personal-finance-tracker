@@ -8,6 +8,8 @@ from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy import select
 
 from api.classification import ALLOWED_TRANSACTION_TYPES, effective_classification
+from api.categories import active_category, effective_category, category_editable
+from api.models import ManualCategoryOverride
 from api.db import SessionLocal
 from api.models import Account, Item, ManualClassificationOverride, RawTransaction, Transaction
 
@@ -47,6 +49,7 @@ async def _active_analytics_rows(start_date, end_date):
             ManualClassificationOverride.transaction_type,
             Item,
             Account,
+            ManualCategoryOverride,
         )
         .join(RawTransaction, RawTransaction.transaction_id == Transaction.transaction_id)
         .join(Item, Item.item_id == RawTransaction.item_id)
@@ -60,6 +63,7 @@ async def _active_analytics_rows(start_date, end_date):
             ManualClassificationOverride.transaction_id == Transaction.transaction_id,
         )
         .where(
+            # Category overrides never change classification or monetary eligibility.
             Transaction.transaction_date >= start_date,
             Transaction.transaction_date <= end_date,
             RawTransaction.is_removed.is_(False),
@@ -67,6 +71,8 @@ async def _active_analytics_rows(start_date, end_date):
             Item.user_id == os.environ.get("PLAID_PILOT_USER_ID", "local-sandbox-user"),
         )
     )
+    statement = statement.outerjoin(ManualCategoryOverride,
+        ManualCategoryOverride.transaction_id == Transaction.transaction_id)
     async with SessionLocal() as db:
         return (await db.execute(statement)).all()
 
@@ -76,22 +82,24 @@ async def _active_month_rows(month, category=None):
     rows = await _active_analytics_rows(start_date, end_date)
     if category is None:
         return rows
-    return [row for row in rows if _category(_analytics_row(row)[0]) == category]
+    return [row for row in rows if _category(_analytics_row(row)[0], _analytics_row(row)[5]) == category]
 
 
 def _analytics_row(row):
     """Normalize database rows and compact rows used by pure unit tests."""
     if len(row) == 2:
         transaction, is_removed = row
-        return transaction, is_removed, None, None, None
+        return transaction, is_removed, None, None, None, None
     if len(row) == 3:
         transaction, is_removed, override_type = row
-        return transaction, is_removed, override_type, None, None
+        return transaction, is_removed, override_type, None, None, None
+    if len(row) == 5:
+        return (*row, None)
     return row
 
 
-def _category(transaction):
-    return transaction.plaid_category or "UNCATEGORIZED"
+def _category(transaction, override=None):
+    return effective_category(transaction, override)
 
 
 def _empty_metrics():
@@ -139,7 +147,7 @@ def summarize_monthly_transactions(rows):
     metrics = _empty_metrics()
     categories = {}
     for row in rows:
-        transaction, is_removed, override_type, _, _ = _analytics_row(row)
+        transaction, is_removed, override_type, _, _, category_override = _analytics_row(row)
         if is_removed:
             continue
         _accumulate(metrics, transaction, override_type)
@@ -149,7 +157,7 @@ def summarize_monthly_transactions(rows):
         if is_internal_transfer is True:
             continue
         amount = Decimal(transaction.amount)
-        values = categories.setdefault(_category(transaction), [ZERO, ZERO, 0, 0, 0])
+        values = categories.setdefault(_category(transaction, category_override), [ZERO, ZERO, 0, 0, 0])
         if transaction_type == "expense" and is_spending is True and amount < 0:
             values[0] -= amount
             values[2] += 1
@@ -182,8 +190,8 @@ def summarize_category_transactions(rows, category):
     expense_count = 0
     refund_count = 0
     for row in rows:
-        transaction, is_removed, override_type, _, _ = _analytics_row(row)
-        if is_removed or _category(transaction) != category:
+        transaction, is_removed, override_type, _, _, category_override = _analytics_row(row)
+        if is_removed or _category(transaction, category_override) != category:
             continue
         transaction_type, is_spending, is_internal_transfer = effective_classification(
             transaction, override_type
@@ -212,8 +220,8 @@ def summarize_category_transactions(rows, category):
 def transaction_details(rows, category=None, transaction_type=None, institution_id=None, account_id=None):
     relevant = []
     for row in rows:
-        transaction, is_removed, override_type, item, account = _analytics_row(row)
-        if is_removed or (category is not None and _category(transaction) != category):
+        transaction, is_removed, override_type, item, account, category_override = _analytics_row(row)
+        if is_removed or (category is not None and _category(transaction, category_override) != category):
             continue
         if institution_id is not None and getattr(item, "institution_id", None) != institution_id:
             continue
@@ -223,7 +231,8 @@ def transaction_details(rows, category=None, transaction_type=None, institution_
         type_label = effective_type or "unclassified"
         if transaction_type is not None and type_label != transaction_type:
             continue
-        relevant.append((transaction, item, account, type_label, is_spending, is_internal))
+        relevant.append((transaction, item, account, type_label, is_spending, is_internal,
+                         category_override, category_editable(transaction, override_type)))
     relevant.sort(key=lambda value: (value[0].transaction_date, value[0].transaction_id), reverse=True)
     return [
         {
@@ -240,9 +249,13 @@ def transaction_details(rows, category=None, transaction_type=None, institution_
             "transaction_type": type_label,
             "is_spending": is_spending,
             "is_internal_transfer": is_internal,
-            "plaid_category": _category(transaction),
+            "plaid_category": transaction.plaid_category or "UNCATEGORIZED",
+            "original_category": transaction.plaid_category,
+            "override_category": active_category(category_override),
+            "effective_category": _category(transaction, category_override),
+            "category_editable": editable,
         }
-        for transaction, item, account, type_label, is_spending, is_internal in relevant
+        for transaction, item, account, type_label, is_spending, is_internal, category_override, editable in relevant
     ]
 
 
@@ -253,7 +266,7 @@ def category_transaction_details(rows, category):
 def summarize_breakdown(rows, group_by):
     groups = {}
     for row in rows:
-        transaction, is_removed, override_type, item, account = _analytics_row(row)
+        transaction, is_removed, override_type, item, account, _ = _analytics_row(row)
         if is_removed or item is None or account is None:
             continue
         if group_by == "institution":

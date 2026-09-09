@@ -3,7 +3,10 @@ from decimal import Decimal
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
+from datetime import datetime, timezone
+from api.categories import MANUAL_CATEGORIES, active_category, effective_category, category_editable
+from api.models import ManualCategoryOverride
 from sqlalchemy import case, func, select, update
 from sqlalchemy.dialects.postgresql import insert
 
@@ -19,6 +22,70 @@ from api.models import (
 
 
 router = APIRouter(prefix="/review")
+
+
+class CategoryRequest(BaseModel):
+    category: str
+
+    @field_validator('category')
+    @classmethod
+    def allowed(cls, value):
+        if value not in MANUAL_CATEGORIES:
+            raise ValueError('unsupported manual category')
+        return value
+
+
+@router.get('/categories')
+async def category_options():
+    return {'categories': [{'value': value, 'label': value.replace('_', ' ').title()}
+                           for value in MANUAL_CATEGORIES]}
+
+
+def category_result(transaction, override):
+    return {'transaction_id': transaction.transaction_id,
+            'original_category': transaction.plaid_category,
+            'override_category': active_category(override),
+            'effective_category': effective_category(transaction, override)}
+
+
+async def mutate_category(transaction_id, category):
+    async with SessionLocal() as db:
+        async with db.begin():
+            row = (await db.execute(_transaction_scope(transaction_id).with_for_update())).one_or_none()
+            if row is None:
+                raise HTTPException(404, 'transaction not found')
+            transaction = row[0]
+            override = await db.get(ManualCategoryOverride, transaction_id)
+            if category is not None:
+                classification = await db.get(ManualClassificationOverride, transaction_id)
+                if not category_editable(transaction, classification.transaction_type if classification else None):
+                    raise HTTPException(422, 'category editing requires an included expense or refund')
+                if active_category(override) == category:
+                    return category_result(transaction, override)
+            elif active_category(override) is None:
+                return category_result(transaction, override)
+            now = datetime.now(timezone.utc).replace(tzinfo=None)
+            actor = _user_id()
+            if override is None:
+                override = ManualCategoryOverride(transaction_id=transaction_id,
+                    created_by=actor, created_at=now)
+                db.add(override)
+            override.category = category
+            override.updated_by = actor
+            override.updated_at = now
+            override.cleared_by = actor if category is None else None
+            override.cleared_at = now if category is None else None
+            return category_result(transaction, override)
+
+
+@router.put('/transactions/{transaction_id}/category-override')
+async def set_category_override(transaction_id: str, request: CategoryRequest):
+    return await mutate_category(transaction_id, request.category)
+
+
+@router.delete('/transactions/{transaction_id}/category-override')
+async def clear_category_override(transaction_id: str):
+    return await mutate_category(transaction_id, None)
 TransactionType = Literal[
     "expense", "refund", "income", "card_benefit", "payment", "transfer", "adjustment"
 ]

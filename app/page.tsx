@@ -13,6 +13,7 @@ import {
   YAxis,
 } from 'recharts'
 import AccountBadge from '@/components/account-badge'
+import CategoryEditor, { type CategoryDetail } from '@/components/category-editor'
 import InstitutionBadge from '@/components/institution-badge'
 import PlaidLinkButton from '@/components/plaid-link-button'
 
@@ -52,7 +53,7 @@ type BreakdownGroup = {
   card_benefits: string
   net_spending: string
 }
-type Detail = {
+type Detail = CategoryDetail & {
   transaction_id: string
   transaction_date: string
   institution_name: string | null
@@ -105,11 +106,41 @@ export default function HomePage() {
   const [detailTotal, setDetailTotal] = useState(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [categoryOptions, setCategoryOptions] = useState<Array<{ value: string; label: string }>>([])
+  const [categoryBusy, setCategoryBusy] = useState(false)
+  const [categoryRevision, setCategoryRevision] = useState(0)
+  const [categoryUndo, setCategoryUndo] = useState<{ detail: CategoryDetail; previous: string | null } | null>(null)
 
-  const loadDashboard = useCallback(async () => {
+  useEffect(() => {
+    let active = true
+    fetch('/api/pft/review/categories').then(response => response.ok ? response.json() : Promise.reject())
+      .then(data => { if (active) setCategoryOptions(data.categories) })
+      .catch(() => { if (active) setError('Category options could not be loaded.') })
+    return () => { active = false }
+  }, [])
+
+  async function saveCategory(detail: CategoryDetail, category: string | null, undo = false) {
+    setCategoryBusy(true)
+    setError('')
+    try {
+      const response = await fetch(`/api/pft/review/transactions/${encodeURIComponent(detail.transaction_id)}/category-override`, {
+        method: category === null ? 'DELETE' : 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: category === null ? undefined : JSON.stringify({ category }),
+      })
+      if (!response.ok) throw new Error('Category change could not be saved. Refresh and try again.')
+      setCategoryUndo(undo ? null : { detail, previous: detail.override_category })
+      setCategoryRevision(value => value + 1)
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Category change failed.')
+    } finally { setCategoryBusy(false) }
+  }
+
+  useEffect(() => { setDetailFilter(null) }, [month])
+
+  const loadDashboard = useCallback(async (isActive: () => boolean) => {
     setLoading(true)
     setError('')
-    setDetailFilter(null)
     try {
       const [monthlyResponse, trendResponse] = await Promise.all([
         fetch(`/api/pft/analytics/monthly?month=${month}`),
@@ -119,16 +150,21 @@ export default function HomePage() {
       const [monthlyData, trendData] = await Promise.all([
         monthlyResponse.json(), trendResponse.json(),
       ])
+      if (!isActive()) return
       setMonthly(monthlyData)
       setTrend(trendData.months || [])
     } catch {
-      setError('Analytics could not be loaded. Confirm the local API is running.')
+      if (isActive()) setError('Analytics could not be loaded. Confirm the local API is running.')
     } finally {
-      setLoading(false)
+      if (isActive()) setLoading(false)
     }
   }, [month])
 
-  useEffect(() => { void loadDashboard() }, [loadDashboard])
+  useEffect(() => {
+    let active = true
+    void loadDashboard(() => active)
+    return () => { active = false }
+  }, [loadDashboard, categoryRevision])
 
   useEffect(() => {
     let active = true
@@ -161,7 +197,7 @@ export default function HomePage() {
       })
       .catch(() => { if (active) setError('Transaction details could not be loaded.') })
     return () => { active = false }
-  }, [detailFilter, month])
+  }, [detailFilter, month, categoryRevision])
 
   const chartData = useMemo(() => trend.map((value) => ({
     month: value.month.slice(5),
@@ -222,6 +258,10 @@ export default function HomePage() {
       </header>
 
       {error && <p role="alert" className="mt-6 rounded-md bg-red-50 p-3 text-sm text-red-800">{error}</p>}
+      {categoryUndo && <p role="status" className="mt-4 rounded border p-3 text-sm">
+        Category saved.
+        <button type="button" className="ml-2 text-blue-700 underline" disabled={categoryBusy} onClick={() => saveCategory(categoryUndo.detail, categoryUndo.previous, true)}>Undo category change</button>
+      </p>}
       {loading && <p className="mt-8 text-muted-foreground">Loading analytics…</p>}
 
       {monthly && !loading && (
@@ -354,6 +394,7 @@ export default function HomePage() {
                       )}
                     </div>
                     <p className="font-semibold">{money(detail.amount)}</p>
+                    <CategoryEditor detail={detail} options={categoryOptions} busy={categoryBusy} save={saveCategory} />
                   </div>
                 ))}
               </div>
