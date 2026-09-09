@@ -130,6 +130,32 @@ def _review_ordering():
     )
 
 
+def _review_filters(mode="needs_review", transaction_type="all"):
+    effective_type = func.coalesce(
+        ManualClassificationOverride.transaction_type, Transaction.transaction_type,
+        "unclassified",
+    )
+    filters = [
+        Item.user_id == _user_id(),
+        Item.status == "active",
+        RawTransaction.is_removed.is_(False),
+    ]
+    if mode == "credits_transfers":
+        filters.extend([
+            Transaction.amount > 0,
+            Transaction.is_internal_transfer.is_not(True),
+            effective_type.in_(("transfer", "income", "refund", "card_benefit", "unclassified")),
+        ])
+        if transaction_type != "all":
+            filters.append(effective_type == transaction_type)
+    else:
+        filters.extend([
+            Transaction.transaction_type.is_(None),
+            ManualClassificationOverride.transaction_type.is_(None),
+        ])
+    return filters
+
+
 def _result(transaction, override_type):
     effective_type, effective_spending, effective_internal = effective_classification(
         transaction, override_type
@@ -148,14 +174,10 @@ def _result(transaction, override_type):
 async def transactions_needing_review(
     limit: int = Query(100, ge=1, le=200),
     offset: int = Query(0, ge=0),
+    mode: Literal["needs_review", "credits_transfers"] = "needs_review",
+    transaction_type: Literal["all", "transfer", "income", "refund", "card_benefit", "unclassified"] = "all",
 ):
-    filters = (
-        Item.user_id == _user_id(),
-        Item.status == "active",
-        RawTransaction.is_removed.is_(False),
-        Transaction.transaction_type.is_(None),
-        ManualClassificationOverride.transaction_type.is_(None),
-    )
+    filters = _review_filters(mode, transaction_type)
     joins = (
         (RawTransaction, RawTransaction.transaction_id == Transaction.transaction_id),
         (Item, Item.item_id == RawTransaction.item_id),
@@ -175,7 +197,7 @@ async def transactions_needing_review(
         ).where(*filters)
         total = await db.scalar(count_statement)
 
-        statement = select(Transaction, Account, Item)
+        statement = select(Transaction, Account, Item, ManualClassificationOverride.transaction_type)
         for model, condition in joins:
             statement = statement.join(model, condition)
         statement = (
@@ -184,7 +206,9 @@ async def transactions_needing_review(
                 ManualClassificationOverride.transaction_id == Transaction.transaction_id,
             )
             .where(*filters)
-            .order_by(*_review_ordering())
+            .order_by(*((
+                Transaction.transaction_date.desc(), Transaction.transaction_id,
+            ) if mode == "credits_transfers" else _review_ordering()))
             .offset(offset)
             .limit(limit)
         )
@@ -204,11 +228,9 @@ async def transactions_needing_review(
                 "description": transaction.description,
                 "amount": _money(transaction.amount),
                 "plaid_category": transaction.plaid_category,
-                "automatic_transaction_type": transaction.transaction_type,
-                "override_transaction_type": None,
-                "effective_transaction_type": None,
+                **_result(transaction, override_type),
             }
-            for transaction, account, item in rows
+            for transaction, account, item, override_type in rows
         ],
     }
 

@@ -11,9 +11,10 @@ from api.classification import (
 from api.migrations import migrate_multi_institution
 from api.models import ManualClassificationOverride
 from api.routes.analytics import summarize_monthly_transactions
-from api.routes.review import _review_ordering
+from api.routes.review import _review_ordering, _review_filters, _user_id
 from sqlalchemy.dialects import postgresql
-from sqlalchemy import select
+from sqlalchemy import select, create_engine, text
+from api.models import Transaction, RawTransaction, Item
 
 
 def transaction(
@@ -36,6 +37,68 @@ def transaction(
 
 
 class ManualReviewTests(unittest.TestCase):
+    def test_credits_query_filters_effective_types_and_paginates(self):
+        # Execute the production predicate against isolated, synthetic SQL tables.
+        engine = create_engine("sqlite://")
+        with engine.begin() as db:
+            db.execute(text("CREATE TABLE items (item_id TEXT, user_id TEXT, status TEXT)"))
+            db.execute(text("CREATE TABLE raw_transactions (transaction_id TEXT, item_id TEXT, is_removed BOOLEAN)"))
+            db.execute(text("CREATE TABLE transactions (transaction_id TEXT, transaction_date TEXT, amount NUMERIC, transaction_type TEXT, is_internal_transfer BOOLEAN)"))
+            db.execute(text("CREATE TABLE manual_classification_overrides (transaction_id TEXT, transaction_type TEXT)"))
+            db.execute(text("INSERT INTO items VALUES ('active', :user, 'active'), ('pending', :user, 'pending'), ('other', 'different-user', 'active')"), {"user": _user_id()})
+            rows = [
+                ("a", 20, "transfer", None, "active", False),
+                ("b", 30, "income", False, "active", False),
+                ("c", -10, "expense", False, "active", False),
+                ("d", 40, "transfer", True, "active", False),
+                ("e", 10, None, None, "active", False),
+                ("f", 10, "refund", False, "pending", False),
+                ("g", 10, "refund", False, "other", False),
+                ("h", 10, "refund", False, "active", True),
+                ("i", 0, None, False, "active", False),
+                ("j", 5, "card_benefit", False, "active", False),
+                ("k", 5, "adjustment", False, "active", False),
+                ("l", 5, "payment", False, "active", False),
+            ]
+            for ident, amount, kind, internal, item, removed in rows:
+                db.execute(text("INSERT INTO transactions VALUES (:id, '2026-07-01', :amount, :kind, :internal)"),
+                           dict(id=ident, amount=amount, kind=kind, internal=internal))
+                db.execute(text("INSERT INTO raw_transactions VALUES (:id, :item, :removed)"),
+                           dict(id=ident, item=item, removed=removed))
+
+            def query(kind="all", offset=0, limit=100, mode="credits_transfers"):
+                statement = (select(Transaction.transaction_id)
+                    .join(RawTransaction, RawTransaction.transaction_id == Transaction.transaction_id)
+                    .join(Item, Item.item_id == RawTransaction.item_id)
+                    .outerjoin(ManualClassificationOverride, ManualClassificationOverride.transaction_id == Transaction.transaction_id)
+                    .where(*_review_filters(mode, kind))
+                    .order_by(Transaction.transaction_date.desc(), Transaction.transaction_id)
+                    .offset(offset).limit(limit))
+                return list(db.execute(statement).scalars())
+
+            self.assertEqual(query(), ["a", "b", "e", "j"])
+            self.assertEqual(query("transfer"), ["a"])
+            self.assertEqual(query("income"), ["b"])
+            self.assertEqual(query("unclassified"), ["e"])
+            self.assertEqual(query("card_benefit"), ["j"])
+            self.assertEqual(query(offset=1, limit=2), ["b", "e"])
+            db.execute(text("UPDATE transactions SET transaction_date='2026-08-01' WHERE transaction_id='b'"))
+            self.assertEqual(query(limit=2), ["b", "a"])
+            self.assertEqual(query(offset=2, limit=2), ["e", "j"])
+            self.assertEqual(query(mode="needs_review"), ["e", "i"])
+            value = transaction("20", "transfer")
+            self.assertIsNone(validate_manual_override(value, "refund"))
+            db.execute(text("INSERT INTO manual_classification_overrides VALUES ('a', 'refund')"))
+            self.assertEqual(query("transfer"), [])
+            self.assertEqual(query("refund"), ["a"])
+            self.assertEqual(effective_classification(value, "refund")[0], "refund")
+            db.execute(text("UPDATE manual_classification_overrides SET transaction_type=NULL WHERE transaction_id='a'"))
+            self.assertEqual(query("transfer"), ["a"])
+            self.assertEqual(query("refund"), [])
+            self.assertEqual(effective_classification(value)[0], "transfer")
+            self.assertIn("internal transfers", validate_manual_override(transaction("40", "transfer", is_internal_transfer=True), "refund"))
+        engine.dispose()
+
     def test_review_order_prioritizes_non_credit_then_date_and_id(self):
         statement = select(ManualClassificationOverride).order_by(*_review_ordering())
         sql = str(
