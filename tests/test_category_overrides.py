@@ -1,4 +1,5 @@
 import os
+import asyncio
 import unittest
 from datetime import date, datetime
 from decimal import Decimal
@@ -11,10 +12,34 @@ from sqlalchemy import select, text
 from api.categories import MANUAL_CATEGORIES, active_category, effective_category
 from api.models import Account, Item, RawTransaction, Transaction, ManualCategoryOverride
 from api.routes.analytics import summarize_monthly_transactions, transaction_details
-from api.routes.review import CategoryRequest, mutate_category
+from api.routes.review import CategoryRequest, mutate_category, category_options
 
 
 class CategoryTests(unittest.TestCase):
+    def test_groceries_api_vocabulary(self):
+        self.assertEqual(CategoryRequest(category='GROCERIES').category, 'GROCERIES')
+        self.assertIn({'value': 'GROCERIES', 'label': 'Groceries'},
+                      asyncio.run(category_options())['categories'])
+        for invalid in ('groceries', 'GROCERY', 'UNKNOWN'):
+            with self.assertRaises(ValidationError):
+                CategoryRequest(category=invalid)
+
+    def test_groceries_effective_analytics(self):
+        transaction = SimpleNamespace(transaction_id='g', transaction_date=date(2026, 8, 1),
+            amount=Decimal('-12.34'), plaid_category='GENERAL_MERCHANDISE',
+            transaction_type='expense', is_spending=True, is_internal_transfer=False,
+            merchant_name=None, description='Synthetic')
+        override = SimpleNamespace(category='GROCERIES', cleared_at=None)
+        before = summarize_monthly_transactions([(transaction, False)])
+        rows = [(transaction, False, None, None, None, override)]
+        after = summarize_monthly_transactions(rows)
+        self.assertEqual(after['category_breakdown'][0]['category'], 'GROCERIES')
+        for key in before:
+            if key != 'category_breakdown':
+                self.assertEqual(before[key], after[key])
+        self.assertEqual(len(transaction_details(rows, 'GROCERIES', 'expense')), 1)
+        self.assertEqual(transaction.plaid_category, 'GENERAL_MERCHANDISE')
+
     def test_vocabulary_and_active_semantics(self):
         for category in MANUAL_CATEGORIES:
             self.assertEqual(CategoryRequest(category=category).category, category)
@@ -70,6 +95,29 @@ class CategoryDatabaseTests(unittest.IsolatedAsyncioTestCase):
         async def snapshot():
             async with engine.connect() as connection:
                 return (await connection.execute(text('SELECT * FROM manual_category_overrides'))).all()
+        await mutate_category('t', 'GENERAL_MERCHANDISE')
+        saved = await snapshot()
+        # Simulate the pre-GROCERIES constraint on a populated existing table.
+        from api.categories import CATEGORY_CHECK
+        async with engine.begin() as connection:
+            await connection.execute(text("ALTER TABLE manual_category_overrides DROP CONSTRAINT ck_manual_category"))
+            old_check = CATEGORY_CHECK.replace("'GROCERIES',", "")
+            await connection.execute(text(
+                f"ALTER TABLE manual_category_overrides ADD CONSTRAINT ck_manual_category CHECK ({old_check})"))
+        await init_db()
+        self.assertEqual(saved, await snapshot())
+        await init_db()
+        self.assertEqual(saved, await snapshot())
+        result = await mutate_category('t', CategoryRequest(category='GROCERIES').category)
+        self.assertEqual(result['effective_category'], 'GROCERIES')
+        groceries_saved = await snapshot()
+        await init_db()
+        self.assertEqual(groceries_saved, await snapshot())
+        from sqlalchemy.exc import IntegrityError
+        with self.assertRaises(IntegrityError):
+            async with engine.begin() as connection:
+                await connection.execute(text("UPDATE manual_category_overrides SET category='INVALID'"))
+        self.assertEqual(groceries_saved, await snapshot())
         await mutate_category('t', 'GENERAL_MERCHANDISE')
         saved = await snapshot()
         await mutate_category('t', 'GENERAL_MERCHANDISE')

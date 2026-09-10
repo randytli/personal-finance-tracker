@@ -4,10 +4,20 @@ from sqlalchemy import text
 
 
 async def migrate_manual_categories(connection):
+    from api.categories import CATEGORY_CHECK
     from api.models import ManualCategoryOverride
     await connection.run_sync(
         lambda sync: ManualCategoryOverride.__table__.create(sync, checkfirst=True)
     )
+    # init_db runs this in one transaction: replace only the constraint, never rows.
+    # create(checkfirst=True) alone does not update an existing table's vocabulary.
+    await connection.execute(text(
+        "ALTER TABLE manual_category_overrides DROP CONSTRAINT IF EXISTS ck_manual_category"
+    ))
+    await connection.execute(text(
+        "ALTER TABLE manual_category_overrides ADD CONSTRAINT ck_manual_category "
+        f"CHECK ({CATEGORY_CHECK})"
+    ))
 
 
 async def migrate_multi_institution(connection):
