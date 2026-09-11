@@ -16,6 +16,41 @@ from api.routes.review import CategoryRequest, mutate_category, category_options
 
 
 class CategoryTests(unittest.TestCase):
+    def test_weee_rule_precedence_and_exact_matching(self):
+        transaction = SimpleNamespace(merchant_name='  WEEE  ', plaid_category='GENERAL_MERCHANDISE')
+        self.assertEqual(effective_category(transaction), 'GROCERIES')
+        override = SimpleNamespace(category='TRAVEL', cleared_at=None)
+        self.assertEqual(effective_category(transaction, override), 'TRAVEL')
+        override.cleared_at = datetime.now()
+        self.assertEqual(effective_category(transaction, override), 'GROCERIES')
+        self.assertEqual(transaction.plaid_category, 'GENERAL_MERCHANDISE')
+        for merchant in ('Other', 'Weee Inc', 'Weee Market', None):
+            transaction.merchant_name = merchant
+            transaction.description = 'AplPay WEEE INC.'
+            self.assertEqual(effective_category(transaction), 'GENERAL_MERCHANDISE')
+        transaction.plaid_category = None
+        self.assertEqual(effective_category(transaction), 'UNCATEGORIZED')
+
+    def test_weee_analytics_and_drilldown_preserve_totals(self):
+        for original in ('GENERAL_MERCHANDISE', 'FOOD_AND_DRINK'):
+            for kind, amount in (('expense', '-12.34'), ('refund', '12.34')):
+                transaction = SimpleNamespace(transaction_id='weee', transaction_date=date(2026, 8, 1),
+                    amount=Decimal(amount), plaid_category=original, transaction_type=kind,
+                    is_spending=kind == 'expense', is_internal_transfer=False,
+                    merchant_name='Other', description='Synthetic')
+                before = summarize_monthly_transactions([(transaction, False)])
+                transaction.merchant_name = 'Weee'
+                rows = [(transaction, False)]
+                after = summarize_monthly_transactions(rows)
+                self.assertEqual(after['category_breakdown'][0]['category'], 'GROCERIES')
+                for key in before:
+                    if key != 'category_breakdown':
+                        self.assertEqual(before[key], after[key])
+                self.assertEqual(len(transaction_details(rows, 'GROCERIES', kind)), 1)
+                self.assertEqual(transaction_details(rows, original, kind), [])
+                self.assertEqual(transaction.plaid_category, original)
+                self.assertEqual(transaction.transaction_type, kind)
+
     def test_groceries_api_vocabulary(self):
         self.assertEqual(CategoryRequest(category='GROCERIES').category, 'GROCERIES')
         self.assertIn({'value': 'GROCERIES', 'label': 'Groceries'},

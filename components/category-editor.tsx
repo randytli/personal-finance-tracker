@@ -26,6 +26,6 @@ export default function CategoryEditor({ detail, options, busy, save }: {
       </select>
       <button type="button" className="ml-2 text-blue-700 underline" disabled={busy || !options.some(option => option.value === selected)} onClick={() => save(detail, selected)}>Save category</button>
     </>}
-    {detail.override_category && <button type="button" className="ml-2 text-blue-700 underline" disabled={busy} onClick={() => save(detail, null)}>Restore Plaid category</button>}
+    {detail.override_category && <button type="button" className="ml-2 text-blue-700 underline" disabled={busy} onClick={() => save(detail, null)}>Restore automatic category</button>}
   </div>
 }
