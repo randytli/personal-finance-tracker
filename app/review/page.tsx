@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import AccountBadge from '@/components/account-badge'
+import BulkTransactionEditor, { bulkErrorMessage, type BulkEditRequest } from '@/components/bulk-transaction-editor'
 import { CategoryBadge } from '@/components/category-display'
 import LabelEditor, { mergeLabelDetail, type LabelDetail, useLabelOptions } from '@/components/label-editor'
 
@@ -41,6 +42,8 @@ export default function ReviewPage() {
   const [mode, setMode] = useState<'needs_review' | 'credits_transfers'>('needs_review')
   const [typeFilter, setTypeFilter] = useState('all')
   const [offset, setOffset] = useState(0)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [bulkBusy, setBulkBusy] = useState(false)
   const requestId = useRef(0)
   const labelOptions = useLabelOptions()
 
@@ -68,7 +71,7 @@ export default function ReviewPage() {
     }
   }, [mode, typeFilter, offset])
 
-  useEffect(() => { void load() }, [load])
+  useEffect(() => { setSelected(new Set()); void load() }, [load])
 
   async function save(transaction: ReviewTransaction) {
     const transactionType = choices[transaction.transaction_id]
@@ -92,6 +95,7 @@ export default function ReviewPage() {
         throw new Error(body?.detail || 'save failed')
       }
       setUndo({ transaction, transactionType })
+      setSelected(new Set())
       setChoices((current) => { const next = { ...current }; delete next[transaction.transaction_id]; return next })
       await load()
     } catch (caught) {
@@ -111,6 +115,7 @@ export default function ReviewPage() {
       )
       if (!response.ok) throw new Error('Undo could not be saved.')
       setUndo(null)
+      setSelected(new Set())
       await load()
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Undo could not be saved.')
@@ -121,6 +126,33 @@ export default function ReviewPage() {
 
   function updateLabels(changed: LabelDetail) {
     setTransactions(current => current.map(transaction => mergeLabelDetail(transaction, changed)))
+  }
+
+  async function applyBulk(request: BulkEditRequest) {
+    setBulkBusy(true)
+    setError('')
+    try {
+      const response = await fetch('/api/pft/review/transactions/bulk-edit', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(request),
+      })
+      const body = await response.json().catch(() => null)
+      if (!response.ok) throw new Error(bulkErrorMessage(body))
+      setSelected(new Set())
+      await load()
+      return true
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Bulk change could not be saved.')
+      return false
+    } finally { setBulkBusy(false) }
+  }
+
+  function toggleSelected(transactionId: string) {
+    setSelected(current => {
+      const next = new Set(current)
+      if (next.has(transactionId)) next.delete(transactionId)
+      else next.add(transactionId)
+      return next
+    })
   }
 
   return (
@@ -137,18 +169,18 @@ export default function ReviewPage() {
       </div>
       <nav aria-label="Review views" className="mt-5 flex gap-3">
         {(['needs_review', 'credits_transfers'] as const).map((view) => (
-          <button key={view} aria-pressed={mode === view} disabled={busy !== null}
+          <button key={view} aria-pressed={mode === view} disabled={bulkBusy || busy !== null}
             className={`rounded-md border px-4 py-2 text-sm ${mode === view ? 'bg-black text-white' : 'bg-white'}`}
-            onClick={() => { setMode(view); setOffset(0); setTypeFilter('all'); setChoices({}) }}>
+            onClick={() => { setMode(view); setOffset(0); setTypeFilter('all'); setChoices({}); setSelected(new Set()) }}>
             {view === 'needs_review' ? 'Needs Review' : 'Credits & Transfers'}
           </button>
         ))}
       </nav>
       {mode === 'credits_transfers' && (
         <label className="mt-4 block text-sm">Effective type{' '}
-          <select aria-label="Effective type filter" value={typeFilter} disabled={busy !== null}
+          <select aria-label="Effective type filter" value={typeFilter} disabled={bulkBusy || busy !== null}
             className="rounded-md border px-3 py-2"
-            onChange={(event) => { setTypeFilter(event.target.value); setOffset(0); setChoices({}) }}>
+            onChange={(event) => { setTypeFilter(event.target.value); setOffset(0); setChoices({}); setSelected(new Set()) }}>
             {FILTERS.map((type) => <option key={type} value={type}>{type === 'card_benefit' ? 'Card Benefit' : type.charAt(0).toUpperCase() + type.slice(1)}</option>)}
           </select>
         </label>
@@ -166,11 +198,28 @@ export default function ReviewPage() {
         <p className="mt-8 rounded-lg border bg-white p-8 text-center">{mode === 'needs_review' ? 'Nothing needs review.' : 'No matching credits or transfers.'}</p>
       )}
 
+      {!loading && transactions.length > 0 && <div className="mt-6 rounded-md border bg-slate-50 px-4 py-3">
+        <label className="inline-flex items-center gap-2 text-sm font-medium">
+          <input type="checkbox"
+            checked={transactions.every(transaction => selected.has(transaction.transaction_id))}
+            ref={element => { if (element) element.indeterminate = selected.size > 0 && !transactions.every(transaction => selected.has(transaction.transaction_id)) }}
+            disabled={bulkBusy || busy !== null}
+            onChange={event => setSelected(event.target.checked
+              ? new Set(transactions.map(transaction => transaction.transaction_id)) : new Set())} />
+          Select all displayed ({transactions.length})
+        </label>
+      </div>}
+
       <div className="mt-6 space-y-4">
         {!loading && transactions.map((transaction) => (
           <article key={transaction.transaction_id} className="rounded-lg border bg-white p-5 shadow-sm">
             <div className="flex flex-wrap justify-between gap-3">
-              <div>
+              <label className="pt-1">
+                <input type="checkbox" checked={selected.has(transaction.transaction_id)}
+                  disabled={bulkBusy || busy !== null} onChange={() => toggleSelected(transaction.transaction_id)}
+                  aria-label={`Select ${transaction.merchant_name || transaction.description || 'transaction'}`} />
+              </label>
+              <div className="min-w-0 flex-1">
                 <AccountBadge
                   institutionName={transaction.institution_name}
                   accountName={transaction.account_name}
@@ -207,26 +256,36 @@ export default function ReviewPage() {
               </select>
               <button
                 className="rounded-md bg-black px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
-                disabled={busy !== null || !choices[transaction.transaction_id]}
+                disabled={bulkBusy || busy !== null || !choices[transaction.transaction_id]}
                 onClick={() => save(transaction)}
               >
                 {busy === transaction.transaction_id ? 'Saving…' : 'Save'}
               </button>
               {transaction.override_transaction_type && (
-                <button className="text-sm text-blue-700 underline" disabled={busy !== null}
+                <button className="text-sm text-blue-700 underline" disabled={bulkBusy || busy !== null}
                   onClick={() => clearOverride(transaction)}>Restore automatic</button>
               )}
             </div>
             <LabelEditor detail={transaction} options={labelOptions.options}
               optionsLoading={labelOptions.loading} optionsError={labelOptions.error}
-              onRetryOptions={labelOptions.retry} onChanged={updateLabels} />
+              disabled={bulkBusy} onRetryOptions={labelOptions.retry} onChanged={updateLabels} />
           </article>
         ))}
       </div>
+      {selected.size > 0 && <div className="mt-4">
+        <BulkTransactionEditor
+          transactionIds={Array.from(selected)}
+          categoryOptions={[]}
+          labelOptions={labelOptions.options}
+          busy={bulkBusy}
+          onApply={applyBulk}
+          onClear={() => setSelected(new Set())}
+        />
+      </div>}
       <div className="mt-5 flex items-center gap-4 text-sm">
-        <button disabled={loading || busy !== null || offset === 0} onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))} className="disabled:opacity-40">Previous</button>
+        <button disabled={loading || bulkBusy || busy !== null || offset === 0} onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))} className="disabled:opacity-40">Previous</button>
         <span>{total === 0 ? 0 : offset + 1}–{Math.min(offset + PAGE_SIZE, total)} of {total}</span>
-        <button disabled={loading || busy !== null || offset + PAGE_SIZE >= total} onClick={() => setOffset(offset + PAGE_SIZE)} className="disabled:opacity-40">Next</button>
+        <button disabled={loading || bulkBusy || busy !== null || offset + PAGE_SIZE >= total} onClick={() => setOffset(offset + PAGE_SIZE)} className="disabled:opacity-40">Next</button>
       </div>
     </main>
   )

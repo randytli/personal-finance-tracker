@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 from api.labels import (ALLOWED_LABELS, automatic_labels, effective_labels,
                         label_result, normalize_label_text)
 from api.models import (Base, Account, Item, RawTransaction, Transaction,
-                        ManualTransactionLabelOverride)
+                        ManualCategoryOverride, ManualTransactionLabelOverride)
 from api.migrations import migrate_transaction_labels
 from api.routes import analytics, plaid, review
 
@@ -181,6 +181,47 @@ class LabelDatabaseTests(unittest.IsolatedAsyncioTestCase):
             (await db.get(RawTransaction, "china")).is_removed = True
         with self.assertRaises(HTTPException):
             await review.mutate_label("china", "CHINA", "include")
+
+    async def test_atomic_bulk_label_and_category_validation(self):
+        async with self.sessions.begin() as db:
+            (await db.get(Item, "item")).status = "active"
+        result = await review.bulk_edit_transactions(review.BulkEditRequest(
+            transaction_ids=["generic", "china"], operation="include_label", label="CHINA"))
+        self.assertEqual((result["selected_count"], result["changed_count"]), (2, 2))
+        repeated = await review.bulk_edit_transactions(review.BulkEditRequest(
+            transaction_ids=["china", "generic"], operation="include_label", label="CHINA"))
+        self.assertEqual((repeated["changed_count"], repeated["unchanged_count"]), (0, 2))
+        async with self.sessions() as db:
+            decisions = (await db.execute(select(ManualTransactionLabelOverride.decision))) \
+                .scalars().all()
+            self.assertEqual(decisions, ["include", "include"])
+
+        with self.assertRaises(HTTPException) as missing:
+            await review.bulk_edit_transactions(review.BulkEditRequest(
+                transaction_ids=["china", "missing"], operation="exclude_label", label="CHINA"))
+        self.assertEqual(missing.exception.status_code, 404)
+        async with self.sessions() as db:
+            decisions = (await db.execute(select(ManualTransactionLabelOverride.decision))) \
+                .scalars().all()
+            self.assertEqual(decisions, ["include", "include"])
+
+        with self.assertRaises(HTTPException) as ineligible:
+            await review.bulk_edit_transactions(review.BulkEditRequest(
+                transaction_ids=["china", "generic"], operation="set_category",
+                category="GROCERIES"))
+        self.assertEqual(ineligible.exception.status_code, 422)
+        self.assertEqual(ineligible.exception.detail["ineligible_count"], 1)
+        async with self.sessions() as db:
+            self.assertEqual(await db.scalar(select(func.count(ManualCategoryOverride.transaction_id))), 0)
+        categorized = await review.bulk_edit_transactions(review.BulkEditRequest(
+            transaction_ids=["china"], operation="set_category", category="GROCERIES"))
+        self.assertEqual((categorized["changed_count"], categorized["unchanged_count"]), (1, 0))
+        restored = await review.bulk_edit_transactions(review.BulkEditRequest(
+            transaction_ids=["china", "generic"], operation="restore_label_auto", label="CHINA"))
+        self.assertEqual((restored["changed_count"], restored["unchanged_count"]), (2, 0))
+        restored_by_id = {result["transaction_id"]: result for result in restored["results"]}
+        self.assertEqual(restored_by_id["china"]["effective_labels"], ["CHINA"])
+        self.assertEqual(restored_by_id["generic"]["effective_labels"], [])
 
     async def test_migration_idempotency_and_existing_row_preservation(self):
         await review.mutate_label("generic", "CHINA", "include")

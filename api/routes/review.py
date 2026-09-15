@@ -3,7 +3,7 @@ from decimal import Decimal
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Query
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, field_validator, model_validator
 from datetime import datetime, timezone
 from api.categories import MANUAL_CATEGORIES, active_category, effective_category, category_editable
 from api.labels import ALLOWED_LABELS, label_result, load_label_overrides
@@ -59,6 +59,30 @@ def category_result(transaction, override):
             'effective_category': effective_category(transaction, override)}
 
 
+async def _apply_category(db, transaction, category, actor, classification=None):
+    override = await db.get(ManualCategoryOverride, transaction.transaction_id)
+    if category is not None:
+        if classification is None:
+            classification = await db.get(ManualClassificationOverride, transaction.transaction_id)
+        if not category_editable(transaction, classification.transaction_type if classification else None):
+            raise HTTPException(422, 'category editing requires an included expense or refund')
+        if active_category(override) == category:
+            return category_result(transaction, override), False
+    elif active_category(override) is None:
+        return category_result(transaction, override), False
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    if override is None:
+        override = ManualCategoryOverride(transaction_id=transaction.transaction_id,
+            created_by=actor, created_at=now)
+        db.add(override)
+    override.category = category
+    override.updated_by = actor
+    override.updated_at = now
+    override.cleared_by = actor if category is None else None
+    override.cleared_at = now if category is None else None
+    return category_result(transaction, override), True
+
+
 async def mutate_category(transaction_id, category):
     async with SessionLocal() as db:
         async with db.begin():
@@ -66,27 +90,8 @@ async def mutate_category(transaction_id, category):
             if row is None:
                 raise HTTPException(404, 'transaction not found')
             transaction = row[0]
-            override = await db.get(ManualCategoryOverride, transaction_id)
-            if category is not None:
-                classification = await db.get(ManualClassificationOverride, transaction_id)
-                if not category_editable(transaction, classification.transaction_type if classification else None):
-                    raise HTTPException(422, 'category editing requires an included expense or refund')
-                if active_category(override) == category:
-                    return category_result(transaction, override)
-            elif active_category(override) is None:
-                return category_result(transaction, override)
-            now = datetime.now(timezone.utc).replace(tzinfo=None)
-            actor = _user_id()
-            if override is None:
-                override = ManualCategoryOverride(transaction_id=transaction_id,
-                    created_by=actor, created_at=now)
-                db.add(override)
-            override.category = category
-            override.updated_by = actor
-            override.updated_at = now
-            override.cleared_by = actor if category is None else None
-            override.cleared_at = now if category is None else None
-            return category_result(transaction, override)
+            result, _ = await _apply_category(db, transaction, category, _user_id())
+            return result
 
 
 @router.put('/transactions/{transaction_id}/category-override')
@@ -150,6 +155,31 @@ def _label_transaction_scope(transaction_id):
     )
 
 
+async def _apply_label(db, transaction, label, decision, actor):
+    override = await db.get(ManualTransactionLabelOverride, (transaction.transaction_id, label))
+    active = (override.decision if override is not None
+              and override.decision is not None and override.cleared_at is None else None)
+    changed = not (active == decision or (decision is None and active is None))
+    if changed:
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        if override is None:
+            override = ManualTransactionLabelOverride(
+                transaction_id=transaction.transaction_id, label=label,
+                created_by=actor, created_at=now,
+            )
+            db.add(override)
+        override.decision = decision
+        override.updated_by = actor
+        override.updated_at = now
+        override.cleared_by = actor if decision is None else None
+        override.cleared_at = now if decision is None else None
+        await db.flush()
+    overrides = (await db.execute(select(ManualTransactionLabelOverride).where(
+        ManualTransactionLabelOverride.transaction_id == transaction.transaction_id))).scalars().all()
+    return {"transaction_id": transaction.transaction_id,
+            **label_result(transaction, overrides)}, changed
+
+
 async def mutate_label(transaction_id, label, decision):
     if label not in ALLOWED_LABELS:
         raise HTTPException(422, "unsupported transaction label")
@@ -161,29 +191,8 @@ async def mutate_label(transaction_id, label, decision):
             )).scalar_one_or_none()
             if transaction is None:
                 raise HTTPException(404, "transaction not found")
-            override = await db.get(ManualTransactionLabelOverride, (transaction_id, label))
-            active = (override.decision if override is not None
-                      and override.decision is not None and override.cleared_at is None else None)
-            if active == decision or (decision is None and active is None):
-                overrides = (await db.execute(select(ManualTransactionLabelOverride).where(
-                    ManualTransactionLabelOverride.transaction_id == transaction_id))).scalars().all()
-                return {"transaction_id": transaction_id, **label_result(transaction, overrides)}
-            now = datetime.now(timezone.utc).replace(tzinfo=None)
-            if override is None:
-                override = ManualTransactionLabelOverride(
-                    transaction_id=transaction_id, label=label,
-                    created_by=actor, created_at=now,
-                )
-                db.add(override)
-            override.decision = decision
-            override.updated_by = actor
-            override.updated_at = now
-            override.cleared_by = actor if decision is None else None
-            override.cleared_at = now if decision is None else None
-            await db.flush()
-            overrides = (await db.execute(select(ManualTransactionLabelOverride).where(
-                ManualTransactionLabelOverride.transaction_id == transaction_id))).scalars().all()
-            return {"transaction_id": transaction_id, **label_result(transaction, overrides)}
+            result, _ = await _apply_label(db, transaction, label, decision, actor)
+            return result
 
 
 @router.put("/transactions/{transaction_id}/labels/{label}")
@@ -194,6 +203,87 @@ async def set_label_override(transaction_id: str, label: str, request: LabelDeci
 @router.delete("/transactions/{transaction_id}/labels/{label}")
 async def clear_label_override(transaction_id: str, label: str):
     return await mutate_label(transaction_id, label, None)
+
+
+BulkOperation = Literal["set_category", "include_label", "exclude_label", "restore_label_auto"]
+
+
+class BulkEditRequest(BaseModel):
+    transaction_ids: list[str]
+    operation: BulkOperation
+    category: str | None = None
+    label: str | None = None
+
+    @field_validator("transaction_ids")
+    @classmethod
+    def valid_ids(cls, values):
+        values = list(dict.fromkeys(values))
+        if not values or len(values) > 100 or any(not value for value in values):
+            raise ValueError("select between 1 and 100 unique transactions")
+        return values
+
+    @model_validator(mode="after")
+    def valid_action(self):
+        if self.operation == "set_category":
+            if self.category not in MANUAL_CATEGORIES or self.label is not None:
+                raise ValueError("set_category requires a supported category")
+        elif self.label not in ALLOWED_LABELS or self.category is not None:
+            raise ValueError("label operation requires a supported label")
+        return self
+
+
+@router.post("/transactions/bulk-edit")
+async def bulk_edit_transactions(request: BulkEditRequest):
+    ids = sorted(request.transaction_ids)
+    async with SessionLocal() as db:
+        async with db.begin():
+            rows = (await db.execute(
+                select(Transaction, ManualClassificationOverride)
+                .join(RawTransaction, RawTransaction.transaction_id == Transaction.transaction_id)
+                .join(Item, Item.item_id == RawTransaction.item_id)
+                .join(Account, (Account.account_id == Transaction.account_id)
+                      & (Account.account_id == RawTransaction.account_id)
+                      & (Account.item_id == Item.item_id))
+                .outerjoin(ManualClassificationOverride,
+                    ManualClassificationOverride.transaction_id == Transaction.transaction_id)
+                .where(Transaction.transaction_id.in_(ids), Item.user_id == _user_id(),
+                       Item.status == "active", Account.consumer_transactions_enabled.is_(True),
+                       RawTransaction.is_removed.is_(False))
+                .order_by(Transaction.transaction_id)
+                .with_for_update(of=Transaction)
+            )).all()
+            if len(rows) != len(ids):
+                raise HTTPException(404, detail={
+                    "message": "Some selected transactions are no longer available.",
+                    "unavailable_count": len(ids) - len(rows),
+                })
+
+            if request.operation == "set_category":
+                ineligible = [transaction.transaction_id for transaction, classification in rows
+                    if not category_editable(transaction,
+                        classification.transaction_type if classification else None)]
+                if ineligible:
+                    raise HTTPException(422, detail={
+                        "message": "Category editing requires included expense or refund transactions.",
+                        "ineligible_count": len(ineligible),
+                    })
+
+            results = []
+            changed_count = 0
+            actor = _user_id()
+            for transaction, classification in rows:
+                if request.operation == "set_category":
+                    result, changed = await _apply_category(
+                        db, transaction, request.category, actor, classification)
+                else:
+                    decision = {"include_label": "include", "exclude_label": "exclude",
+                                "restore_label_auto": None}[request.operation]
+                    result, changed = await _apply_label(
+                        db, transaction, request.label, decision, actor)
+                results.append(result)
+                changed_count += int(changed)
+            return {"selected_count": len(rows), "changed_count": changed_count,
+                    "unchanged_count": len(rows) - changed_count, "results": results}
 
 
 def _review_ordering():

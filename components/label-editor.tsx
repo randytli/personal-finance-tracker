@@ -79,6 +79,7 @@ export default function LabelEditor({
   options,
   optionsLoading = false,
   optionsError = '',
+  disabled = false,
   onRetryOptions,
   onChanged,
 }: {
@@ -86,6 +87,7 @@ export default function LabelEditor({
   options: LabelOption[]
   optionsLoading?: boolean
   optionsError?: string
+  disabled?: boolean
   onRetryOptions?: () => void
   onChanged: (detail: LabelDetail) => void
 }) {
@@ -110,7 +112,7 @@ export default function LabelEditor({
   useEffect(() => () => controller.current?.abort(), [])
 
   const update = useCallback(async (label: string, choice: LabelChoice) => {
-    if (choice === labelChoice(detail, label) || busy) return
+    if (choice === labelChoice(detail, label) || busy || disabled) return
     const request = new AbortController()
     controller.current = request
     setBusy(true)
@@ -133,7 +135,7 @@ export default function LabelEditor({
     } finally {
       if (!request.signal.aborted) setBusy(false)
     }
-  }, [busy, detail, onChanged, optionMap])
+  }, [busy, detail, disabled, onChanged, optionMap])
 
   return <div className="mt-3 w-full text-sm">
     <div className="flex flex-wrap items-center gap-2">
@@ -152,7 +154,7 @@ export default function LabelEditor({
       {excludedCount > 0 && <span className="text-xs text-muted-foreground">{excludedCount} excluded</span>}
       <button type="button" aria-expanded={open} aria-controls={panelId}
         className="inline-flex items-center gap-1 rounded-md border bg-white px-2.5 py-1 text-xs font-medium hover:bg-slate-50 disabled:opacity-50"
-        disabled={busy} onClick={() => setOpen(value => !value)}>
+        disabled={busy || disabled} onClick={() => setOpen(value => !value)}>
         Labels <ChevronDown aria-hidden="true" className={`h-3.5 w-3.5 transition ${open ? 'rotate-180' : ''}`} />
       </button>
     </div>
@@ -179,7 +181,7 @@ export default function LabelEditor({
               <span className="ml-2 text-xs text-muted-foreground">Automatic: {automatic ? 'included' : 'not included'}</span>
             </span>
             <select aria-label={`${option.label} label decision`} value={labelChoice(detail, option.value)}
-              disabled={busy} className="rounded-md border bg-white px-2 py-1 text-xs"
+              disabled={busy || disabled} className="rounded-md border bg-white px-2 py-1 text-xs"
               onChange={event => void update(option.value, event.target.value as LabelChoice)}>
               <option value="auto">Auto</option>
               <option value="include">Include</option>
@@ -194,7 +196,7 @@ export default function LabelEditor({
       </div>
       <div className="mt-2 flex items-center justify-between gap-3">
         <span aria-live="polite" className="text-xs text-muted-foreground">{status}</span>
-        <button type="button" className="text-xs font-medium text-blue-700 underline" disabled={busy}
+        <button type="button" className="text-xs font-medium text-blue-700 underline" disabled={busy || disabled}
           onClick={() => setOpen(false)}>Done</button>
       </div>
       {error && <p role="alert" className="mt-2 text-xs text-red-700">{error}</p>}

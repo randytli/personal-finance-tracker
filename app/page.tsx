@@ -13,6 +13,7 @@ import {
   YAxis,
 } from 'recharts'
 import AccountBadge from '@/components/account-badge'
+import BulkTransactionEditor, { bulkErrorMessage, type BulkEditRequest } from '@/components/bulk-transaction-editor'
 import CategoryEditor, { mergeCategoryDetail, mutateCategoryOverride, type CategoryDetail } from '@/components/category-editor'
 import { CategoryBadge } from '@/components/category-display'
 import InstitutionBadge from '@/components/institution-badge'
@@ -112,6 +113,9 @@ export default function HomePage() {
   const [categoryBusy, setCategoryBusy] = useState(false)
   const [categoryRevision, setCategoryRevision] = useState(0)
   const [categoryUndo, setCategoryUndo] = useState<{ detail: CategoryDetail; previous: string | null } | null>(null)
+  const [selectedDetails, setSelectedDetails] = useState<Set<string>>(new Set())
+  const [bulkBusy, setBulkBusy] = useState(false)
+  const [detailRevision, setDetailRevision] = useState(0)
   const labelOptions = useLabelOptions()
 
   useEffect(() => {
@@ -128,6 +132,7 @@ export default function HomePage() {
     try {
       const changed = await mutateCategoryOverride(detail.transaction_id, category)
       setCategoryUndo(undo ? null : { detail, previous: detail.override_category })
+      setSelectedDetails(new Set())
       setDetails(current => current.map(value => mergeCategoryDetail(value, changed)))
       setCategoryRevision(value => value + 1)
       return true
@@ -137,7 +142,7 @@ export default function HomePage() {
     } finally { setCategoryBusy(false) }
   }
 
-  useEffect(() => { setDetailFilter(null) }, [month])
+  useEffect(() => { setDetailFilter(null); setSelectedDetails(new Set()) }, [month])
 
   const loadDashboard = useCallback(async (isActive: () => boolean) => {
     setLoading(true)
@@ -198,10 +203,40 @@ export default function HomePage() {
       })
       .catch(() => { if (active) setError('Transaction details could not be loaded.') })
     return () => { active = false }
-  }, [detailFilter, month, categoryRevision])
+  }, [detailFilter, month, categoryRevision, detailRevision])
+
+  useEffect(() => { setSelectedDetails(new Set()) }, [detailFilter])
 
   function updateLabels(changed: LabelDetail) {
     setDetails(current => current.map(detail => mergeLabelDetail(detail, changed)))
+  }
+
+  async function applyBulk(request: BulkEditRequest) {
+    setBulkBusy(true)
+    setError('')
+    try {
+      const response = await fetch('/api/pft/review/transactions/bulk-edit', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(request),
+      })
+      const body = await response.json().catch(() => null)
+      if (!response.ok) throw new Error(bulkErrorMessage(body))
+      setSelectedDetails(new Set())
+      if (request.operation === 'set_category') setCategoryRevision(value => value + 1)
+      else setDetailRevision(value => value + 1)
+      return true
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Bulk change could not be saved.')
+      return false
+    } finally { setBulkBusy(false) }
+  }
+
+  function toggleDetail(transactionId: string) {
+    setSelectedDetails(current => {
+      const next = new Set(current)
+      if (next.has(transactionId)) next.delete(transactionId)
+      else next.add(transactionId)
+      return next
+    })
   }
 
   const chartData = useMemo(() => trend.map((value) => ({
@@ -228,6 +263,7 @@ export default function HomePage() {
     setDetailFilter(null)
     setDetails([])
     setDetailTotal(0)
+    setSelectedDetails(new Set())
   }
 
   function selectSecondary(group: BreakdownGroup) {
@@ -391,11 +427,27 @@ export default function HomePage() {
                   )}
                   <p className="text-sm text-muted-foreground">{detailTotal} matching transactions</p>
                 </div>
-                <button type="button" className="text-sm text-blue-700 underline" onClick={() => setDetailFilter(null)}>Close</button>
+                <button type="button" className="text-sm text-blue-700 underline" onClick={() => { setDetailFilter(null); setSelectedDetails(new Set()) }}>Close</button>
               </div>
+              {details.length > 0 && <div className="border-t bg-slate-50 px-4 py-3">
+                <label className="inline-flex items-center gap-2 text-sm font-medium">
+                  <input type="checkbox"
+                    checked={details.length > 0 && details.every(detail => selectedDetails.has(detail.transaction_id))}
+                    ref={element => { if (element) element.indeterminate = selectedDetails.size > 0 && !details.every(detail => selectedDetails.has(detail.transaction_id)) }}
+                    disabled={bulkBusy}
+                    onChange={event => setSelectedDetails(event.target.checked
+                      ? new Set(details.map(detail => detail.transaction_id)) : new Set())} />
+                  Select all displayed ({details.length})
+                </label>
+              </div>}
               <div className="divide-y">
                 {details.map((detail) => (
                   <div key={detail.transaction_id} className="flex flex-wrap items-start justify-between gap-3 p-4">
+                    <label className="pt-1">
+                      <input type="checkbox" checked={selectedDetails.has(detail.transaction_id)}
+                        disabled={bulkBusy} onChange={() => toggleDetail(detail.transaction_id)}
+                        aria-label={`Select ${detail.merchant_name || detail.description || 'transaction'}`} />
+                    </label>
                     <div className="min-w-0 flex-1">
                       <p className="font-medium">{detail.merchant_name || detail.description || 'Unknown transaction'}</p>
                       <p className="text-sm text-muted-foreground">{detail.transaction_date} · {detail.description} · {detail.transaction_type.replace(/_/g, ' ')}</p>
@@ -405,14 +457,26 @@ export default function HomePage() {
                     </div>
                     <p className="font-semibold">{money(detail.amount)}</p>
                     <div className="grid w-full gap-x-5 md:grid-cols-2">
-                      <CategoryEditor detail={detail} options={categoryOptions} busy={categoryBusy} save={saveCategory} />
+                      <CategoryEditor detail={detail} options={categoryOptions} busy={categoryBusy || bulkBusy} save={saveCategory} />
                       <LabelEditor detail={detail} options={labelOptions.options}
                         optionsLoading={labelOptions.loading} optionsError={labelOptions.error}
-                        onRetryOptions={labelOptions.retry} onChanged={updateLabels} />
+                        disabled={bulkBusy} onRetryOptions={labelOptions.retry} onChanged={updateLabels} />
                     </div>
                   </div>
                 ))}
               </div>
+              {selectedDetails.size > 0 && <div className="p-4">
+                <BulkTransactionEditor
+                  transactionIds={Array.from(selectedDetails)}
+                  categoryOptions={categoryOptions}
+                  labelOptions={labelOptions.options}
+                  allowCategory
+                  categoryIneligibleCount={details.filter(detail => selectedDetails.has(detail.transaction_id) && !detail.category_editable).length}
+                  busy={bulkBusy}
+                  onApply={applyBulk}
+                  onClear={() => setSelectedDetails(new Set())}
+                />
+              </div>}
             </Card>
           )}
         </>
