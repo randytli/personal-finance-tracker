@@ -57,6 +57,7 @@ class Preview:
 
 
 class StatementImportAdapter(Protocol):
+    supported_accounts: frozenset[tuple[str, str | None]]
     name: str
     version: str
 

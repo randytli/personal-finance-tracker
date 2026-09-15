@@ -1,6 +1,6 @@
 from sqlalchemy import (
     Boolean, CheckConstraint, Column, Date, DateTime, ForeignKey, Index, Numeric,
-    String, UniqueConstraint, func,
+    String, Integer, UniqueConstraint, func,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import declarative_base
@@ -52,11 +52,19 @@ class RawTransaction(Base):
     account_id = Column(String, nullable=False)
     transaction_date = Column(Date, nullable=False)
     payload = Column(JSONB, nullable=False)
+    source = Column(String, nullable=False, default="plaid", server_default="plaid")
+    statement_row_id = Column(String, ForeignKey("statement_import_rows.row_id"))
     is_removed = Column(Boolean, nullable=False, default=False, server_default="false")
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
-    __table_args__ = (Index("ix_raw_transactions_item_active", "item_id", "is_removed"),)
+    __table_args__ = (
+        Index("ix_raw_transactions_item_active", "item_id", "is_removed"),
+        Index("ix_raw_account_date", "account_id", "transaction_date"),
+        Index("ix_raw_statement_row", "statement_row_id", unique=True),
+        CheckConstraint("(source = 'plaid' AND statement_row_id IS NULL) OR "
+                        "(source = 'statement' AND statement_row_id IS NOT NULL)", name="ck_raw_source"),
+    )
 
 class Account(Base):
     __tablename__ = "accounts"
@@ -95,6 +103,7 @@ class Transaction(Base):
     merchant_name = Column(String, nullable=True)
     description = Column(String, nullable=True)
     plaid_category = Column(String, nullable=True)
+    statement_kind = Column(String, nullable=True)
     transaction_type = Column(String, nullable=True)
     is_spending = Column(Boolean, nullable=True)
     is_internal_transfer = Column(Boolean, nullable=True)
@@ -121,3 +130,40 @@ class ManualClassificationOverride(Base):
     updated_at = Column(DateTime, nullable=False, server_default=func.now())
     cleared_by = Column(String, nullable=True)
     cleared_at = Column(DateTime, nullable=True)
+
+
+class StatementImportBatch(Base):
+    __tablename__ = "statement_import_batches"
+    __table_args__ = (
+        UniqueConstraint("account_id", "adapter", "file_sha256", name="uq_statement_file"),
+        CheckConstraint("status IN ('applied', 'rolled_back')", name="ck_statement_status"),
+    )
+    batch_id = Column(String, primary_key=True)
+    user_id = Column(String, nullable=False)
+    item_id = Column(String, ForeignKey("items.item_id"), nullable=False)
+    account_id = Column(String, ForeignKey("accounts.account_id"), nullable=False, index=True)
+    adapter = Column(String, nullable=False)
+    adapter_version = Column(String, nullable=False)
+    file_sha256 = Column(String, nullable=False)
+    import_through = Column(Date)
+    preview_digest = Column(String, nullable=False)
+    manifest = Column(JSONB, nullable=False)
+    status = Column(String, nullable=False)
+    applied_by = Column(String, nullable=False)
+    applied_at = Column(DateTime, nullable=False, server_default=func.now())
+    rolled_back_by = Column(String)
+    rolled_back_at = Column(DateTime)
+    rollback_reason = Column(String)
+
+
+class StatementImportRow(Base):
+    __tablename__ = "statement_import_rows"
+    __table_args__ = (UniqueConstraint("batch_id", "source_record", name="uq_statement_record"),)
+    row_id = Column(String, primary_key=True)
+    batch_id = Column(String, ForeignKey("statement_import_batches.batch_id"), nullable=False, index=True)
+    source_record = Column(Integer, nullable=False)
+    source_line_end = Column(Integer, nullable=False)
+    fingerprint = Column(String, nullable=False)
+    disposition = Column(String, nullable=False)
+    canonical = Column(JSONB, nullable=False)
+    source_evidence = Column(JSONB, nullable=False)

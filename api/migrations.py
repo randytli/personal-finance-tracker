@@ -3,6 +3,25 @@ import os
 from sqlalchemy import text
 
 
+async def migrate_statement_imports(connection):
+    from api.models import StatementImportBatch, StatementImportRow
+    for table in (StatementImportBatch.__table__, StatementImportRow.__table__):
+        await connection.run_sync(lambda sync, table=table: table.create(sync, checkfirst=True))
+    await connection.execute(text("ALTER TABLE raw_transactions ADD COLUMN IF NOT EXISTS "
+                                  "source VARCHAR NOT NULL DEFAULT 'plaid'"))
+    await connection.execute(text("ALTER TABLE raw_transactions ADD COLUMN IF NOT EXISTS "
+                                  "statement_row_id VARCHAR REFERENCES statement_import_rows(row_id)"))
+    await connection.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_raw_statement_row "
+                                  "ON raw_transactions(statement_row_id)"))
+    await connection.execute(text("CREATE INDEX IF NOT EXISTS ix_raw_account_date "
+                                  "ON raw_transactions(account_id, transaction_date)"))
+    await connection.execute(text("ALTER TABLE raw_transactions DROP CONSTRAINT IF EXISTS ck_raw_source"))
+    await connection.execute(text("ALTER TABLE raw_transactions ADD CONSTRAINT ck_raw_source CHECK ("
+                                  "(source='plaid' AND statement_row_id IS NULL) OR "
+                                  "(source='statement' AND statement_row_id IS NOT NULL))"))
+    await connection.execute(text("ALTER TABLE transactions ADD COLUMN IF NOT EXISTS statement_kind VARCHAR"))
+
+
 async def migrate_consumer_scope(connection):
     # NULL marks legacy accounts only; explicit decisions are never reset.
     await connection.execute(text(

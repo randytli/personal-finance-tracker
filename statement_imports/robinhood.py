@@ -9,6 +9,7 @@ from .models import ImportedTransaction, Preview
 
 
 class RobinhoodGoldCardCSV:
+    supported_accounts = frozenset({("credit", "credit card")})
     name = "robinhood-gold-card"
     version = "1"
     headers = ("Date", "Time", "Cardholder", "Amount", "Points", "Balance",

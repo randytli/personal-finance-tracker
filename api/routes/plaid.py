@@ -26,6 +26,7 @@ from sqlalchemy.dialects.postgresql import insert
 from api.db import SessionLocal
 from api.models import Account, Item, RawTransaction, Transaction, LegacyConsumerRow
 from api.consumer_scope import initial_consumer_scope, account_type_drift
+from api.statement_semantics import normalized_raw_values, statement_classification, lock_consumer_derivation
 import os, uuid
 
 router = APIRouter(prefix="/plaid")
@@ -227,6 +228,9 @@ def classify_transaction(
     amex_benefit_account_ids=frozenset(),
     amex_merchant_benefit_account_ids=None,
 ):
+    seed = statement_classification(getattr(transaction, "statement_kind", None), transaction.amount)
+    if seed is not None:
+        return seed
     category = transaction.plaid_category
     amount = transaction.amount
     description = (transaction.description or "").upper()
@@ -648,6 +652,8 @@ async def persist_consumer_transactions(item_id, starting_cursor, added, modifie
                     batch_owners[tid] = transaction["account_id"]
                     account = accounts.get(transaction["account_id"])
                     prior = existing.get(transaction["transaction_id"])
+                    if prior and prior.source != "plaid":
+                        raise HTTPException(409, "Plaid cannot modify statement-source rows")
                     if account is None:
                         raise HTTPException(409, "Unknown or conflicting account; discover accounts before retrying")
                     if prior and (prior.item_id != item_id or prior.account_id != transaction["account_id"]):
@@ -669,12 +675,19 @@ async def persist_consumer_transactions(item_id, starting_cursor, added, modifie
                             skipped["removed"] += 1
                     continue
                 account = accounts.get(prior.account_id)
+                if prior.source != "plaid":
+                    raise HTTPException(409, "Plaid cannot remove statement-source rows")
                 if prior.item_id != item_id or account is None:
                     raise HTTPException(409, "Removed transaction ownership conflict")
                 if account.consumer_transactions_enabled:
                     accepted_removed.append(transaction)
                 else:
                     skipped["removed"] += 1
+            from statement_imports.persistence import block_plaid_overlap, ImportBlocked
+            try:
+                await block_plaid_overlap(db, item_id, accepted_added + accepted_modified)
+            except ImportBlocked as exc:
+                raise HTTPException(409, str(exc)) from None
             for transaction in accepted_added:
                 payload = jsonable_encoder(transaction)
                 await db.execute(
@@ -703,14 +716,15 @@ async def persist_consumer_transactions(item_id, starting_cursor, added, modifie
                     index_elements=["transaction_id"],
                     set_={"transaction_date": transaction["date"], "payload": payload, "is_removed": False},
                     where=(RawTransaction.item_id == item_id)
-                        & (RawTransaction.account_id == transaction["account_id"]),
+                        & (RawTransaction.account_id == transaction["account_id"])
+                        & (RawTransaction.source == "plaid"),
                 ))
 
             # Also catch concurrent cross-Item inserts that raced the initial lookup.
             for transaction in accepted_added + accepted_modified:
-                owner = (await db.execute(select(RawTransaction.item_id, RawTransaction.account_id)
+                owner = (await db.execute(select(RawTransaction.item_id, RawTransaction.account_id, RawTransaction.source)
                     .where(RawTransaction.transaction_id == transaction["transaction_id"]))).one()
-                if owner != (item_id, transaction["account_id"]):
+                if owner != (item_id, transaction["account_id"], "plaid"):
                     raise HTTPException(409, "Transaction ownership conflict")
 
             for transaction in accepted_removed:
@@ -719,6 +733,7 @@ async def persist_consumer_transactions(item_id, starting_cursor, added, modifie
                     .where(
                         RawTransaction.transaction_id == transaction["transaction_id"],
                         RawTransaction.item_id == item.item_id,
+                        RawTransaction.source == "plaid",
                     )
                     .values(is_removed=True)
                 )
@@ -814,6 +829,12 @@ async def persist_account_metadata(item_id, accounts):
 
 @router.post("/transactions/normalize")
 async def normalize_transactions(item_id: str = Query(..., min_length=1)):
+    async with SessionLocal.begin() as guard:
+        await lock_consumer_derivation(guard, _user_id())
+        return await _normalize_transactions(item_id)
+
+
+async def _normalize_transactions(item_id):
     item = await _get_item(item_id, ("pending", "active"))
     async with SessionLocal() as db:
         result = await db.execute(
@@ -830,16 +851,11 @@ async def normalize_transactions(item_id: str = Query(..., min_length=1)):
     async with SessionLocal() as db:
         async with db.begin():
             for raw_transaction in raw_transactions:
-                payload = raw_transaction.payload
-                category = payload.get("personal_finance_category")
                 values = {
                     "transaction_id": raw_transaction.transaction_id,
                     "account_id": raw_transaction.account_id,
                     "transaction_date": raw_transaction.transaction_date,
-                    "amount": -Decimal(str(payload["amount"])),
-                    "merchant_name": payload.get("merchant_name"),
-                    "description": payload.get("name"),
-                    "plaid_category": category.get("primary") if category else None,
+                    **normalized_raw_values(raw_transaction),
                     "transaction_type": None,
                     "is_spending": None,
                     "is_internal_transfer": None,
@@ -855,6 +871,7 @@ async def normalize_transactions(item_id: str = Query(..., min_length=1)):
                             "merchant_name": values["merchant_name"],
                             "description": values["description"],
                             "plaid_category": values["plaid_category"],
+                            "statement_kind": values["statement_kind"],
                             "updated_at": func.now(),
                         },
                     )
@@ -864,6 +881,12 @@ async def normalize_transactions(item_id: str = Query(..., min_length=1)):
 
 @router.post("/transactions/classify")
 async def classify_transactions():
+    async with SessionLocal.begin() as guard:
+        await lock_consumer_derivation(guard, _user_id())
+        return await _classify_transactions()
+
+
+async def _classify_transactions():
     async with SessionLocal() as db:
         result = await db.execute(
             select(Transaction)

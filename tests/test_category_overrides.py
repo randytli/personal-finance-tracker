@@ -9,13 +9,71 @@ from fastapi import HTTPException
 from pydantic import ValidationError
 from sqlalchemy import select, text
 
-from api.categories import MANUAL_CATEGORIES, active_category, effective_category
+from api.categories import (MANUAL_CATEGORIES, MERCHANT_CATEGORY_RULES, active_category,
+                            effective_category, normalize_merchant_name)
 from api.models import Account, Item, RawTransaction, Transaction, ManualCategoryOverride
 from api.routes.analytics import summarize_monthly_transactions, transaction_details
 from api.routes.review import CategoryRequest, mutate_category, category_options
 
 
 class CategoryTests(unittest.TestCase):
+    def test_conservative_exact_merchant_rule_batch(self):
+        expected = {
+            'TRANSPORTATION': (
+                'AMAP TAXI', 'ALIPAY AMAP TAXI', 'NANJING METRO',
+                'ALIPAY NANJING METRO', 'UBER', 'TFL',
+            ),
+            'FOOD_AND_DRINK': (
+                'UBER EATS', 'WEIXIN ZHEJIANG GUMING', 'WEIXIN A RICE NOODLE S',
+            ),
+            'GENERAL_SERVICES': ('OPENAI', 'ANTHROPIC', 'CLAUDE AI SUBSCRIPTION', 'UPS'),
+            'RENT_AND_UTILITIES': ('VERIZON', 'PSE G'),
+            'GENERAL_MERCHANDISE': (
+                'AMAZON', 'WALMART', 'WEIXIN PANDUO PLATFO',
+                'WEIXIN JINGDONG MALL', 'TAOBAO', 'GU USA LLC', 'GLOBAL E ARSENAL',
+            ),
+        }
+        for category, merchants in expected.items():
+            for merchant in merchants:
+                with self.subTest(merchant=merchant):
+                    transaction = SimpleNamespace(
+                        merchant_name=merchant, plaid_category='ENTERTAINMENT',
+                    )
+                    self.assertEqual(effective_category(transaction), category)
+                    self.assertEqual(transaction.plaid_category, 'ENTERTAINMENT')
+        self.assertEqual(normalize_merchant_name('  PSE&G  '), 'PSE G')
+        self.assertEqual(normalize_merchant_name('CLAUDE.AI   SUBSCRIPTION'), 'CLAUDE AI SUBSCRIPTION')
+        self.assertEqual(normalize_merchant_name('Global-E /Arsenal'), 'GLOBAL E ARSENAL')
+        self.assertEqual(MERCHANT_CATEGORY_RULES['WEEE'], 'GROCERIES')
+
+    def test_merchant_rules_are_exact_and_manual_override_wins(self):
+        transaction = SimpleNamespace(
+            transaction_id='rule', transaction_date=date(2026, 6, 1),
+            amount=Decimal('-20.00'), merchant_name='Uber', description='Synthetic',
+            plaid_category='GENERAL_MERCHANDISE', transaction_type='expense',
+            is_spending=True, is_internal_transfer=False,
+        )
+        automatic_rows = [(transaction, False)]
+        automatic = summarize_monthly_transactions(automatic_rows)
+        self.assertEqual(automatic['category_breakdown'][0]['category'], 'TRANSPORTATION')
+        override = SimpleNamespace(category='FOOD_AND_DRINK', cleared_at=None)
+        manual_rows = [(transaction, False, None, None, None, override)]
+        manual = summarize_monthly_transactions(manual_rows)
+        self.assertEqual(manual['category_breakdown'][0]['category'], 'FOOD_AND_DRINK')
+        override.cleared_at = datetime.now()
+        self.assertEqual(effective_category(transaction, override), 'TRANSPORTATION')
+        for key in automatic:
+            if key != 'category_breakdown':
+                self.assertEqual(automatic[key], manual[key])
+        self.assertEqual(transaction.transaction_type, 'expense')
+        self.assertTrue(transaction.is_spending)
+        self.assertEqual(transaction.plaid_category, 'GENERAL_MERCHANDISE')
+        for merchant in ('Uber Eats Market', 'Uber Trip', 'Bare Meituan', 'Alipay*Meituan',
+                         'Weixin*Meituan', 'Duane Reade', 'Tulu', 'Lemonade.Com',
+                         'Global-e', 'Weixin', 'Qrcode0645', 'OpenAI Store'):
+            transaction.merchant_name = merchant
+            self.assertEqual(effective_category(transaction), 'GENERAL_MERCHANDISE')
+
     def test_weee_rule_precedence_and_exact_matching(self):
         transaction = SimpleNamespace(merchant_name='  WEEE  ', plaid_category='GENERAL_MERCHANDISE')
         self.assertEqual(effective_category(transaction), 'GROCERIES')
