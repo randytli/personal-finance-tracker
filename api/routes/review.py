@@ -111,12 +111,14 @@ def _transaction_scope(transaction_id):
         .join(
             Account,
             (Account.account_id == Transaction.account_id)
+            & (Account.account_id == RawTransaction.account_id)
             & (Account.item_id == Item.item_id),
         )
         .where(
             Transaction.transaction_id == transaction_id,
             Item.user_id == _user_id(),
             Item.status == "active",
+            Account.consumer_transactions_enabled.is_(True),
             RawTransaction.is_removed.is_(False),
         )
     )
@@ -138,6 +140,7 @@ def _review_filters(mode="needs_review", transaction_type="all"):
     filters = [
         Item.user_id == _user_id(),
         Item.status == "active",
+        Account.consumer_transactions_enabled.is_(True),
         RawTransaction.is_removed.is_(False),
     ]
     if mode == "credits_transfers":
@@ -184,6 +187,7 @@ async def transactions_needing_review(
         (
             Account,
             (Account.account_id == Transaction.account_id)
+            & (Account.account_id == RawTransaction.account_id)
             & (Account.item_id == Item.item_id),
         ),
     )

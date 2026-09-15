@@ -13,8 +13,8 @@ from api.models import ManualClassificationOverride
 from api.routes.analytics import summarize_monthly_transactions
 from api.routes.review import _review_ordering, _review_filters, _user_id
 from sqlalchemy.dialects import postgresql
-from sqlalchemy import select, create_engine, text
-from api.models import Transaction, RawTransaction, Item
+from sqlalchemy import select, create_engine, text, true
+from api.models import Transaction, RawTransaction, Item, Account
 
 
 def transaction(
@@ -42,6 +42,8 @@ class ManualReviewTests(unittest.TestCase):
         engine = create_engine("sqlite://")
         with engine.begin() as db:
             db.execute(text("CREATE TABLE items (item_id TEXT, user_id TEXT, status TEXT)"))
+            db.execute(text("CREATE TABLE accounts (consumer_transactions_enabled BOOLEAN)"))
+            db.execute(text("INSERT INTO accounts VALUES (true)"))
             db.execute(text("CREATE TABLE raw_transactions (transaction_id TEXT, item_id TEXT, is_removed BOOLEAN)"))
             db.execute(text("CREATE TABLE transactions (transaction_id TEXT, transaction_date TEXT, amount NUMERIC, transaction_type TEXT, is_internal_transfer BOOLEAN)"))
             db.execute(text("CREATE TABLE manual_classification_overrides (transaction_id TEXT, transaction_type TEXT)"))
@@ -70,6 +72,7 @@ class ManualReviewTests(unittest.TestCase):
                 statement = (select(Transaction.transaction_id)
                     .join(RawTransaction, RawTransaction.transaction_id == Transaction.transaction_id)
                     .join(Item, Item.item_id == RawTransaction.item_id)
+                    .join(Account, true())
                     .outerjoin(ManualClassificationOverride, ManualClassificationOverride.transaction_id == Transaction.transaction_id)
                     .where(*_review_filters(mode, kind))
                     .order_by(Transaction.transaction_date.desc(), Transaction.transaction_id)

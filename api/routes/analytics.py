@@ -56,6 +56,7 @@ async def _active_analytics_rows(start_date, end_date):
         .join(
             Account,
             (Account.account_id == Transaction.account_id)
+            & (Account.account_id == RawTransaction.account_id)
             & (Account.item_id == Item.item_id),
         )
         .outerjoin(
@@ -68,6 +69,7 @@ async def _active_analytics_rows(start_date, end_date):
             Transaction.transaction_date <= end_date,
             RawTransaction.is_removed.is_(False),
             Item.status == "active",
+            Account.consumer_transactions_enabled.is_(True),
             Item.user_id == os.environ.get("PLAID_PILOT_USER_ID", "local-sandbox-user"),
         )
     )

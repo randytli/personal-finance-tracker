@@ -24,7 +24,8 @@ from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.dialects.postgresql import insert
 from api.db import SessionLocal
-from api.models import Account, Item, RawTransaction, Transaction
+from api.models import Account, Item, RawTransaction, Transaction, LegacyConsumerRow
+from api.consumer_scope import initial_consumer_scope, account_type_drift
 import os, uuid
 
 router = APIRouter(prefix="/plaid")
@@ -474,11 +475,36 @@ async def update_item_status(item_id: str, data: ItemStatusUpdate):
     if item.status == "active" and data.status == "disabled":
         raise HTTPException(status_code=409, detail="Active Items cannot be disabled through this endpoint")
     async with SessionLocal() as db:
-        await db.execute(
-            update(Item).where(Item.item_id == item_id).values(status=data.status)
-        )
-        await db.commit()
+        async with db.begin():
+            await db.execute(select(Item).where(Item.item_id == item_id).with_for_update())
+            if data.status == "active":
+                await validate_consumer_activation(db, item_id)
+            await db.execute(
+                update(Item).where(Item.item_id == item_id).values(status=data.status)
+            )
     return {"item_id": item_id, "status": data.status}
+
+
+async def validate_consumer_activation(db, item_id):
+    accounts = {a.account_id: a for a in (await db.execute(
+        select(Account).where(Account.item_id == item_id)
+    )).scalars()}
+    if not any(a.consumer_transactions_enabled for a in accounts.values()):
+        raise HTTPException(409, "Discover at least one enabled consumer account before activation")
+    rows = (await db.execute(
+        select(RawTransaction, Transaction, LegacyConsumerRow)
+        .outerjoin(Transaction, Transaction.transaction_id == RawTransaction.transaction_id)
+        .outerjoin(LegacyConsumerRow, LegacyConsumerRow.transaction_id == RawTransaction.transaction_id)
+        .where(RawTransaction.item_id == item_id)
+    )).all()
+    for raw, normalized, legacy in rows:
+        account = accounts.get(raw.account_id)
+        if account is None or (normalized and normalized.account_id != raw.account_id):
+            raise HTTPException(409, "Consumer transaction account ownership is inconsistent")
+        if not account.consumer_transactions_enabled:
+            if (legacy is None or legacy.item_id != item_id or legacy.account_id != raw.account_id
+                    or (normalized and legacy.normalized_account_id != normalized.account_id)):
+                raise HTTPException(409, "New disabled-account consumer data requires investigation")
 
 
 @router.post("/link-token")
@@ -577,6 +603,10 @@ async def exchange_public_token(data: PublicTokenExchange):
 @router.get("/transactions")
 async def get_transactions(item_id: str = Query(..., min_length=1)):
     item = await _get_item(item_id, ("pending", "active"))
+    async with SessionLocal() as db:
+        discovered = await db.scalar(select(func.count()).select_from(Account).where(Account.item_id == item_id))
+        if not discovered:
+            raise HTTPException(409, "Discover accounts before transaction sync")
 
     client = get_client()
     access_token = decrypt_access_token(item.access_token)
@@ -584,9 +614,68 @@ async def get_transactions(item_id: str = Query(..., min_length=1)):
         client, access_token, item.transactions_cursor
     )
 
+    return await persist_consumer_transactions(
+        item.item_id, item.transactions_cursor, added, modified, removed, cursor, pages_fetched,
+    )
+
+
+async def persist_consumer_transactions(item_id, starting_cursor, added, modified, removed, cursor, pages_fetched):
+    accepted_added, accepted_modified, accepted_removed = [], [], []
+    skipped = {"added": 0, "modified": 0, "removed": 0}
     async with SessionLocal() as db:
         async with db.begin():
-            for transaction in added:
+            item = (await db.execute(select(Item).where(
+                Item.item_id == item_id, Item.user_id == _user_id(),
+                Item.status.in_(("pending", "active")),
+            ).with_for_update())).scalar_one_or_none()
+            if item is None or item.transactions_cursor != starting_cursor:
+                raise HTTPException(409, "Item changed during sync; retry")
+            accounts = {a.account_id: a for a in (await db.execute(
+                select(Account).where(Account.item_id == item_id).with_for_update()
+            )).scalars()}
+            ids = {t["transaction_id"] for t in added + modified + removed}
+            existing = {r.transaction_id: r for r in (await db.execute(
+                select(RawTransaction).where(RawTransaction.transaction_id.in_(ids))
+            )).scalars()}
+            batch_owners = {}
+            for kind, batch, accepted in (
+                ("added", added, accepted_added), ("modified", modified, accepted_modified),
+            ):
+                for transaction in batch:
+                    tid = transaction["transaction_id"]
+                    if tid in batch_owners and batch_owners[tid] != transaction["account_id"]:
+                        raise HTTPException(409, "Conflicting account ownership within sync batch")
+                    batch_owners[tid] = transaction["account_id"]
+                    account = accounts.get(transaction["account_id"])
+                    prior = existing.get(transaction["transaction_id"])
+                    if account is None:
+                        raise HTTPException(409, "Unknown or conflicting account; discover accounts before retrying")
+                    if prior and (prior.item_id != item_id or prior.account_id != transaction["account_id"]):
+                        raise HTTPException(409, "Transaction ownership conflict")
+                    if account.consumer_transactions_enabled:
+                        accepted.append(transaction)
+                    else:
+                        skipped[kind] += 1
+            for transaction in removed:
+                prior = existing.get(transaction["transaction_id"])
+                if prior is None:
+                    # An added/modified row can also be removed in a later page
+                    # of the same sync batch, before it exists in PostgreSQL.
+                    account_id = batch_owners.get(transaction["transaction_id"])
+                    if account_id is not None:
+                        if accounts[account_id].consumer_transactions_enabled:
+                            accepted_removed.append(transaction)
+                        else:
+                            skipped["removed"] += 1
+                    continue
+                account = accounts.get(prior.account_id)
+                if prior.item_id != item_id or account is None:
+                    raise HTTPException(409, "Removed transaction ownership conflict")
+                if account.consumer_transactions_enabled:
+                    accepted_removed.append(transaction)
+                else:
+                    skipped["removed"] += 1
+            for transaction in accepted_added:
                 payload = jsonable_encoder(transaction)
                 await db.execute(
                     insert(RawTransaction)
@@ -600,23 +689,31 @@ async def get_transactions(item_id: str = Query(..., min_length=1)):
                     .on_conflict_do_nothing(index_elements=["transaction_id"])
                 )
 
-            for transaction in modified:
+            for transaction in accepted_modified:
                 payload = jsonable_encoder(transaction)
-                await db.execute(
-                    update(RawTransaction)
-                    .where(
-                        RawTransaction.transaction_id == transaction["transaction_id"],
-                        RawTransaction.item_id == item.item_id,
-                    )
-                    .values(
+                statement = insert(RawTransaction).values(
+                        transaction_id=transaction["transaction_id"],
+                        item_id=item_id,
                         account_id=transaction["account_id"],
                         transaction_date=transaction["date"],
                         payload=payload,
                         is_removed=False,
-                    )
                 )
+                await db.execute(statement.on_conflict_do_update(
+                    index_elements=["transaction_id"],
+                    set_={"transaction_date": transaction["date"], "payload": payload, "is_removed": False},
+                    where=(RawTransaction.item_id == item_id)
+                        & (RawTransaction.account_id == transaction["account_id"]),
+                ))
 
-            for transaction in removed:
+            # Also catch concurrent cross-Item inserts that raced the initial lookup.
+            for transaction in accepted_added + accepted_modified:
+                owner = (await db.execute(select(RawTransaction.item_id, RawTransaction.account_id)
+                    .where(RawTransaction.transaction_id == transaction["transaction_id"]))).one()
+                if owner != (item_id, transaction["account_id"]):
+                    raise HTTPException(409, "Transaction ownership conflict")
+
+            for transaction in accepted_removed:
                 await db.execute(
                     update(RawTransaction)
                     .where(
@@ -633,13 +730,14 @@ async def get_transactions(item_id: str = Query(..., min_length=1)):
             )
 
     return {
-        "added": added,
-        "modified": modified,
-        "removed": removed,
+        "added": accepted_added,
+        "modified": accepted_modified,
+        "removed": accepted_removed,
         "next_cursor": cursor,
-        "added_count": len(added),
-        "modified_count": len(modified),
-        "removed_count": len(removed),
+        "added_count": len(accepted_added),
+        "modified_count": len(accepted_modified),
+        "removed_count": len(accepted_removed),
+        "skipped_disabled_counts": skipped,
         "pages_fetched": pages_fetched,
     }
 
@@ -654,20 +752,44 @@ async def get_accounts(item_id: str = Query(..., min_length=1)):
     except plaid.ApiException as exc:
         raise _plaid_failure() from exc
 
+    return await persist_account_metadata(item.item_id, accounts)
+
+
+async def persist_account_metadata(item_id, accounts):
+    drift = []
+    safe_accounts = []
     async with SessionLocal() as db:
         async with db.begin():
+            item = (await db.execute(select(Item).where(
+                Item.item_id == item_id, Item.user_id == _user_id(),
+                Item.status.in_(("active", "pending")),
+            ).with_for_update())).scalar_one_or_none()
+            if item is None:
+                raise HTTPException(404, "Item not found")
             for account in accounts:
+                existing = await db.get(Account, account["account_id"])
+                if existing and existing.item_id != item_id:
+                    raise HTTPException(409, "Account ownership conflict")
                 values = {
                     "account_id": account["account_id"],
                     "item_id": item.item_id,
                     "name": account["name"],
                     "official_name": account.get("official_name"),
-                    "type": getattr(account["type"], "value", account["type"]),
+                    "type": getattr(account.get("type"), "value", account.get("type")) or "unknown",
                     "subtype": getattr(account.get("subtype"), "value", account.get("subtype")),
                     "mask": account.get("mask"),
                 }
+                values["consumer_transactions_enabled"] = (
+                    existing.consumer_transactions_enabled if existing
+                    else initial_consumer_scope(values["type"])
+                )
+                if existing:
+                    change = account_type_drift(existing, values["type"], values["subtype"])
+                    if change:
+                        drift.append(change)
+                safe_accounts.append({k: v for k, v in values.items() if k != "item_id"})
                 statement = insert(Account).values(**values)
-                await db.execute(
+                saved_id = await db.scalar(
                     statement.on_conflict_do_update(
                         index_elements=["account_id"],
                         set_={
@@ -678,12 +800,16 @@ async def get_accounts(item_id: str = Query(..., min_length=1)):
                             "mask": values["mask"],
                             "updated_at": func.now(),
                         },
-                    )
+                        where=Account.item_id == item_id,
+                    ).returning(Account.account_id)
                 )
+                if saved_id is None:
+                    raise HTTPException(409, "Account ownership conflict")
 
     return {
-        "accounts": jsonable_encoder(accounts),
+        "accounts": safe_accounts,
         "account_count": len(accounts),
+        "type_drift": drift,
     }
 
 @router.post("/transactions/normalize")
@@ -691,9 +817,12 @@ async def normalize_transactions(item_id: str = Query(..., min_length=1)):
     item = await _get_item(item_id, ("pending", "active"))
     async with SessionLocal() as db:
         result = await db.execute(
-            select(RawTransaction).where(
+            select(RawTransaction).join(Account,
+                (Account.account_id == RawTransaction.account_id)
+                & (Account.item_id == RawTransaction.item_id)).where(
                 RawTransaction.item_id == item.item_id,
                 RawTransaction.is_removed.is_(False),
+                Account.consumer_transactions_enabled.is_(True),
             )
         )
         raw_transactions = result.scalars().all()
@@ -740,7 +869,11 @@ async def classify_transactions():
             select(Transaction)
             .join(RawTransaction, RawTransaction.transaction_id == Transaction.transaction_id)
             .join(Item, Item.item_id == RawTransaction.item_id)
+            .join(Account, (Account.account_id == Transaction.account_id)
+                  & (Account.account_id == RawTransaction.account_id)
+                  & (Account.item_id == Item.item_id))
             .where(
+                Account.consumer_transactions_enabled.is_(True),
                 Item.user_id == _user_id(),
                 Item.status.in_(("active", "pending")),
                 RawTransaction.is_removed.is_(False),
@@ -752,6 +885,7 @@ async def classify_transactions():
             .join(Item, Item.item_id == Account.item_id)
             .where(
                 Account.type == "credit",
+                Account.consumer_transactions_enabled.is_(True),
                 Item.user_id == _user_id(),
                 Item.status.in_(("active", "pending")),
             )
@@ -762,6 +896,7 @@ async def classify_transactions():
             .join(Item, Item.item_id == Account.item_id)
             .where(
                 Account.type == "credit",
+                Account.consumer_transactions_enabled.is_(True),
                 Item.institution_id == AMERICAN_EXPRESS_INSTITUTION_ID,
                 Item.user_id == _user_id(),
                 Item.status.in_(("active", "pending")),

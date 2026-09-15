@@ -3,6 +3,40 @@ import os
 from sqlalchemy import text
 
 
+async def migrate_consumer_scope(connection):
+    # NULL marks legacy accounts only; explicit decisions are never reset.
+    await connection.execute(text(
+        "ALTER TABLE accounts ADD COLUMN IF NOT EXISTS consumer_transactions_enabled BOOLEAN"
+    ))
+    await connection.execute(text(
+        "CREATE TABLE IF NOT EXISTS consumer_scope_migrations (version INTEGER PRIMARY KEY)"
+    ))
+    await connection.execute(text(
+        "CREATE TABLE IF NOT EXISTS legacy_consumer_rows (transaction_id VARCHAR PRIMARY KEY, "
+        "item_id VARCHAR NOT NULL, account_id VARCHAR NOT NULL, normalized_account_id VARCHAR)"
+    ))
+    # Snapshot once, including enabled accounts that might be disabled in a future phase.
+    # Serialize initialization and never grandfather newly ingested rows on reruns.
+    await connection.execute(text("LOCK TABLE consumer_scope_migrations IN EXCLUSIVE MODE"))
+    if not await connection.scalar(text("SELECT count(*) FROM consumer_scope_migrations WHERE version=1")):
+        await connection.execute(text(
+            "INSERT INTO legacy_consumer_rows "
+            "SELECT r.transaction_id, r.item_id, r.account_id, t.account_id "
+            "FROM raw_transactions r LEFT JOIN transactions t USING (transaction_id)"
+        ))
+        await connection.execute(text("INSERT INTO consumer_scope_migrations VALUES (1)"))
+    await connection.execute(text(
+        "UPDATE accounts SET consumer_transactions_enabled = "
+        "COALESCE(type IN ('credit','depository'), false) WHERE consumer_transactions_enabled IS NULL"
+    ))
+    await connection.execute(text(
+        "ALTER TABLE accounts ALTER COLUMN consumer_transactions_enabled SET DEFAULT false"
+    ))
+    await connection.execute(text(
+        "ALTER TABLE accounts ALTER COLUMN consumer_transactions_enabled SET NOT NULL"
+    ))
+
+
 async def migrate_manual_categories(connection):
     from api.categories import CATEGORY_CHECK
     from api.models import ManualCategoryOverride

@@ -121,7 +121,8 @@ class CategoryDatabaseTests(unittest.IsolatedAsyncioTestCase):
                 db.add(Item(item_id='synthetic', user_id='local-sandbox-user', institution_id='ins_test',
                     institution_name='Synthetic', status='active', access_token='synthetic-only'))
             async with db.begin():
-                db.add(Account(account_id='account', item_id='synthetic', name='Test', type='credit'))
+                db.add(Account(account_id='account', item_id='synthetic', name='Test', type='credit',
+                               consumer_transactions_enabled=True))
                 db.add(RawTransaction(transaction_id='t', item_id='synthetic', account_id='account',
                     transaction_date=date(2026, 8, 1), payload={'amount': 12.34, 'name': 'Synthetic',
                     'personal_finance_category': {'primary': 'ENTERTAINMENT'}}))

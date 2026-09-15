@@ -67,10 +67,19 @@ class Account(Base):
     type = Column(String, nullable=False)
     subtype = Column(String, nullable=True)
     mask = Column(String, nullable=True)
+    consumer_transactions_enabled = Column(Boolean, nullable=False, default=False, server_default="false")
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
     __table_args__ = (Index("ix_accounts_item_id", "item_id"),)
+
+class LegacyConsumerRow(Base):
+    """Migration-time identity snapshot; never populated by ingestion."""
+    __tablename__ = "legacy_consumer_rows"
+    transaction_id = Column(String, primary_key=True)
+    item_id = Column(String, nullable=False)
+    account_id = Column(String, nullable=False)
+    normalized_account_id = Column(String, nullable=True)
 
 class Transaction(Base):
     __tablename__ = "transactions"
