@@ -1,0 +1,7 @@
+Date,Time,Cardholder,Amount,Points,Balance,Status,Type,Merchant,Description
+2026-02-04,3:00 PM,Synthetic User,20.00,60,20.00,Posted,Purchase,"Test, Market",Synthetic purchase
+2026-07-21,1:00 PM,Synthetic User,-5.00,-15,15.00,Posted,Refund,Test Market,Synthetic refund
+2026-07-21,2:00 PM,Synthetic User,-10.00,0,5.00,Posted,Payment,,Synthetic payment
+2026-07-21,3:00 PM,Synthetic User,2.00,0,7.00,Posted,Fee,,Synthetic fee
+2026-07-20,3:00 PM,Synthetic User,8.00,0,7.00,Declined,Purchase,Test Market,Synthetic decline
+2026-07-22,3:00 PM,Synthetic User,9.00,27,16.00,Posted,Purchase,Test Market,After cutoff
