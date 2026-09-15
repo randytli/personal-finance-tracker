@@ -13,7 +13,8 @@ import {
   YAxis,
 } from 'recharts'
 import AccountBadge from '@/components/account-badge'
-import CategoryEditor, { type CategoryDetail } from '@/components/category-editor'
+import CategoryEditor, { mergeCategoryDetail, mutateCategoryOverride, type CategoryDetail } from '@/components/category-editor'
+import { CategoryBadge } from '@/components/category-display'
 import InstitutionBadge from '@/components/institution-badge'
 import LabelEditor, { mergeLabelDetail, type LabelDetail, useLabelOptions } from '@/components/label-editor'
 import PlaidLinkButton from '@/components/plaid-link-button'
@@ -121,20 +122,18 @@ export default function HomePage() {
     return () => { active = false }
   }, [])
 
-  async function saveCategory(detail: CategoryDetail, category: string | null, undo = false) {
+  async function saveCategory(detail: CategoryDetail, category: string | null, undo = false): Promise<boolean> {
     setCategoryBusy(true)
     setError('')
     try {
-      const response = await fetch(`/api/pft/review/transactions/${encodeURIComponent(detail.transaction_id)}/category-override`, {
-        method: category === null ? 'DELETE' : 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: category === null ? undefined : JSON.stringify({ category }),
-      })
-      if (!response.ok) throw new Error('Category change could not be saved. Refresh and try again.')
+      const changed = await mutateCategoryOverride(detail.transaction_id, category)
       setCategoryUndo(undo ? null : { detail, previous: detail.override_category })
+      setDetails(current => current.map(value => mergeCategoryDetail(value, changed)))
       setCategoryRevision(value => value + 1)
+      return true
     } catch (error) {
       setError(error instanceof Error ? error.message : 'Category change failed.')
+      return false
     } finally { setCategoryBusy(false) }
   }
 
@@ -327,7 +326,7 @@ export default function HomePage() {
                           transactionType: categoryMode === 'gross' ? 'expense' : 'refund',
                         })}
                       >
-                        <td className="p-3 font-medium">{category.category.replace(/_/g, ' ')}</td>
+                        <td className="p-3 font-medium"><CategoryBadge category={category.category} /></td>
                         <td>{money(categoryMode === 'gross' ? category.gross_spending : category.refunds)}</td>
                         <td>{categoryMode === 'gross' ? category.expense_transaction_count : category.refund_transaction_count}</td>
                       </tr>
@@ -377,7 +376,12 @@ export default function HomePage() {
               <div className="flex items-start justify-between p-5">
                 <div>
                   <h2 className="text-lg font-semibold">Transaction Details</h2>
-                  <p className="text-sm text-muted-foreground">{month} · {detailFilter.category || detailFilter.transactionType}</p>
+                  <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+                    <span>{month}</span><span>·</span>
+                    {detailFilter.category
+                      ? <CategoryBadge category={detailFilter.category} />
+                      : <span>{detailFilter.transactionType?.replace(/_/g, ' ')}</span>}
+                  </div>
                   {detailFilter.secondary && (
                     <button type="button" className="my-2 rounded-full border border-blue-300 bg-blue-50 px-3 py-1 text-sm" onClick={() => setDetailFilter({ ...detailFilter, secondary: undefined })}>
                       {detailFilter.secondary.institution_name}

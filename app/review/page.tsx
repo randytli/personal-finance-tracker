@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import AccountBadge from '@/components/account-badge'
+import { CategoryBadge } from '@/components/category-display'
 import LabelEditor, { mergeLabelDetail, type LabelDetail, useLabelOptions } from '@/components/label-editor'
 
 const TYPES = ['expense', 'refund', 'income', 'card_benefit', 'payment', 'transfer', 'adjustment'] as const
@@ -181,7 +182,9 @@ export default function ReviewPage() {
                 <p className="mt-2 text-xs text-muted-foreground">
                   {transaction.transaction_date} · {transaction.institution_name} · {transaction.account_name} · {transaction.account_type}
                 </p>
-                <p className="mt-1 text-xs text-muted-foreground">Plaid category: {transaction.plaid_category || 'Uncategorized'}</p>
+                <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                  <span>Plaid category</span><CategoryBadge category={transaction.plaid_category} />
+                </div>
                 {mode === 'credits_transfers' && <p className="mt-1 text-sm">
                   Effective type: {transaction.effective_transaction_type?.replace('_', ' ') || 'unclassified'}
                   {transaction.override_transaction_type && ` · Automatic: ${transaction.automatic_transaction_type?.replace('_', ' ') || 'unclassified'}`}
