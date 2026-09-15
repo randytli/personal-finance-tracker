@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import AccountBadge from '@/components/account-badge'
-import LabelEditor, { type LabelDetail } from '@/components/label-editor'
+import LabelEditor, { mergeLabelDetail, type LabelDetail, useLabelOptions } from '@/components/label-editor'
 
 const TYPES = ['expense', 'refund', 'income', 'card_benefit', 'payment', 'transfer', 'adjustment'] as const
 type TransactionType = typeof TYPES[number]
@@ -41,6 +41,7 @@ export default function ReviewPage() {
   const [typeFilter, setTypeFilter] = useState('all')
   const [offset, setOffset] = useState(0)
   const requestId = useRef(0)
+  const labelOptions = useLabelOptions()
 
   const load = useCallback(async () => {
     const id = ++requestId.current
@@ -115,6 +116,10 @@ export default function ReviewPage() {
     } finally {
       setBusy(null)
     }
+  }
+
+  function updateLabels(changed: LabelDetail) {
+    setTransactions(current => current.map(transaction => mergeLabelDetail(transaction, changed)))
   }
 
   return (
@@ -209,7 +214,9 @@ export default function ReviewPage() {
                   onClick={() => clearOverride(transaction)}>Restore automatic</button>
               )}
             </div>
-            <LabelEditor detail={transaction} onChanged={() => { void load() }} />
+            <LabelEditor detail={transaction} options={labelOptions.options}
+              optionsLoading={labelOptions.loading} optionsError={labelOptions.error}
+              onRetryOptions={labelOptions.retry} onChanged={updateLabels} />
           </article>
         ))}
       </div>

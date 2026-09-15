@@ -15,7 +15,7 @@ import {
 import AccountBadge from '@/components/account-badge'
 import CategoryEditor, { type CategoryDetail } from '@/components/category-editor'
 import InstitutionBadge from '@/components/institution-badge'
-import LabelEditor, { type LabelDetail } from '@/components/label-editor'
+import LabelEditor, { mergeLabelDetail, type LabelDetail, useLabelOptions } from '@/components/label-editor'
 import PlaidLinkButton from '@/components/plaid-link-button'
 
 type Category = {
@@ -111,7 +111,7 @@ export default function HomePage() {
   const [categoryBusy, setCategoryBusy] = useState(false)
   const [categoryRevision, setCategoryRevision] = useState(0)
   const [categoryUndo, setCategoryUndo] = useState<{ detail: CategoryDetail; previous: string | null } | null>(null)
-  const [labelRevision, setLabelRevision] = useState(0)
+  const labelOptions = useLabelOptions()
 
   useEffect(() => {
     let active = true
@@ -199,7 +199,11 @@ export default function HomePage() {
       })
       .catch(() => { if (active) setError('Transaction details could not be loaded.') })
     return () => { active = false }
-  }, [detailFilter, month, categoryRevision, labelRevision])
+  }, [detailFilter, month, categoryRevision])
+
+  function updateLabels(changed: LabelDetail) {
+    setDetails(current => current.map(detail => mergeLabelDetail(detail, changed)))
+  }
 
   const chartData = useMemo(() => trend.map((value) => ({
     month: value.month.slice(5),
@@ -387,8 +391,8 @@ export default function HomePage() {
               </div>
               <div className="divide-y">
                 {details.map((detail) => (
-                  <div key={detail.transaction_id} className="flex flex-wrap items-center justify-between gap-3 p-4">
-                    <div>
+                  <div key={detail.transaction_id} className="flex flex-wrap items-start justify-between gap-3 p-4">
+                    <div className="min-w-0 flex-1">
                       <p className="font-medium">{detail.merchant_name || detail.description || 'Unknown transaction'}</p>
                       <p className="text-sm text-muted-foreground">{detail.transaction_date} · {detail.description} · {detail.transaction_type.replace(/_/g, ' ')}</p>
                       {detail.institution_name && detail.account_name && (
@@ -396,8 +400,12 @@ export default function HomePage() {
                       )}
                     </div>
                     <p className="font-semibold">{money(detail.amount)}</p>
-                    <CategoryEditor detail={detail} options={categoryOptions} busy={categoryBusy} save={saveCategory} />
-                    <LabelEditor detail={detail} onChanged={() => setLabelRevision(value => value + 1)} />
+                    <div className="grid w-full gap-x-5 md:grid-cols-2">
+                      <CategoryEditor detail={detail} options={categoryOptions} busy={categoryBusy} save={saveCategory} />
+                      <LabelEditor detail={detail} options={labelOptions.options}
+                        optionsLoading={labelOptions.loading} optionsError={labelOptions.error}
+                        onRetryOptions={labelOptions.retry} onChanged={updateLabels} />
+                    </div>
                   </div>
                 ))}
               </div>
