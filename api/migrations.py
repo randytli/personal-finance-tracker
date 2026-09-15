@@ -3,6 +3,22 @@ import os
 from sqlalchemy import text
 
 
+async def migrate_transaction_labels(connection):
+    from api.labels import LABEL_CHECK
+    from api.models import ManualTransactionLabelOverride
+    await connection.run_sync(
+        lambda sync: ManualTransactionLabelOverride.__table__.create(sync, checkfirst=True)
+    )
+    await connection.execute(text(
+        "ALTER TABLE manual_transaction_label_overrides "
+        "DROP CONSTRAINT IF EXISTS ck_manual_transaction_label"
+    ))
+    await connection.execute(text(
+        "ALTER TABLE manual_transaction_label_overrides "
+        f"ADD CONSTRAINT ck_manual_transaction_label CHECK ({LABEL_CHECK})"
+    ))
+
+
 async def migrate_statement_imports(connection):
     from api.models import StatementImportBatch, StatementImportRow
     for table in (StatementImportBatch.__table__, StatementImportRow.__table__):

@@ -9,6 +9,7 @@ from sqlalchemy import select
 
 from api.classification import ALLOWED_TRANSACTION_TYPES, effective_classification
 from api.categories import active_category, effective_category, category_editable
+from api.labels import ALLOWED_LABELS, label_result, load_label_overrides
 from api.models import ManualCategoryOverride
 from api.db import SessionLocal
 from api.models import Account, Item, ManualClassificationOverride, RawTransaction, Transaction
@@ -336,17 +337,29 @@ async def analytics_transactions(
     offset: int = Query(0, ge=0),
     institution_id: str | None = None,
     account_id: str | None = None,
+    label: str | None = None,
 ):
     if transaction_type is not None and transaction_type not in DETAIL_TYPES:
         raise HTTPException(status_code=422, detail="unsupported transaction type")
+    if label is not None and label not in ALLOWED_LABELS:
+        raise HTTPException(status_code=422, detail="unsupported transaction label")
     details = transaction_details(
         await _active_month_rows(month), category, transaction_type, institution_id, account_id
     )
+    async with SessionLocal() as db:
+        overrides = await load_label_overrides(db, [detail["transaction_id"] for detail in details])
+    details = [
+        {**detail, **label_result(detail, overrides.get(detail["transaction_id"], ()))}
+        for detail in details
+    ]
+    if label is not None:
+        details = [detail for detail in details if label in detail["effective_labels"]]
     page = details[offset : offset + limit]
     return {
         "month": month,
         "category": category,
         "transaction_type": transaction_type,
+        "label": label,
         "total": len(details),
         "limit": limit,
         "offset": offset,

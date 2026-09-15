@@ -5,6 +5,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import declarative_base
 from api.categories import CATEGORY_CHECK
+from api.labels import LABEL_CHECK
 
 Base = declarative_base()
 
@@ -130,6 +131,25 @@ class ManualClassificationOverride(Base):
     updated_at = Column(DateTime, nullable=False, server_default=func.now())
     cleared_by = Column(String, nullable=True)
     cleared_at = Column(DateTime, nullable=True)
+
+
+class ManualTransactionLabelOverride(Base):
+    __tablename__ = "manual_transaction_label_overrides"
+    __table_args__ = (
+        CheckConstraint(LABEL_CHECK, name="ck_manual_transaction_label"),
+        CheckConstraint("decision IS NULL OR decision IN ('include','exclude')",
+                        name="ck_manual_transaction_label_decision"),
+        Index("ix_manual_transaction_labels_updated_at", "updated_at"),
+    )
+    transaction_id = Column(String, ForeignKey("transactions.transaction_id"), primary_key=True)
+    label = Column(String, primary_key=True)
+    decision = Column(String)
+    created_by = Column(String, nullable=False)
+    created_at = Column(DateTime, nullable=False, server_default=func.now())
+    updated_by = Column(String, nullable=False)
+    updated_at = Column(DateTime, nullable=False, server_default=func.now())
+    cleared_by = Column(String)
+    cleared_at = Column(DateTime)
 
 
 class StatementImportBatch(Base):

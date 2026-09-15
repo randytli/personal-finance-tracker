@@ -15,6 +15,7 @@ import {
 import AccountBadge from '@/components/account-badge'
 import CategoryEditor, { type CategoryDetail } from '@/components/category-editor'
 import InstitutionBadge from '@/components/institution-badge'
+import LabelEditor, { type LabelDetail } from '@/components/label-editor'
 import PlaidLinkButton from '@/components/plaid-link-button'
 
 type Category = {
@@ -53,7 +54,7 @@ type BreakdownGroup = {
   card_benefits: string
   net_spending: string
 }
-type Detail = CategoryDetail & {
+type Detail = CategoryDetail & LabelDetail & {
   transaction_id: string
   transaction_date: string
   institution_name: string | null
@@ -110,6 +111,7 @@ export default function HomePage() {
   const [categoryBusy, setCategoryBusy] = useState(false)
   const [categoryRevision, setCategoryRevision] = useState(0)
   const [categoryUndo, setCategoryUndo] = useState<{ detail: CategoryDetail; previous: string | null } | null>(null)
+  const [labelRevision, setLabelRevision] = useState(0)
 
   useEffect(() => {
     let active = true
@@ -197,7 +199,7 @@ export default function HomePage() {
       })
       .catch(() => { if (active) setError('Transaction details could not be loaded.') })
     return () => { active = false }
-  }, [detailFilter, month, categoryRevision])
+  }, [detailFilter, month, categoryRevision, labelRevision])
 
   const chartData = useMemo(() => trend.map((value) => ({
     month: value.month.slice(5),
@@ -395,6 +397,7 @@ export default function HomePage() {
                     </div>
                     <p className="font-semibold">{money(detail.amount)}</p>
                     <CategoryEditor detail={detail} options={categoryOptions} busy={categoryBusy} save={saveCategory} />
+                    <LabelEditor detail={detail} onChanged={() => setLabelRevision(value => value + 1)} />
                   </div>
                 ))}
               </div>

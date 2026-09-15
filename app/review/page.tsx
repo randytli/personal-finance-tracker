@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import AccountBadge from '@/components/account-badge'
+import LabelEditor, { type LabelDetail } from '@/components/label-editor'
 
 const TYPES = ['expense', 'refund', 'income', 'card_benefit', 'payment', 'transfer', 'adjustment'] as const
 type TransactionType = typeof TYPES[number]
@@ -10,7 +11,7 @@ const CREDIT_TYPES = ['refund', 'income', 'transfer', 'card_benefit', 'adjustmen
 const FILTERS = ['all', 'transfer', 'income', 'refund', 'card_benefit', 'unclassified'] as const
 const PAGE_SIZE = 50
 
-type ReviewTransaction = {
+type ReviewTransaction = LabelDetail & {
   transaction_id: string
   transaction_date: string
   institution_name: string
@@ -208,6 +209,7 @@ export default function ReviewPage() {
                   onClick={() => clearOverride(transaction)}>Restore automatic</button>
               )}
             </div>
+            <LabelEditor detail={transaction} onChanged={() => { void load() }} />
           </article>
         ))}
       </div>

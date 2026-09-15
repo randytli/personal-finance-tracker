@@ -55,7 +55,10 @@ class AnalyticsPhaseOneTests(unittest.TestCase):
         self.assertEqual(ids("ins_56", "gold"), [])
         self.assertEqual(ids("ins_10", "gold", "refund"), ["manual-refund"])
         self.assertEqual(summarize_monthly_transactions(rows), baseline)
-        with patch("api.routes.analytics._active_month_rows", AsyncMock(return_value=rows)):
+        with (
+            patch("api.routes.analytics._active_month_rows", AsyncMock(return_value=rows)),
+            patch("api.routes.analytics.load_label_overrides", AsyncMock(return_value={})),
+        ):
             result = asyncio.run(analytics_transactions(
                 "2026-08", "GENERAL_MERCHANDISE", "expense", 1, 1, "ins_10", None
             ))
@@ -142,7 +145,10 @@ class AnalyticsPhaseOneTests(unittest.TestCase):
             (transaction("old", date(2026, 8, 1), "-1", "expense"), False),
             (transaction("new", date(2026, 8, 2), "-2", "expense"), False),
         ]
-        with patch("api.routes.analytics._active_month_rows", AsyncMock(return_value=rows)):
+        with (
+            patch("api.routes.analytics._active_month_rows", AsyncMock(return_value=rows)),
+            patch("api.routes.analytics.load_label_overrides", AsyncMock(return_value={})),
+        ):
             result = asyncio.run(analytics_transactions("2026-08", None, "expense", 1, 1))
             self.assertEqual(result["total"], 2)
             self.assertEqual(result["transactions"][0]["transaction_id"], "old")

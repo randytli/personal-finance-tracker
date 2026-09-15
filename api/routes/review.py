@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, field_validator
 from datetime import datetime, timezone
 from api.categories import MANUAL_CATEGORIES, active_category, effective_category, category_editable
+from api.labels import ALLOWED_LABELS, label_result, load_label_overrides
 from api.models import ManualCategoryOverride
 from sqlalchemy import case, func, select, update
 from sqlalchemy.dialects.postgresql import insert
@@ -16,6 +17,7 @@ from api.models import (
     Account,
     Item,
     ManualClassificationOverride,
+    ManualTransactionLabelOverride,
     RawTransaction,
     Transaction,
 )
@@ -39,6 +41,15 @@ class CategoryRequest(BaseModel):
 async def category_options():
     return {'categories': [{'value': value, 'label': value.replace('_', ' ').title()}
                            for value in MANUAL_CATEGORIES]}
+
+
+class LabelDecisionRequest(BaseModel):
+    decision: Literal["include", "exclude"]
+
+
+@router.get("/labels")
+async def label_options():
+    return {"labels": [{"value": value, "label": value.title()} for value in ALLOWED_LABELS]}
 
 
 def category_result(transaction, override):
@@ -122,6 +133,67 @@ def _transaction_scope(transaction_id):
             RawTransaction.is_removed.is_(False),
         )
     )
+
+
+def _label_transaction_scope(transaction_id):
+    return (
+        select(Transaction)
+        .join(RawTransaction, RawTransaction.transaction_id == Transaction.transaction_id)
+        .join(Item, Item.item_id == RawTransaction.item_id)
+        .join(Account, (Account.account_id == Transaction.account_id)
+              & (Account.account_id == RawTransaction.account_id)
+              & (Account.item_id == Item.item_id))
+        .where(Transaction.transaction_id == transaction_id, Item.user_id == _user_id(),
+               Item.status.in_(("active", "pending")),
+               Account.consumer_transactions_enabled.is_(True),
+               RawTransaction.is_removed.is_(False))
+    )
+
+
+async def mutate_label(transaction_id, label, decision):
+    if label not in ALLOWED_LABELS:
+        raise HTTPException(422, "unsupported transaction label")
+    actor = _user_id()
+    async with SessionLocal() as db:
+        async with db.begin():
+            transaction = (await db.execute(
+                _label_transaction_scope(transaction_id).with_for_update()
+            )).scalar_one_or_none()
+            if transaction is None:
+                raise HTTPException(404, "transaction not found")
+            override = await db.get(ManualTransactionLabelOverride, (transaction_id, label))
+            active = (override.decision if override is not None
+                      and override.decision is not None and override.cleared_at is None else None)
+            if active == decision or (decision is None and active is None):
+                overrides = (await db.execute(select(ManualTransactionLabelOverride).where(
+                    ManualTransactionLabelOverride.transaction_id == transaction_id))).scalars().all()
+                return {"transaction_id": transaction_id, **label_result(transaction, overrides)}
+            now = datetime.now(timezone.utc).replace(tzinfo=None)
+            if override is None:
+                override = ManualTransactionLabelOverride(
+                    transaction_id=transaction_id, label=label,
+                    created_by=actor, created_at=now,
+                )
+                db.add(override)
+            override.decision = decision
+            override.updated_by = actor
+            override.updated_at = now
+            override.cleared_by = actor if decision is None else None
+            override.cleared_at = now if decision is None else None
+            await db.flush()
+            overrides = (await db.execute(select(ManualTransactionLabelOverride).where(
+                ManualTransactionLabelOverride.transaction_id == transaction_id))).scalars().all()
+            return {"transaction_id": transaction_id, **label_result(transaction, overrides)}
+
+
+@router.put("/transactions/{transaction_id}/labels/{label}")
+async def set_label_override(transaction_id: str, label: str, request: LabelDecisionRequest):
+    return await mutate_label(transaction_id, label, request.decision)
+
+
+@router.delete("/transactions/{transaction_id}/labels/{label}")
+async def clear_label_override(transaction_id: str, label: str):
+    return await mutate_label(transaction_id, label, None)
 
 
 def _review_ordering():
@@ -217,6 +289,9 @@ async def transactions_needing_review(
             .limit(limit)
         )
         rows = (await db.execute(statement)).all()
+        label_overrides = await load_label_overrides(
+            db, [transaction.transaction_id for transaction, _, _, _ in rows]
+        )
 
     return {
         "total": total or 0,
@@ -232,6 +307,7 @@ async def transactions_needing_review(
                 "description": transaction.description,
                 "amount": _money(transaction.amount),
                 "plaid_category": transaction.plaid_category,
+                **label_result(transaction, label_overrides.get(transaction.transaction_id, ())),
                 **_result(transaction, override_type),
             }
             for transaction, account, item, override_type in rows
