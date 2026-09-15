@@ -117,6 +117,22 @@ class CategoryTests(unittest.TestCase):
             with self.assertRaises(ValidationError):
                 CategoryRequest(category=invalid)
 
+    def test_explicit_uncategorized_override_and_clear_precedence(self):
+        transfer = SimpleNamespace(merchant_name='Other', plaid_category='TRANSFER_OUT')
+        override = SimpleNamespace(category='UNCATEGORIZED', cleared_at=None)
+        self.assertEqual(effective_category(transfer, override), 'UNCATEGORIZED')
+        override.cleared_at = datetime.now()
+        self.assertEqual(effective_category(transfer, override), 'TRANSFER_OUT')
+
+        ruled = SimpleNamespace(merchant_name='WEEE', plaid_category='GENERAL_MERCHANDISE')
+        override.cleared_at = None
+        self.assertEqual(effective_category(ruled, override), 'UNCATEGORIZED')
+        override.cleared_at = datetime.now()
+        self.assertEqual(effective_category(ruled, override), 'GROCERIES')
+        self.assertEqual(CategoryRequest(category='UNCATEGORIZED').category, 'UNCATEGORIZED')
+        self.assertIn({'value': 'UNCATEGORIZED', 'label': 'Uncategorized'},
+                      asyncio.run(category_options())['categories'])
+
     def test_groceries_effective_analytics(self):
         transaction = SimpleNamespace(transaction_id='g', transaction_date=date(2026, 8, 1),
             amount=Decimal('-12.34'), plaid_category='GENERAL_MERCHANDISE',
@@ -191,17 +207,25 @@ class CategoryDatabaseTests(unittest.IsolatedAsyncioTestCase):
                 return (await connection.execute(text('SELECT * FROM manual_category_overrides'))).all()
         await mutate_category('t', 'GENERAL_MERCHANDISE')
         saved = await snapshot()
-        # Simulate the pre-GROCERIES constraint on a populated existing table.
+        # Simulate the previous constraint on a populated existing table.
         from api.categories import CATEGORY_CHECK
         async with engine.begin() as connection:
             await connection.execute(text("ALTER TABLE manual_category_overrides DROP CONSTRAINT ck_manual_category"))
-            old_check = CATEGORY_CHECK.replace("'GROCERIES',", "")
+            old_check = CATEGORY_CHECK.replace(",'UNCATEGORIZED'", "")
             await connection.execute(text(
                 f"ALTER TABLE manual_category_overrides ADD CONSTRAINT ck_manual_category CHECK ({old_check})"))
         await init_db()
         self.assertEqual(saved, await snapshot())
         await init_db()
         self.assertEqual(saved, await snapshot())
+        result = await mutate_category('t', CategoryRequest(category='UNCATEGORIZED').category)
+        self.assertEqual(result['effective_category'], 'UNCATEGORIZED')
+        uncategorized_saved = await snapshot()
+        await init_db()
+        await init_db()
+        self.assertEqual(uncategorized_saved, await snapshot())
+        result = await mutate_category('t', None)
+        self.assertEqual(result['effective_category'], 'ENTERTAINMENT')
         result = await mutate_category('t', CategoryRequest(category='GROCERIES').category)
         self.assertEqual(result['effective_category'], 'GROCERIES')
         groceries_saved = await snapshot()
