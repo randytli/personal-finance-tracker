@@ -9,6 +9,7 @@ import {
   HeartPulse,
   House,
   Landmark,
+  MonitorPlay,
   Plane,
   Pencil,
   ReceiptText,
@@ -45,16 +46,39 @@ const CATEGORY_METADATA: Record<string, CategoryMetadata> = {
   UNCATEGORIZED: { label: 'Uncategorized', icon: CircleHelp },
 }
 
+const BENEFIT_CATEGORY_METADATA: Record<string, CategoryMetadata> = {
+  DINING_CREDIT: { label: 'Dining', icon: Utensils },
+  TRAVEL_CREDIT: { label: 'Travel', icon: Plane },
+  SHOPPING_CREDIT: { label: 'Shopping', icon: ShoppingBag },
+  TRANSPORTATION_CREDIT: { label: 'Transportation', icon: TrainFront },
+  DIGITAL_ENTERTAINMENT_CREDIT: { label: 'Digital Entertainment', icon: MonitorPlay },
+  ENTERTAINMENT_CREDIT: { label: 'Entertainment', icon: Ticket },
+  GENERAL_SERVICES_CREDIT: { label: 'General Services', icon: Wrench },
+  UNCATEGORIZED: { label: 'Uncategorized', icon: CircleHelp },
+}
+
+function readableCategory(value: string) {
+  return value.replace(/_/g, ' ').toLowerCase().replace(/(^|\s)\S/g, letter => letter.toUpperCase())
+}
+
 export function categoryMetadata(category: string | null | undefined): CategoryMetadata {
   const value = category || 'UNCATEGORIZED'
   return CATEGORY_METADATA[value] || {
-    label: value.replace(/_/g, ' ').toLowerCase().replace(/(^|\s)\S/g, letter => letter.toUpperCase()),
+    label: readableCategory(value),
     icon: CircleHelp,
   }
 }
 
-export function CategoryBadge({
-  category,
+export function benefitCategoryMetadata(category: string | null | undefined): CategoryMetadata {
+  const value = category || 'UNCATEGORIZED'
+  return BENEFIT_CATEGORY_METADATA[value] || {
+    label: readableCategory(value.replace(/_CREDIT$/, '')),
+    icon: CircleHelp,
+  }
+}
+
+function CategoryBadgeView({
+  metadata,
   manual = false,
   editable = false,
   busy = false,
@@ -62,7 +86,7 @@ export function CategoryBadge({
   controls,
   onClick,
 }: {
-  category: string | null | undefined
+  metadata: CategoryMetadata
   manual?: boolean
   editable?: boolean
   busy?: boolean
@@ -70,7 +94,6 @@ export function CategoryBadge({
   controls?: string
   onClick?: () => void
 }) {
-  const metadata = categoryMetadata(category)
   const Icon = metadata.icon
   const contents = <>
     <Icon aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
@@ -81,13 +104,27 @@ export function CategoryBadge({
   </>
   const className = `inline-flex max-w-full items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs font-medium ${
     manual ? 'border-blue-300 bg-blue-50 text-blue-900' : 'border-slate-300 bg-slate-50 text-slate-800'
-  } ${editable ? 'cursor-pointer hover:border-blue-400 hover:bg-blue-50 disabled:cursor-default disabled:opacity-50' : ''}`
+  } ${editable || onClick ? 'cursor-pointer hover:border-blue-400 hover:bg-blue-50 disabled:cursor-default disabled:opacity-50' : ''}`
 
-  return editable
+  return editable || onClick
     ? <button type="button" className={className} disabled={busy} onClick={onClick}
         aria-expanded={expanded} aria-controls={controls}
-        aria-label={`Edit category, currently ${metadata.label}`}>{contents}</button>
+        aria-label={editable ? `Edit category, currently ${metadata.label}` : undefined}>{contents}</button>
     : <span className={className} title={metadata.label}>{contents}</span>
+}
+
+export function CategoryBadge({
+  category,
+  ...props
+}: { category: string | null | undefined } & Omit<Parameters<typeof CategoryBadgeView>[0], 'metadata'>) {
+  return <CategoryBadgeView metadata={categoryMetadata(category)} {...props} />
+}
+
+export function BenefitCategoryBadge({ category, onClick }: {
+  category: string | null | undefined
+  onClick?: () => void
+}) {
+  return <CategoryBadgeView metadata={benefitCategoryMetadata(category)} onClick={onClick} />
 }
 
 export const MANUAL_CATEGORY_VALUES = Object.freeze([

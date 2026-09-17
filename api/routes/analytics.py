@@ -10,8 +10,9 @@ from sqlalchemy import select
 
 from api.classification import ALLOWED_TRANSACTION_TYPES, effective_classification
 from api.categories import active_category, effective_category, category_editable
+from api.benefit_categories import active_benefit_category, effective_benefit_category
 from api.labels import ALLOWED_LABELS, label_result, load_label_overrides
-from api.models import ManualCategoryOverride
+from api.models import ManualCategoryOverride, ManualBenefitCategoryOverride
 from api.db import SessionLocal
 from api.models import Account, Item, ManualClassificationOverride, RawTransaction, Transaction
 
@@ -54,6 +55,7 @@ async def _active_analytics_rows(start_date, end_date):
             Item,
             Account,
             ManualCategoryOverride,
+            ManualBenefitCategoryOverride,
         )
         .join(RawTransaction, RawTransaction.transaction_id == Transaction.transaction_id)
         .join(Item, Item.item_id == RawTransaction.item_id)
@@ -79,6 +81,8 @@ async def _active_analytics_rows(start_date, end_date):
     )
     statement = statement.outerjoin(ManualCategoryOverride,
         ManualCategoryOverride.transaction_id == Transaction.transaction_id)
+    statement = statement.outerjoin(ManualBenefitCategoryOverride,
+        ManualBenefitCategoryOverride.transaction_id == Transaction.transaction_id)
     async with SessionLocal() as db:
         return (await db.execute(statement)).all()
 
@@ -93,15 +97,12 @@ async def _active_month_rows(month, category=None):
 
 def _analytics_row(row):
     """Normalize database rows and compact rows used by pure unit tests."""
-    if len(row) == 2:
-        transaction, is_removed = row
-        return transaction, is_removed, None, None, None, None
-    if len(row) == 3:
-        transaction, is_removed, override_type = row
-        return transaction, is_removed, override_type, None, None, None
-    if len(row) == 5:
-        return (*row, None)
-    return row
+    values = list(row)
+    if len(values) == 2: values += [None, None, None, None, None]
+    elif len(values) == 3: values += [None, None, None, None]
+    elif len(values) == 5: values += [None, None]
+    elif len(values) == 6: values += [None]
+    return tuple(values)
 
 
 def _category(transaction, override=None):
@@ -218,7 +219,7 @@ def summarize_memberships(rows, label_overrides, start_month, end_month,
     type_counts = {"charges": 0, "refunds": 0, "card_benefits": 0, "excluded": 0}
     accounts = {}
     for row in rows:
-        transaction, is_removed, override_type, item, account, _ = _analytics_row(row)
+        transaction, is_removed, override_type, item, account, _, _ = _analytics_row(row)
         if is_removed or account is None or item is None:
             continue
         decisions = label_overrides.get(transaction.transaction_id, ())
@@ -267,7 +268,7 @@ def summarize_monthly_transactions(rows):
     metrics = _empty_metrics()
     categories = {}
     for row in rows:
-        transaction, is_removed, override_type, _, _, category_override = _analytics_row(row)
+        transaction, is_removed, override_type, _, _, category_override, _ = _analytics_row(row)
         if is_removed:
             continue
         _accumulate(metrics, transaction, override_type)
@@ -300,7 +301,30 @@ def summarize_monthly_transactions(rows):
         for category, values in sorted(categories.items())
         if values[2]
     ]
-    return {**_finalize_metrics(metrics), "category_breakdown": category_breakdown}
+    return {**_finalize_metrics(metrics), "category_breakdown": category_breakdown,
+            "benefit_category_breakdown": summarize_benefit_categories(rows)}
+
+
+def summarize_benefit_categories(rows):
+    groups = {}
+    for row in rows:
+        transaction, is_removed, override_type, item, account, _, benefit_override = _analytics_row(row)
+        if is_removed or item is None or account is None:
+            continue
+        kind, _, internal = effective_classification(transaction, override_type)
+        amount = Decimal(transaction.amount)
+        if kind != "card_benefit" or amount <= 0 or internal is True:
+            continue
+        category = effective_benefit_category(transaction, benefit_override,
+            institution_id=getattr(item, "institution_id", None),
+            account_name=getattr(account, "name", None), account_type=getattr(account, "type", None),
+            transaction_type=kind) or "UNCATEGORIZED"
+        entry = groups.setdefault(category, [ZERO, 0])
+        entry[0] += amount
+        entry[1] += 1
+    return [{"benefit_category": category, "benefit_amount": _money(values[0]),
+             "benefit_transaction_count": values[1]}
+            for category, values in sorted(groups.items(), key=lambda entry: entry[1][0], reverse=True)]
 
 
 def summarize_category_transactions(rows, category):
@@ -310,7 +334,7 @@ def summarize_category_transactions(rows, category):
     expense_count = 0
     refund_count = 0
     for row in rows:
-        transaction, is_removed, override_type, _, _, category_override = _analytics_row(row)
+        transaction, is_removed, override_type, _, _, category_override, _ = _analytics_row(row)
         if is_removed or _category(transaction, category_override) != category:
             continue
         transaction_type, is_spending, is_internal_transfer = effective_classification(
@@ -337,10 +361,10 @@ def summarize_category_transactions(rows, category):
     }
 
 
-def transaction_details(rows, category=None, transaction_type=None, institution_id=None, account_id=None):
+def transaction_details(rows, category=None, transaction_type=None, institution_id=None, account_id=None, benefit_category=None):
     relevant = []
     for row in rows:
-        transaction, is_removed, override_type, item, account, category_override = _analytics_row(row)
+        transaction, is_removed, override_type, item, account, category_override, benefit_override = _analytics_row(row)
         if is_removed or (category is not None and _category(transaction, category_override) != category):
             continue
         if institution_id is not None and getattr(item, "institution_id", None) != institution_id:
@@ -351,8 +375,14 @@ def transaction_details(rows, category=None, transaction_type=None, institution_
         type_label = effective_type or "unclassified"
         if transaction_type is not None and type_label != transaction_type:
             continue
+        effective_benefit = effective_benefit_category(transaction, benefit_override,
+            institution_id=getattr(item, "institution_id", None), account_name=getattr(account, "name", None),
+            account_type=getattr(account, "type", None), transaction_type=type_label)
+        if benefit_category is not None and (type_label != "card_benefit" or effective_benefit != benefit_category):
+            continue
         relevant.append((transaction, item, account, type_label, is_spending, is_internal,
-                         category_override, category_editable(transaction, override_type)))
+                         category_override, benefit_override, effective_benefit,
+                         category_editable(transaction, override_type)))
     relevant.sort(key=lambda value: (value[0].transaction_date, value[0].transaction_id), reverse=True)
     return [
         {
@@ -374,8 +404,14 @@ def transaction_details(rows, category=None, transaction_type=None, institution_
             "override_category": active_category(category_override),
             "effective_category": _category(transaction, category_override),
             "category_editable": editable,
+            "automatic_benefit_category": effective_benefit_category(transaction, None,
+                institution_id=getattr(item, "institution_id", None), account_name=getattr(account, "name", None),
+                account_type=getattr(account, "type", None), transaction_type=type_label),
+            "override_benefit_category": active_benefit_category(benefit_override),
+            "effective_benefit_category": effective_benefit,
+            "benefit_category_editable": type_label == "card_benefit" and is_internal is not True and transaction.amount > 0,
         }
-        for transaction, item, account, type_label, is_spending, is_internal, category_override, editable in relevant
+        for transaction, item, account, type_label, is_spending, is_internal, category_override, benefit_override, effective_benefit, editable in relevant
     ]
 
 
@@ -383,10 +419,10 @@ def category_transaction_details(rows, category):
     return [detail for detail in transaction_details(rows, category) if detail["transaction_type"] in {"expense", "refund"}]
 
 
-def summarize_breakdown(rows, group_by):
+def summarize_breakdown(rows, group_by, mode="spending"):
     groups = {}
     for row in rows:
-        transaction, is_removed, override_type, item, account, _ = _analytics_row(row)
+        transaction, is_removed, override_type, item, account, _, _ = _analytics_row(row)
         if is_removed or item is None or account is None:
             continue
         if group_by == "institution":
@@ -404,8 +440,34 @@ def summarize_breakdown(rows, group_by):
                 "account_subtype": account.subtype,
             }
         entry = groups.setdefault(key, {"metadata": metadata, "metrics": _empty_metrics()})
-        _accumulate(entry["metrics"], transaction, override_type)
+        if mode == "benefits":
+            kind, _, internal = effective_classification(transaction, override_type)
+            amount = Decimal(transaction.amount)
+            if kind == "card_benefit" and amount > 0 and internal is not True:
+                category = effective_benefit_category(transaction, _analytics_row(row)[6],
+                    institution_id=item.institution_id, account_name=account.name,
+                    account_type=account.type, transaction_type=kind)
+                entry["metrics"]["card_benefits"] += amount if category else ZERO
+        else:
+            _accumulate(entry["metrics"], transaction, override_type)
     result = [{**entry["metadata"], **_finalize_metrics(entry["metrics"])} for entry in groups.values()]
+    if mode == "benefits":
+        result = [value for value in result if Decimal(value["card_benefits"]) > 0]
+        for value in result:
+            value["benefit_amount"] = value["card_benefits"]
+            value["benefit_transaction_count"] = 0
+        for row in rows:
+            transaction, is_removed, override_type, item, account, _, benefit_override = _analytics_row(row)
+            kind, _, internal = effective_classification(transaction, override_type)
+            if is_removed or kind != "card_benefit" or Decimal(transaction.amount) <= 0 or internal is True:
+                continue
+            key = account.account_id if group_by == "account" else item.institution_id
+            for value in result:
+                if (group_by == "account" and value.get("account_id") == key) or (group_by == "institution" and value.get("institution_id") == key):
+                    if effective_benefit_category(transaction, benefit_override, institution_id=item.institution_id, account_name=account.name, account_type=account.type, transaction_type=kind):
+                        value["benefit_transaction_count"] += 1
+                        break
+        return sorted(result, key=lambda value: (Decimal(value["benefit_amount"]), str(value)), reverse=True)
     return sorted(result, key=lambda value: (Decimal(value["net_spending"]), str(value)), reverse=True)
 
 
@@ -441,8 +503,9 @@ async def spending_trend(end_month: str = Query(..., pattern=r"^\d{4}-\d{2}$")):
 async def spending_breakdown(
     month: str = Query(..., pattern=r"^\d{4}-\d{2}$"),
     group_by: str = Query("institution", pattern=r"^(institution|account)$"),
+    mode: str = Query("spending", pattern=r"^(spending|benefits)$"),
 ):
-    return {"month": month, "group_by": group_by, "groups": summarize_breakdown(await _active_month_rows(month), group_by)}
+    return {"month": month, "group_by": group_by, "mode": mode, "groups": summarize_breakdown(await _active_month_rows(month), group_by, mode)}
 
 
 @router.get("/memberships")
@@ -474,6 +537,7 @@ async def analytics_transactions(
     offset: int = Query(0, ge=0),
     institution_id: str | None = None,
     account_id: str | None = None,
+    benefit_category: str | None = None,
     label: str | None = None,
     start_month: str | None = None,
     end_month: str | None = None,
@@ -487,6 +551,8 @@ async def analytics_transactions(
         raise HTTPException(status_code=422, detail="unsupported transaction type")
     if label is not None and label not in ALLOWED_LABELS:
         raise HTTPException(status_code=422, detail="unsupported transaction label")
+    if benefit_category is not None and benefit_category not in {"DINING_CREDIT", "TRAVEL_CREDIT", "SHOPPING_CREDIT", "TRANSPORTATION_CREDIT", "DIGITAL_ENTERTAINMENT_CREDIT", "ENTERTAINMENT_CREDIT", "GENERAL_SERVICES_CREDIT", "UNCATEGORIZED"}:
+        raise HTTPException(status_code=422, detail="unsupported benefit category")
     if month is not None:
         if start_month is not None or end_month is not None:
             raise HTTPException(status_code=422, detail="choose month or a month range")
@@ -501,7 +567,7 @@ async def analytics_transactions(
             raise HTTPException(status_code=422, detail="month range must span at most 12 months")
         rows = await _active_analytics_rows(start_date, end_date)
     details = transaction_details(
-        rows, category, transaction_type, institution_id, account_id
+        rows, category, transaction_type, institution_id, account_id, benefit_category
     )
     contexts = {
         transaction.transaction_id: {
@@ -509,7 +575,7 @@ async def analytics_transactions(
             "account_type": getattr(account, "type", None),
             "account_name": getattr(account, "name", None),
         }
-        for transaction, _, _, item, account, _ in (_analytics_row(row) for row in rows)
+        for transaction, _, _, item, account, _, _ in (_analytics_row(row) for row in rows)
         if item is not None and account is not None
     }
     async with SessionLocal() as db:

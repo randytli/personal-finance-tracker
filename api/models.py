@@ -6,6 +6,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import declarative_base
 from api.categories import CATEGORY_CHECK
 from api.labels import LABEL_CHECK
+from api.benefit_categories import BENEFIT_CATEGORY_CHECK
 
 Base = declarative_base()
 
@@ -150,6 +151,22 @@ class ManualTransactionLabelOverride(Base):
     updated_at = Column(DateTime, nullable=False, server_default=func.now())
     cleared_by = Column(String)
     cleared_at = Column(DateTime)
+
+
+class ManualBenefitCategoryOverride(Base):
+    __tablename__ = "manual_benefit_category_overrides"
+    __table_args__ = (
+        CheckConstraint(BENEFIT_CATEGORY_CHECK, name="ck_manual_benefit_category"),
+        Index("ix_manual_benefit_category_updated_at", "updated_at"),
+    )
+    transaction_id = Column(String, ForeignKey("transactions.transaction_id"), primary_key=True)
+    benefit_category = Column(String, nullable=True)
+    created_by = Column(String, nullable=False)
+    created_at = Column(DateTime, nullable=False, server_default=func.now())
+    updated_by = Column(String, nullable=False)
+    updated_at = Column(DateTime, nullable=False, server_default=func.now())
+    cleared_by = Column(String, nullable=True)
+    cleared_at = Column(DateTime, nullable=True)
 
 
 class StatementImportBatch(Base):

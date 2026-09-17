@@ -6,8 +6,9 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, field_validator, model_validator
 from datetime import datetime, timezone
 from api.categories import MANUAL_CATEGORIES, active_category, effective_category, category_editable
+from api.benefit_categories import BENEFIT_CATEGORIES, BENEFIT_CATEGORY_LABELS, active_benefit_category, effective_benefit_category
 from api.labels import ALLOWED_LABELS, label_result, load_label_overrides
-from api.models import ManualCategoryOverride
+from api.models import ManualCategoryOverride, ManualBenefitCategoryOverride
 from sqlalchemy import case, func, select, update
 from sqlalchemy.dialects.postgresql import insert
 
@@ -37,10 +38,27 @@ class CategoryRequest(BaseModel):
         return value
 
 
+class BenefitCategoryRequest(BaseModel):
+    benefit_category: str
+
+    @field_validator('benefit_category')
+    @classmethod
+    def allowed(cls, value):
+        if value not in BENEFIT_CATEGORIES:
+            raise ValueError('unsupported benefit category')
+        return value
+
+
 @router.get('/categories')
 async def category_options():
     return {'categories': [{'value': value, 'label': value.replace('_', ' ').title()}
                            for value in MANUAL_CATEGORIES]}
+
+
+@router.get('/benefit-categories')
+async def benefit_category_options():
+    return {'categories': [{'value': value, 'label': BENEFIT_CATEGORY_LABELS[value]}
+                           for value in BENEFIT_CATEGORIES]}
 
 
 class LabelDecisionRequest(BaseModel):
@@ -102,6 +120,52 @@ async def set_category_override(transaction_id: str, request: CategoryRequest):
 @router.delete('/transactions/{transaction_id}/category-override')
 async def clear_category_override(transaction_id: str):
     return await mutate_category(transaction_id, None)
+
+
+async def mutate_benefit_category(transaction_id, category):
+    actor = _user_id()
+    async with SessionLocal() as db:
+        async with db.begin():
+            row = (await db.execute(_transaction_scope(transaction_id).with_for_update())).one_or_none()
+            if row is None:
+                raise HTTPException(404, 'transaction not found')
+            transaction, account, item, _ = row
+            classification = await db.get(ManualClassificationOverride, transaction_id)
+            override_type = classification.transaction_type if classification and classification.cleared_at is None else None
+            kind, _, internal = effective_classification(transaction, override_type)
+            if kind != 'card_benefit' or transaction.amount <= 0 or internal is True:
+                raise HTTPException(422, 'benefit category editing requires a positive card benefit')
+            override = await db.get(ManualBenefitCategoryOverride, transaction_id)
+            automatic = effective_benefit_category(transaction, None,
+                institution_id=item.institution_id, account_name=account.name, account_type=account.type)
+            if category is not None and category == automatic and override is None:
+                return {'transaction_id': transaction_id, 'effective_benefit_category': automatic,
+                        'override_benefit_category': None, 'automatic_benefit_category': automatic}
+            if category is None and override is None:
+                return {'transaction_id': transaction_id, 'effective_benefit_category': automatic,
+                        'override_benefit_category': None, 'automatic_benefit_category': automatic}
+            from datetime import datetime, timezone
+            now = datetime.now(timezone.utc).replace(tzinfo=None)
+            if override is None:
+                override = ManualBenefitCategoryOverride(transaction_id=transaction_id, created_by=actor, created_at=now)
+                db.add(override)
+            override.benefit_category = category
+            override.updated_by = actor
+            override.updated_at = now
+            override.cleared_by = actor if category is None else None
+            override.cleared_at = now if category is None else None
+            return {'transaction_id': transaction_id, 'effective_benefit_category': category or automatic,
+                    'override_benefit_category': category, 'automatic_benefit_category': automatic}
+
+
+@router.put('/transactions/{transaction_id}/benefit-category-override')
+async def set_benefit_category_override(transaction_id: str, request: BenefitCategoryRequest):
+    return await mutate_benefit_category(transaction_id, request.benefit_category)
+
+
+@router.delete('/transactions/{transaction_id}/benefit-category-override')
+async def clear_benefit_category_override(transaction_id: str):
+    return await mutate_benefit_category(transaction_id, None)
 TransactionType = Literal[
     "expense", "refund", "income", "card_benefit", "payment", "transfer", "adjustment"
 ]

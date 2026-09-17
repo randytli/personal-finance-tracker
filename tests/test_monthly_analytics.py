@@ -81,6 +81,7 @@ class MonthlyAnalyticsTests(unittest.TestCase):
                 "income": "0.00",
                 "net_savings": "0.00",
                 "category_breakdown": [],
+                "benefit_category_breakdown": [],
                 "unclassified_count": 0,
             },
         )

@@ -15,10 +15,11 @@ import {
 import AccountBadge from '@/components/account-badge'
 import BulkTransactionEditor, { bulkErrorMessage, type BulkEditRequest } from '@/components/bulk-transaction-editor'
 import CategoryEditor, { mergeCategoryDetail, mutateCategoryOverride, type CategoryDetail } from '@/components/category-editor'
-import { CategoryBadge } from '@/components/category-display'
+import { BenefitCategoryBadge, CategoryBadge } from '@/components/category-display'
 import InstitutionBadge from '@/components/institution-badge'
 import LabelEditor, { mergeLabelDetail, type LabelDetail, useLabelOptions } from '@/components/label-editor'
 import PlaidLinkButton from '@/components/plaid-link-button'
+import BenefitCategoryEditor, { type BenefitCategoryOption, type BenefitCategoryDetail } from '@/components/benefit-category-editor'
 
 type Category = {
   category: string
@@ -29,6 +30,7 @@ type Category = {
   expense_transaction_count: number
   refund_transaction_count: number
 }
+type BenefitCategory = { benefit_category: string; benefit_amount: string; benefit_transaction_count: number }
 
 type Monthly = {
   month: string
@@ -40,6 +42,7 @@ type Monthly = {
   net_savings: string
   unclassified_count: number
   category_breakdown: Category[]
+  benefit_category_breakdown: BenefitCategory[]
 }
 
 type TrendMonth = { month: string; net_spending: string; income: string; net_savings: string }
@@ -54,6 +57,8 @@ type BreakdownGroup = {
   gross_spending: string
   refunds: string
   card_benefits: string
+  benefit_amount?: string
+  benefit_transaction_count?: number
   net_spending: string
 }
 type Detail = CategoryDetail & LabelDetail & {
@@ -69,6 +74,10 @@ type Detail = CategoryDetail & LabelDetail & {
   amount: string
   transaction_type: string
   plaid_category: string
+  automatic_benefit_category: string | null
+  override_benefit_category: string | null
+  effective_benefit_category: string | null
+  benefit_category_editable: boolean
 }
 
 function Card({ children, className = '' }: { children: ReactNode; className?: string }) {
@@ -84,10 +93,10 @@ function currentMonth() {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
 }
 
-function MetricCard({ label, value, onClick }: { label: string; value: string; onClick?: () => void }) {
+function MetricCard({ label, value, onClick, selected }: { label: string; value: string; onClick?: () => void; selected?: boolean }) {
   return (
-    <Card className={onClick ? 'cursor-pointer transition hover:border-slate-400' : ''}>
-      <button type="button" onClick={onClick} className="w-full p-5 text-left" disabled={!onClick}>
+    <Card className={`${onClick ? 'cursor-pointer transition hover:border-slate-400' : ''} ${selected ? 'border-blue-600 ring-2 ring-blue-200' : ''}`}>
+      <button type="button" onClick={onClick} aria-pressed={selected} className="w-full p-5 text-left" disabled={!onClick}>
         <p className="text-sm text-muted-foreground">{label}</p>
         <p className="mt-1 text-2xl font-bold">{value}</p>
       </button>
@@ -101,15 +110,16 @@ export default function HomePage() {
   const [trend, setTrend] = useState<TrendMonth[]>([])
   const [groupBy, setGroupBy] = useState<'institution' | 'account'>('institution')
   const [breakdown, setBreakdown] = useState<BreakdownGroup[]>([])
-  const [categoryMode, setCategoryMode] = useState<'gross' | 'refunds'>('gross')
+  const [categoryMode, setCategoryMode] = useState<'gross' | 'refunds' | 'benefits'>('gross')
   const [detailFilter, setDetailFilter] = useState<{
-    category?: string; transactionType?: string; secondary?: BreakdownGroup
+    category?: string; benefitCategory?: string; transactionType?: string; secondary?: BreakdownGroup
   } | null>(null)
   const [details, setDetails] = useState<Detail[]>([])
   const [detailTotal, setDetailTotal] = useState(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [categoryOptions, setCategoryOptions] = useState<Array<{ value: string; label: string }>>([])
+  const [benefitCategoryOptions, setBenefitCategoryOptions] = useState<BenefitCategoryOption[]>([])
   const [categoryBusy, setCategoryBusy] = useState(false)
   const [categoryRevision, setCategoryRevision] = useState(0)
   const [categoryUndo, setCategoryUndo] = useState<{ detail: CategoryDetail; previous: string | null } | null>(null)
@@ -123,8 +133,15 @@ export default function HomePage() {
     fetch('/api/pft/review/categories').then(response => response.ok ? response.json() : Promise.reject())
       .then(data => { if (active) setCategoryOptions(data.categories) })
       .catch(() => { if (active) setError('Category options could not be loaded.') })
+    fetch('/api/pft/review/benefit-categories').then(response => response.ok ? response.json() : Promise.reject())
+      .then(data => { if (active) setBenefitCategoryOptions(data.categories) })
     return () => { active = false }
   }, [])
+
+  function updateBenefitCategory(detail: Detail, changed: BenefitCategoryDetail) {
+    setDetails(current => current.map(value => value.transaction_id === detail.transaction_id ? { ...value, ...changed } : value))
+    setDetailRevision(value => value + 1)
+  }
 
   async function saveCategory(detail: CategoryDetail, category: string | null, undo = false): Promise<boolean> {
     setCategoryBusy(true)
@@ -175,12 +192,13 @@ export default function HomePage() {
   useEffect(() => {
     let active = true
     setBreakdown([])
-    fetch(`/api/pft/analytics/breakdown?month=${month}&group_by=${groupBy}`)
+    const breakdownMode = categoryMode === 'benefits' ? 'benefits' : 'spending'
+    fetch(`/api/pft/analytics/breakdown?month=${month}&group_by=${groupBy}&mode=${breakdownMode}`)
       .then((response) => response.ok ? response.json() : Promise.reject())
       .then((data) => { if (active) setBreakdown(data.groups || []) })
       .catch(() => { if (active) setError('Spending breakdown could not be loaded.') })
     return () => { active = false }
-  }, [month, groupBy])
+  }, [month, groupBy, categoryMode])
 
   useEffect(() => {
     if (!detailFilter) return
@@ -189,8 +207,9 @@ export default function HomePage() {
     setDetailTotal(0)
     const parameters = new URLSearchParams({ month, limit: '100' })
     if (detailFilter.category) parameters.set('category', detailFilter.category)
+    if (detailFilter.benefitCategory) parameters.set('benefit_category', detailFilter.benefitCategory)
     if (detailFilter.transactionType) parameters.set('transaction_type', detailFilter.transactionType)
-    if (detailFilter.category && detailFilter.secondary) {
+    if ((detailFilter.category || detailFilter.benefitCategory) && detailFilter.secondary) {
       parameters.set('institution_id', detailFilter.secondary.institution_id)
       if (detailFilter.secondary.account_id) parameters.set('account_id', detailFilter.secondary.account_id)
     }
@@ -258,7 +277,10 @@ export default function HomePage() {
     ))
   }, [monthly, categoryMode])
 
-  function selectCategoryMode(mode: 'gross' | 'refunds') {
+  const benefitCategories = useMemo(() => [...(monthly?.benefit_category_breakdown || [])]
+    .sort((a, b) => Number(b.benefit_amount) - Number(a.benefit_amount)), [monthly])
+
+  function selectCategoryMode(mode: 'gross' | 'refunds' | 'benefits') {
     setCategoryMode(mode)
     setDetailFilter(null)
     setDetails([])
@@ -268,7 +290,7 @@ export default function HomePage() {
 
   function selectSecondary(group: BreakdownGroup) {
     setDetailFilter((current) => {
-      if (!current?.category) return current
+      if (!current?.category && !current?.benefitCategory) return current
       const selected = current.secondary
       const same = group.account_id
         ? selected?.account_id === group.account_id
@@ -312,11 +334,11 @@ export default function HomePage() {
         <>
           <section className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <MetricCard label="Net Spending" value={money(monthly.net_spending)} />
-            <MetricCard label="Gross Spending" value={money(monthly.gross_spending)} onClick={() => selectCategoryMode('gross')} />
+            <MetricCard label="Gross Spending" value={money(monthly.gross_spending)} selected={categoryMode === 'gross'} onClick={() => selectCategoryMode('gross')} />
             <MetricCard label="Income" value={money(monthly.income)} onClick={() => setDetailFilter({ transactionType: 'income' })} />
             <MetricCard label="Net Savings" value={money(monthly.net_savings)} />
-            <MetricCard label="Refunds" value={money(monthly.refunds)} onClick={() => selectCategoryMode('refunds')} />
-            <MetricCard label="Card Benefits" value={money(monthly.card_benefits)} />
+            <MetricCard label="Refunds" value={money(monthly.refunds)} selected={categoryMode === 'refunds'} onClick={() => selectCategoryMode('refunds')} />
+            <MetricCard label="Card Benefits" value={money(monthly.card_benefits)} selected={categoryMode === 'benefits'} onClick={() => selectCategoryMode('benefits')} />
             <MetricCard label="Needs Review" value={String(monthly.unclassified_count)} onClick={() => setDetailFilter({ transactionType: 'unclassified' })} />
           </section>
 
@@ -342,21 +364,28 @@ export default function HomePage() {
             <Card className="overflow-hidden">
               <div className="p-5">
                 <h2 className="text-lg font-semibold">
-                  {categoryMode === 'gross' ? 'Gross Spending by Category' : 'Refunds by Category'}
+                  {categoryMode === 'benefits' ? 'Card Benefits by Category' : categoryMode === 'gross' ? 'Gross Spending by Category' : 'Refunds by Category'}
                 </h2>
-                <p className="text-xs text-muted-foreground">Card benefits are not allocated to categories.</p>
+                <p className="text-xs text-muted-foreground">Card benefits use separate benefit categories, independent of spending categories and labels.</p>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead className="bg-slate-50 text-left">
                     <tr>
-                      <th className="p-3">Category</th>
-                      <th>{categoryMode === 'gross' ? 'Gross' : 'Refunds'}</th>
+                      <th className="p-3">{categoryMode === 'benefits' ? 'Benefit Category' : 'Category'}</th>
+                      <th>{categoryMode === 'benefits' ? 'Credits' : categoryMode === 'gross' ? 'Gross' : 'Refunds'}</th>
                       <th>Transactions</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {categories.map((category) => (
+                    {categoryMode === 'benefits' ? benefitCategories.map((benefit) => (
+                      <tr key={benefit.benefit_category} className="border-t hover:bg-slate-50">
+                        <td className="p-3 font-medium"><BenefitCategoryBadge category={benefit.benefit_category}
+                          onClick={() => setDetailFilter({ benefitCategory: benefit.benefit_category, transactionType: 'card_benefit' })} /></td>
+                        <td>{money(benefit.benefit_amount)}</td>
+                        <td>{benefit.benefit_transaction_count}</td>
+                      </tr>
+                    )) : categories.map((category) => (
                       <tr
                         key={category.category}
                         className="cursor-pointer border-t hover:bg-slate-50"
@@ -378,7 +407,7 @@ export default function HomePage() {
 
           <Card className="mt-6 overflow-hidden">
             <div className="flex items-center justify-between p-5">
-              <h2 className="text-lg font-semibold">Spending by {groupBy}</h2>
+              <h2 className="text-lg font-semibold">{categoryMode === 'benefits' ? `Card Benefits by ${groupBy}` : `Spending by ${groupBy}`}</h2>
               <select className="rounded-md border px-3 py-2 text-sm" value={groupBy} onChange={(event) => setGroupBy(event.target.value as 'institution' | 'account')}>
                 <option value="institution">Institution</option><option value="account">Account</option>
               </select>
@@ -388,12 +417,12 @@ export default function HomePage() {
                 <button
                   type="button"
                   key={group.account_id || group.institution_id}
-                  disabled={!detailFilter?.category}
+                  disabled={!detailFilter?.category && !detailFilter?.benefitCategory}
                   onClick={() => selectSecondary(group)}
                   aria-pressed={Boolean(detailFilter?.secondary && (group.account_id
                     ? detailFilter.secondary.account_id === group.account_id
                     : detailFilter.secondary.institution_id === group.institution_id))}
-                  className={`rounded-md border p-4 text-left ${detailFilter?.category ? 'hover:border-blue-500' : ''} ${
+                  className={`rounded-md border p-4 text-left ${detailFilter?.category || detailFilter?.benefitCategory ? 'hover:border-blue-500' : ''} ${
                     detailFilter?.secondary && (group.account_id
                       ? detailFilter.secondary.account_id === group.account_id
                       : detailFilter.secondary.institution_id === group.institution_id)
@@ -403,8 +432,8 @@ export default function HomePage() {
                   {group.account_name ? (
                     <AccountBadge institutionName={group.institution_name} accountName={group.account_name} accountMask={group.account_mask || null} accountType={group.account_type || ''} accountSubtype={group.account_subtype} />
                   ) : <InstitutionBadge institutionName={group.institution_name} />}
-                  <p className="mt-3 text-xl font-bold">{money(group.net_spending)}</p>
-                  <p className="text-xs text-muted-foreground">net spending</p>
+                  <p className="mt-3 text-xl font-bold">{money(categoryMode === 'benefits' ? group.benefit_amount || group.card_benefits : group.net_spending)}</p>
+                  <p className="text-xs text-muted-foreground">{categoryMode === 'benefits' ? 'card benefits' : 'net spending'}</p>
                 </button>
               ))}
             </div>
@@ -419,7 +448,9 @@ export default function HomePage() {
                     <span>{month}</span><span>·</span>
                     {detailFilter.category
                       ? <CategoryBadge category={detailFilter.category} />
-                      : <span>{detailFilter.transactionType?.replace(/_/g, ' ')}</span>}
+                      : detailFilter.benefitCategory
+                        ? <BenefitCategoryBadge category={detailFilter.benefitCategory} />
+                        : <span>{detailFilter.transactionType?.replace(/_/g, ' ')}</span>}
                   </div>
                   {detailFilter.secondary && (
                     <button type="button" className="my-2 rounded-full border border-blue-300 bg-blue-50 px-3 py-1 text-sm" onClick={() => setDetailFilter({ ...detailFilter, secondary: undefined })}>
@@ -461,6 +492,7 @@ export default function HomePage() {
                     <p className="font-semibold">{money(detail.amount)}</p>
                     <div className="grid w-full gap-x-5 md:grid-cols-2">
                       <CategoryEditor detail={detail} options={categoryOptions} busy={categoryBusy || bulkBusy} save={saveCategory} />
+                      <BenefitCategoryEditor detail={detail} options={benefitCategoryOptions} disabled={bulkBusy} onChanged={changed => updateBenefitCategory(detail, changed)} />
                       <LabelEditor detail={detail} options={labelOptions.options}
                         optionsLoading={labelOptions.loading} optionsError={labelOptions.error}
                         disabled={bulkBusy} onRetryOptions={labelOptions.retry} onChanged={updateLabels} />

@@ -19,6 +19,14 @@ async def migrate_transaction_labels(connection):
     ))
 
 
+async def migrate_benefit_categories(connection):
+    from api.benefit_categories import BENEFIT_CATEGORY_CHECK
+    from api.models import ManualBenefitCategoryOverride
+    await connection.run_sync(lambda sync: ManualBenefitCategoryOverride.__table__.create(sync, checkfirst=True))
+    await connection.execute(text("ALTER TABLE manual_benefit_category_overrides DROP CONSTRAINT IF EXISTS ck_manual_benefit_category"))
+    await connection.execute(text(
+        "ALTER TABLE manual_benefit_category_overrides ADD CONSTRAINT ck_manual_benefit_category CHECK (" + BENEFIT_CATEGORY_CHECK + ")"
+    ))
 async def migrate_statement_imports(connection):
     from api.models import StatementImportBatch, StatementImportRow
     for table in (StatementImportBatch.__table__, StatementImportRow.__table__):
