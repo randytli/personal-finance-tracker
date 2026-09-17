@@ -286,6 +286,9 @@ export default function HomePage() {
           <Link className="mt-2 inline-block text-sm font-medium text-blue-700 underline" href="/review">
             Review ambiguous transactions{monthly ? ` (${monthly.unclassified_count})` : ''}
           </Link>
+          <Link className="mt-2 ml-4 inline-block text-sm font-medium text-blue-700 underline" href="/memberships">
+            Membership costs
+          </Link>
         </div>
         <label className="text-sm font-medium">
           Month

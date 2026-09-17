@@ -27,7 +27,7 @@ def transaction(merchant=None, description=None):
 
 class LabelRuleTests(unittest.TestCase):
     def test_china_vocabulary_and_conservative_rules(self):
-        self.assertEqual(ALLOWED_LABELS, ("CHINA",))
+        self.assertEqual(ALLOWED_LABELS, ("CHINA", "MEMBERSHIP"))
         for value in (
             "Alipay*Meituan", "Weixin*Scan Qr Code", "Refund: Alipay*Meituan",
             "Refund: Weixin*Panduo Platfo", "AMAP TAXI", "Meituan",
@@ -43,6 +43,103 @@ class LabelRuleTests(unittest.TestCase):
             with self.subTest(value=value):
                 self.assertEqual(automatic_labels(transaction(value)), frozenset())
         self.assertEqual(normalize_label_text("  Weixin*Manner Coffee "), "WEIXIN MANNER COFFEE")
+        for value in ("OpenAI", "OpenAI subscription", "Annual membership fee"):
+            self.assertNotIn("MEMBERSHIP", automatic_labels(transaction(value, value)))
+        with patch('api.labels.MEMBERSHIP_EXACT_DESCRIPTIONS', frozenset({'ALIPAY TEST MEMBERSHIP'})):
+            self.assertEqual(automatic_labels(transaction('Alipay*Test', 'Alipay Test Membership')),
+                             frozenset({'CHINA', 'MEMBERSHIP'}))
+
+    def test_reviewed_membership_descriptions_are_exact_and_description_only(self):
+        approved = (
+            "MEMBERSHIP FEE", "RENEWAL MEMBERSHIP FEE", "CAPITAL ONE MEMBER FEE",
+            "GOLD ANNUAL SUBSCRIPTIO", "OPENAI CHATGPT SUBSCR",
+            "OPENAI CHATGPT SUBSCR OPENAI COM CA", "CLAUDE AI SUBSCRIPTION",
+            "CLAUDE AI SUBSCRIPTION ANTHROPIC COMCA", "YOUTUBE PREMIUM",
+            "YOUTUBEPREMI G CO HELPPAY", "YOUTUBEPREMIUCC GOOGLE COM",
+            "AMAZON PRIME", "PEACOCK", "AMAZON GROCERY SUBSCRI",
+            "IC INSTACART SUBSCRIP", "WMT PLUS NOV 2025 028009666546",
+            "WMT PLUS FEB 2026 028009666546",
+            "ANTHROPIC CLAUDE SUB ANTHROPIC COMCA", "D J WSJ ONLINE",
+        )
+        for description in approved:
+            with self.subTest(description=description):
+                self.assertIn("MEMBERSHIP", automatic_labels(transaction("Ordinary merchant", description)))
+                self.assertNotIn("MEMBERSHIP", automatic_labels(transaction(description, "Ordinary purchase")))
+        for description in (
+            "GOLD ANNUAL SUBSCRIPTION", "OPENAI", "ANTHROPIC", "CLAUDE AI",
+            "AMAZON", "COSTCO", "PEACOCK TV", "AMAZON PRIME VIDEO",
+            "AMAZON GROCERY SUBSCRIPTION", "MONTHLY SERVICE FEE",
+            "WALMART", "INSTACART", "UBER", "ANTHROPIC", "WSJ",
+            "WMT PLUS MAR 2026 028009666546", "IC INSTACART SUBSCRIP 2",
+            "ANTHROPIC CLAUDE SUB", "D J WSJ ONLINE RENEWAL",
+        ):
+            with self.subTest(near_miss=description):
+                self.assertNotIn("MEMBERSHIP", automatic_labels(transaction("Other", description)))
+        self.assertEqual(
+            automatic_labels(transaction("Alipay*Test", "OpenAI ChatGPT Subscr")),
+            frozenset({"CHINA", "MEMBERSHIP"}),
+        )
+        self.assertEqual(
+            automatic_labels(transaction("Alipay*Test", "IC Instacart Subscr ip")),
+            frozenset({"CHINA"}),
+        )
+        self.assertEqual(
+            automatic_labels(transaction("Alipay*Test", "IC Instacart Subscrip")),
+            frozenset({"CHINA", "MEMBERSHIP"}),
+        )
+
+    def test_manual_membership_decision_overrides_automatic_and_clear_restores(self):
+        matched = transaction("Instacart", "IC Instacart Subscrip")
+        override = SimpleNamespace(label="MEMBERSHIP", decision="exclude", cleared_at=None)
+        self.assertEqual(label_result(matched, [override])["effective_labels"], [])
+        override.cleared_at = SimpleNamespace()
+        self.assertEqual(label_result(matched, [override])["effective_labels"], ["MEMBERSHIP"])
+        unmatched = transaction("OpenAI", "OpenAI")
+        self.assertEqual(effective_labels(unmatched, {"MEMBERSHIP": "include"}), ("MEMBERSHIP",))
+
+    def test_reviewed_generic_expense_amount_rules_are_exact(self):
+        def expense(merchant, description, amount):
+            return SimpleNamespace(
+                merchant_name=merchant, description=description,
+                amount=Decimal(amount), transaction_type="expense",
+                is_spending=True, is_internal_transfer=False,
+            )
+
+        for merchant, amount in (("Walmart", "-13.81"), ("Uber", "-9.99")):
+            with self.subTest(merchant=merchant):
+                matched = expense(merchant, merchant, amount)
+                self.assertEqual(automatic_labels(matched), frozenset({"MEMBERSHIP"}))
+                near_miss = "-13.82" if merchant == "Walmart" else "-9.98"
+                self.assertNotIn("MEMBERSHIP",
+                                 automatic_labels(expense(merchant, merchant, near_miss)))
+                self.assertNotIn("MEMBERSHIP",
+                                 automatic_labels(expense(merchant, merchant, "13.81")))
+                self.assertNotIn("MEMBERSHIP",
+                                 automatic_labels(expense("Other", merchant, amount)))
+                self.assertNotIn("MEMBERSHIP",
+                                 automatic_labels(expense(merchant, "Ordinary purchase", amount)))
+                self.assertNotIn("MEMBERSHIP",
+                                 automatic_labels(expense(merchant + " Market", merchant, amount)))
+                matched.transaction_type = "refund"
+                self.assertNotIn("MEMBERSHIP", automatic_labels(matched))
+                matched.transaction_type = "expense"
+                matched.is_spending = False
+                self.assertNotIn("MEMBERSHIP", automatic_labels(matched))
+                matched.is_spending = True
+                matched.is_internal_transfer = True
+                self.assertNotIn("MEMBERSHIP", automatic_labels(matched))
+                matched.is_internal_transfer = False
+                manual_exclude = SimpleNamespace(
+                    label="MEMBERSHIP", decision="exclude", cleared_at=None)
+                self.assertEqual(label_result(matched, [manual_exclude])["effective_labels"], [])
+                manual_exclude.cleared_at = SimpleNamespace()
+                self.assertEqual(label_result(matched, [manual_exclude])["effective_labels"],
+                                 ["MEMBERSHIP"])
+
+        self.assertNotIn("MEMBERSHIP", automatic_labels(expense("Walmart", "Walmart", "-9.99")))
+        self.assertNotIn("MEMBERSHIP", automatic_labels(expense("Uber", "Uber", "-13.81")))
+        self.assertNotIn("MEMBERSHIP", automatic_labels(expense("Other", "Other", "-13.81")))
+        self.assertNotIn("MEMBERSHIP", automatic_labels(expense("Other", "Other", "-9.99")))
 
     def test_effective_set_manual_include_exclude_and_clear_semantics(self):
         china = transaction("Alipay*Test")
@@ -54,6 +151,9 @@ class LabelRuleTests(unittest.TestCase):
         self.assertEqual(label_result(china, [override])["effective_labels"], [])
         override.cleared_at = SimpleNamespace()
         self.assertEqual(label_result(china, [override])["effective_labels"], ["CHINA"])
+        self.assertEqual(effective_labels(china, {"MEMBERSHIP": "include"}), ("CHINA", "MEMBERSHIP"))
+        self.assertEqual(effective_labels(china, {"CHINA": "exclude", "MEMBERSHIP": "include"}),
+                         ("MEMBERSHIP",))
 
 
 @unittest.skipUnless(os.environ.get("PFT_LABEL_SYNTHETIC_TEST") == "1",
@@ -136,7 +236,10 @@ class LabelDatabaseTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(row.updated_at, updated_after_clear)
 
     async def test_api_review_analytics_filter_and_financial_invariance(self):
-        self.assertEqual(await review.label_options(), {"labels": [{"value": "CHINA", "label": "China"}]})
+        self.assertEqual(await review.label_options(), {"labels": [
+            {"value": "CHINA", "label": "China"},
+            {"value": "MEMBERSHIP", "label": "Membership"},
+        ]})
         await review.mutate_label("generic", "CHINA", "include")
         async with self.sessions.begin() as db:
             (await db.get(Item, "item")).status = "active"
@@ -164,6 +267,30 @@ class LabelDatabaseTests(unittest.IsolatedAsyncioTestCase):
                 transaction_type=None, limit=50, offset=0, institution_id=None,
                 account_id=None, label="TRAVEL")
         self.assertEqual(invalid.exception.status_code, 422)
+
+    async def test_membership_summary_and_range_respect_active_consumer_scope(self):
+        await review.mutate_label("china", "MEMBERSHIP", "include")
+        pending = await analytics.membership_costs("2026-07")
+        self.assertEqual(pending["overall"]["membership_transaction_count"], 0)
+        async with self.sessions.begin() as db:
+            (await db.get(Item, "item")).status = "active"
+        baseline = await analytics.monthly_spending("2026-07")
+        summary = await analytics.membership_costs("2026-07")
+        self.assertEqual(summary["overall"]["gross_charges"], "10.00")
+        self.assertEqual(summary["accounts"][0]["account_id"], "card")
+        self.assertEqual(summary["accounts"][0]["net_cost"], "10.00")
+        details = await analytics.analytics_transactions(
+            month=None, start_month="2025-08", end_month="2026-07", label="MEMBERSHIP",
+            category=None, transaction_type=None, limit=50, offset=0,
+            institution_id=None, account_id="card",
+        )
+        self.assertEqual([row["transaction_id"] for row in details["transactions"]], ["china"])
+        await review.mutate_label("china", "MEMBERSHIP", "exclude")
+        self.assertEqual((await analytics.membership_costs("2026-07"))["overall"]["net_cost"], "0.00")
+        self.assertEqual(await analytics.monthly_spending("2026-07"), baseline)
+        async with self.sessions.begin() as db:
+            (await db.get(Account, "card")).consumer_transactions_enabled = False
+        self.assertEqual((await analytics.membership_costs("2026-07"))["accounts"], [])
 
     async def test_scope_and_validation(self):
         with self.assertRaises(HTTPException) as invalid:
@@ -230,12 +357,22 @@ class LabelDatabaseTests(unittest.IsolatedAsyncioTestCase):
             snapshot = (before.transaction_id, before.label, before.decision,
                         before.created_by, before.created_at, before.updated_at)
         async with self.engine.begin() as connection:
+            await connection.execute(text("ALTER TABLE manual_transaction_label_overrides "
+                "DROP CONSTRAINT ck_manual_transaction_label"))
+            await connection.execute(text("ALTER TABLE manual_transaction_label_overrides "
+                "ADD CONSTRAINT ck_manual_transaction_label CHECK (label IN ('CHINA'))"))
             await migrate_transaction_labels(connection)
             await migrate_transaction_labels(connection)
         async with self.sessions() as db:
             after = (await db.execute(select(ManualTransactionLabelOverride))).scalars().one()
             self.assertEqual(snapshot, (after.transaction_id, after.label, after.decision,
                                         after.created_by, after.created_at, after.updated_at))
+        result = await review.mutate_label("china", "MEMBERSHIP", "include")
+        self.assertEqual(result["effective_labels"], ["CHINA", "MEMBERSHIP"])
+        excluded = await review.mutate_label("china", "MEMBERSHIP", "exclude")
+        self.assertEqual(excluded["effective_labels"], ["CHINA"])
+        restored = await review.mutate_label("china", "MEMBERSHIP", None)
+        self.assertEqual(restored["effective_labels"], ["CHINA"])
         async with self.sessions() as db:
             with self.assertRaises(IntegrityError):
                 async with db.begin():

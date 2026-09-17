@@ -146,6 +146,86 @@ def _finalize_metrics(metrics):
     }
 
 
+def _empty_membership_metrics():
+    return {
+        "gross_charges": ZERO, "refunds": ZERO, "card_benefits": ZERO,
+        "membership_transaction_count": 0, "excluded_transaction_count": 0,
+        "unclassified_count": 0,
+    }
+
+
+def _accumulate_membership(metrics, transaction, override_type):
+    metrics["membership_transaction_count"] += 1
+    kind, spending, internal = effective_classification(transaction, override_type)
+    amount = Decimal(transaction.amount)
+    if internal is not True and kind == "expense" and spending is True and amount < 0:
+        metrics["gross_charges"] -= amount
+    elif internal is not True and kind == "refund" and amount > 0:
+        metrics["refunds"] += amount
+    elif internal is not True and kind == "card_benefit" and amount > 0:
+        metrics["card_benefits"] += amount
+    else:
+        metrics["excluded_transaction_count"] += 1
+        if kind is None:
+            metrics["unclassified_count"] += 1
+
+
+def _finalize_membership_metrics(metrics):
+    return {
+        "gross_charges": _money(metrics["gross_charges"]),
+        "refunds": _money(metrics["refunds"]),
+        "card_benefits": _money(metrics["card_benefits"]),
+        "net_cost": _money(metrics["gross_charges"] - metrics["refunds"] - metrics["card_benefits"]),
+        "membership_transaction_count": metrics["membership_transaction_count"],
+        "excluded_transaction_count": metrics["excluded_transaction_count"],
+        "unclassified_count": metrics["unclassified_count"],
+    }
+
+
+def summarize_memberships(rows, label_overrides, start_month, end_month):
+    months = {month: _empty_membership_metrics()
+              for month in (_shift_month(start_month, offset) for offset in range(12))}
+    overall = _empty_membership_metrics()
+    accounts = {}
+    for row in rows:
+        transaction, is_removed, override_type, item, account, _ = _analytics_row(row)
+        if is_removed or account is None or item is None:
+            continue
+        decisions = label_overrides.get(transaction.transaction_id, ())
+        if "MEMBERSHIP" not in label_result(transaction, decisions)["effective_labels"]:
+            continue
+        month = transaction.transaction_date.strftime("%Y-%m")
+        if month not in months:
+            continue
+        _accumulate_membership(overall, transaction, override_type)
+        _accumulate_membership(months[month], transaction, override_type)
+        account_id = account.account_id
+        if account_id not in accounts:
+            accounts[account_id] = {
+                "institution_id": item.institution_id,
+                "institution_name": item.institution_name,
+                "account_id": account_id,
+                "account_name": account.name,
+                "account_mask": account.mask,
+                "account_type": account.type,
+                "account_subtype": account.subtype,
+                "metrics": _empty_membership_metrics(),
+            }
+        _accumulate_membership(accounts[account_id]["metrics"], transaction, override_type)
+    return {
+        "start_month": start_month,
+        "end_month": end_month,
+        "overall": _finalize_membership_metrics(overall),
+        "months": [{"month": month, **_finalize_membership_metrics(values)}
+                   for month, values in months.items()],
+        "accounts": sorted(
+            [{**{key: value for key, value in entry.items() if key != "metrics"},
+              **_finalize_membership_metrics(entry["metrics"])} for entry in accounts.values()],
+            key=lambda entry: (Decimal(entry["net_cost"]), entry["account_id"]), reverse=True,
+        ),
+    }
+
+
 def summarize_monthly_transactions(rows):
     metrics = _empty_metrics()
     categories = {}
@@ -328,9 +408,21 @@ async def spending_breakdown(
     return {"month": month, "group_by": group_by, "groups": summarize_breakdown(await _active_month_rows(month), group_by)}
 
 
+@router.get("/memberships")
+async def membership_costs(end_month: str = Query(..., pattern=r"^\d{4}-\d{2}$")):
+    start_month = _shift_month(end_month, -11)
+    start_date, _ = _month_bounds(start_month)
+    _, end_date = _month_bounds(end_month)
+    rows = await _active_analytics_rows(start_date, end_date)
+    async with SessionLocal() as db:
+        overrides = await load_label_overrides(
+            db, [transaction.transaction_id for transaction, *_ in rows])
+    return summarize_memberships(rows, overrides, start_month, end_month)
+
+
 @router.get("/transactions")
 async def analytics_transactions(
-    month: str = Query(..., pattern=r"^\d{4}-\d{2}$"),
+    month: str | None = None,
     category: str | None = Query(None, min_length=1),
     transaction_type: str | None = Query(None),
     limit: int = Query(50, ge=1, le=200),
@@ -338,13 +430,28 @@ async def analytics_transactions(
     institution_id: str | None = None,
     account_id: str | None = None,
     label: str | None = None,
+    start_month: str | None = None,
+    end_month: str | None = None,
 ):
     if transaction_type is not None and transaction_type not in DETAIL_TYPES:
         raise HTTPException(status_code=422, detail="unsupported transaction type")
     if label is not None and label not in ALLOWED_LABELS:
         raise HTTPException(status_code=422, detail="unsupported transaction label")
+    if month is not None:
+        if start_month is not None or end_month is not None:
+            raise HTTPException(status_code=422, detail="choose month or a month range")
+        rows = await _active_month_rows(month)
+    else:
+        if start_month is None or end_month is None:
+            raise HTTPException(status_code=422, detail="provide month or both range endpoints")
+        start_date, _ = _month_bounds(start_month)
+        _, end_date = _month_bounds(end_month)
+        if start_date > end_date or not 0 <= ((int(end_month[:4]) - int(start_month[:4])) * 12
+                                          + int(end_month[5:]) - int(start_month[5:])) < 12:
+            raise HTTPException(status_code=422, detail="month range must span at most 12 months")
+        rows = await _active_analytics_rows(start_date, end_date)
     details = transaction_details(
-        await _active_month_rows(month), category, transaction_type, institution_id, account_id
+        rows, category, transaction_type, institution_id, account_id
     )
     async with SessionLocal() as db:
         overrides = await load_label_overrides(db, [detail["transaction_id"] for detail in details])
@@ -357,6 +464,8 @@ async def analytics_transactions(
     page = details[offset : offset + limit]
     return {
         "month": month,
+        "start_month": start_month,
+        "end_month": end_month,
         "category": category,
         "transaction_type": transaction_type,
         "label": label,
