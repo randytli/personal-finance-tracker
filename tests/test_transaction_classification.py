@@ -528,7 +528,7 @@ class CardBenefitClassificationTests(unittest.TestCase):
 
     def test_platinum_walmart_credit_is_card_benefit(self):
         transaction = self.card_benefit_transaction(
-            "Walmart",
+            "Walmart", amount="13.81",
             account_id="platinum-card",
         )
 
@@ -538,6 +538,16 @@ class CardBenefitClassificationTests(unittest.TestCase):
             classifications[transaction.transaction_id],
             ("card_benefit", False, False),
         )
+
+    def test_platinum_walmart_return_is_not_a_card_benefit(self):
+        transaction = self.card_benefit_transaction("Walmart", amount="85.26")
+        classifications, _ = self.classify([transaction])
+        self.assertNotEqual(classifications[transaction.transaction_id][0], "card_benefit")
+
+    def test_platinum_walmart_benefit_amount_is_exact(self):
+        transaction = self.card_benefit_transaction("Walmart", amount="13.80")
+        classifications, _ = self.classify([transaction])
+        self.assertNotEqual(classifications[transaction.transaction_id][0], "card_benefit")
 
     def test_merchant_benefits_require_the_exact_amex_card(self):
         cases = (

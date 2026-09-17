@@ -20,6 +20,7 @@ router = APIRouter(prefix="/analytics")
 ZERO = Decimal("0")
 DETAIL_TYPES = ALLOWED_TRANSACTION_TYPES | {"unclassified"}
 MembershipPeriod = Literal["trailing_12m", "ytd"]
+MembershipView = Literal["all", "charges", "refunds", "card_benefits"]
 
 
 def _money(value):
@@ -184,6 +185,26 @@ def _finalize_membership_metrics(metrics):
     }
 
 
+def _membership_bucket(transaction, override_type):
+    if isinstance(transaction, dict):
+        kind = override_type or transaction.get("transaction_type")
+        spending = transaction.get("is_spending") if override_type is None else kind == "expense"
+        internal = transaction.get("is_internal_transfer")
+        amount = Decimal(transaction["amount"])
+    else:
+        kind, spending, internal = effective_classification(transaction, override_type)
+        amount = Decimal(transaction.amount)
+    if internal is True:
+        return None
+    if kind == "expense" and spending is True and amount < 0:
+        return "charges"
+    if kind == "refund" and amount > 0:
+        return "refunds"
+    if kind == "card_benefit" and amount > 0:
+        return "card_benefits"
+    return "excluded"
+
+
 def summarize_memberships(rows, label_overrides, start_month, end_month,
                           period: MembershipPeriod = "trailing_12m"):
     start_date, _ = _month_bounds(start_month)
@@ -194,18 +215,24 @@ def summarize_memberships(rows, label_overrides, start_month, end_month,
     months = {month: _empty_membership_metrics()
               for month in (_shift_month(start_month, offset) for offset in range(month_count))}
     overall = _empty_membership_metrics()
+    type_counts = {"charges": 0, "refunds": 0, "card_benefits": 0, "excluded": 0}
     accounts = {}
     for row in rows:
         transaction, is_removed, override_type, item, account, _ = _analytics_row(row)
         if is_removed or account is None or item is None:
             continue
         decisions = label_overrides.get(transaction.transaction_id, ())
-        if "MEMBERSHIP" not in label_result(transaction, decisions)["effective_labels"]:
+        if "MEMBERSHIP" not in label_result(transaction, decisions,
+                institution_id=item.institution_id, account_type=account.type,
+                account_name=account.name)["effective_labels"]:
             continue
         month = transaction.transaction_date.strftime("%Y-%m")
         if month not in months:
             continue
         _accumulate_membership(overall, transaction, override_type)
+        bucket = _membership_bucket(transaction, override_type)
+        if bucket in type_counts:
+            type_counts[bucket] += 1
         _accumulate_membership(months[month], transaction, override_type)
         account_id = account.account_id
         if account_id not in accounts:
@@ -225,6 +252,7 @@ def summarize_memberships(rows, label_overrides, start_month, end_month,
         "start_month": start_month,
         "end_month": end_month,
         "overall": _finalize_membership_metrics(overall),
+        "type_counts": type_counts,
         "months": [{"month": month, **_finalize_membership_metrics(values)}
                    for month, values in months.items()],
         "accounts": sorted(
@@ -449,7 +477,12 @@ async def analytics_transactions(
     label: str | None = None,
     start_month: str | None = None,
     end_month: str | None = None,
+    membership_view: MembershipView | None = None,
 ):
+    if membership_view is not None and (label != "MEMBERSHIP"):
+        raise HTTPException(status_code=422, detail="membership_view requires label=MEMBERSHIP")
+    if membership_view is not None and transaction_type is not None:
+        raise HTTPException(status_code=422, detail="choose membership_view or transaction_type")
     if transaction_type is not None and transaction_type not in DETAIL_TYPES:
         raise HTTPException(status_code=422, detail="unsupported transaction type")
     if label is not None and label not in ALLOWED_LABELS:
@@ -470,14 +503,41 @@ async def analytics_transactions(
     details = transaction_details(
         rows, category, transaction_type, institution_id, account_id
     )
+    contexts = {
+        transaction.transaction_id: {
+            "institution_id": getattr(item, "institution_id", None),
+            "account_type": getattr(account, "type", None),
+            "account_name": getattr(account, "name", None),
+        }
+        for transaction, _, _, item, account, _ in (_analytics_row(row) for row in rows)
+        if item is not None and account is not None
+    }
     async with SessionLocal() as db:
         overrides = await load_label_overrides(db, [detail["transaction_id"] for detail in details])
     details = [
-        {**detail, **label_result(detail, overrides.get(detail["transaction_id"], ()))}
+        {**detail, **label_result(detail, overrides.get(detail["transaction_id"], ()),
+                                 **contexts.get(detail["transaction_id"], {}))}
         for detail in details
     ]
     if label is not None:
         details = [detail for detail in details if label in detail["effective_labels"]]
+    membership_counts = None
+    if label == "MEMBERSHIP":
+        buckets = {"charges": 0, "refunds": 0, "card_benefits": 0, "excluded": 0}
+        for detail in details:
+            bucket = _membership_bucket(detail, None)
+            if bucket is None:
+                continue
+            buckets[bucket] += 1
+        membership_counts = {
+            "charges": buckets["charges"],
+            "refunds": buckets["refunds"],
+            "card_benefits": buckets["card_benefits"],
+            "all": len(details),
+        }
+        if membership_view and membership_view != "all":
+            details = [detail for detail in details
+                       if _membership_bucket(detail, None) == membership_view]
     page = details[offset : offset + limit]
     return {
         "month": month,
@@ -491,6 +551,8 @@ async def analytics_transactions(
         "offset": offset,
         "transactions": page,
         "transaction_count": len(page),
+        "membership_counts": membership_counts,
+        "membership_view": membership_view,
     }
 
 

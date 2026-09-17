@@ -26,6 +26,32 @@ def transaction(merchant=None, description=None):
 
 
 class LabelRuleTests(unittest.TestCase):
+    def test_amex_membership_benefits_require_credit_card_evidence(self):
+        context = dict(institution_id='ins_10', account_type='credit',
+                       account_name='Platinum Card')
+        for description in ('PLATINUM UBER ONE CREDIT', 'WALMART'):
+            credit = SimpleNamespace(merchant_name='Walmart', description=description,
+                                     amount='13.81' if description == 'WALMART' else '9.99',
+                                     transaction_type='card_benefit')
+            with self.subTest(description=description):
+                self.assertIn('MEMBERSHIP', automatic_labels(credit, **context))
+                self.assertNotIn('MEMBERSHIP', automatic_labels(
+                    credit, **{**context, 'institution_id': 'ins_other'}))
+                self.assertNotIn('MEMBERSHIP', automatic_labels(
+                    credit, **{**context, 'account_type': 'depository'}))
+                if description == 'WALMART':
+                    self.assertNotIn('MEMBERSHIP', automatic_labels(
+                        credit, **{**context, 'account_name': 'American Express Gold Card'}))
+                credit.amount = '-9.99'
+                self.assertNotIn('MEMBERSHIP', automatic_labels(credit, **context))
+        for description in ('AMEX DINING CREDIT', 'WALMART OFFER', 'UBER'):
+            credit.description, credit.amount = description, '9.99'
+            self.assertNotIn('MEMBERSHIP', automatic_labels(credit, **context))
+        credit.description = 'PLATINUM DIGITAL ENTERTAINMENT CREDIT'
+        self.assertIn('MEMBERSHIP', automatic_labels(credit, **context))
+        self.assertNotIn('MEMBERSHIP', automatic_labels(
+            credit, **{**context, 'account_name': 'American Express Gold Card'}))
+
     def test_china_vocabulary_and_conservative_rules(self):
         self.assertEqual(ALLOWED_LABELS, ("CHINA", "MEMBERSHIP"))
         for value in (
@@ -203,6 +229,36 @@ class LabelDatabaseTests(unittest.IsolatedAsyncioTestCase):
         async with self.admin.begin() as connection:
             await connection.execute(text(f'DROP SCHEMA "{self.schema}" CASCADE'))
         await self.admin.dispose()
+
+    async def test_amex_benefit_context_agrees_across_summary_details_and_label_edits(self):
+        async with self.sessions.begin() as db:
+            (await db.get(Item, 'item')).institution_id = 'ins_10'
+            (await db.get(Item, 'item')).status = 'active'
+            (await db.get(Account, 'card')).name = 'Platinum Card'
+            db.add(RawTransaction(transaction_id='benefit', item_id='item',
+                account_id='card', transaction_date=date(2026, 9, 1),
+                payload={'amount': 9.99}, source='plaid'))
+            await db.flush()
+            db.add(Transaction(transaction_id='benefit', account_id='card',
+                transaction_date=date(2026, 9, 1), amount=Decimal('9.99'),
+                merchant_name='Uber', description='PLATINUM UBER ONE CREDIT',
+                plaid_category='GENERAL_SERVICES', transaction_type='card_benefit',
+                is_spending=False, is_internal_transfer=False))
+        summary = await analytics.membership_costs('2026-09', 'ytd')
+        self.assertEqual(summary['overall']['card_benefits'], '9.99')
+        details = await analytics.analytics_transactions(
+            month='2026-09', category=None, transaction_type=None,
+            limit=50, offset=0, institution_id=None, account_id=None,
+            label='MEMBERSHIP')
+        self.assertEqual([row['transaction_id'] for row in details['transactions']], ['benefit'])
+        excluded = await review.mutate_label('benefit', 'MEMBERSHIP', 'exclude')
+        self.assertEqual(excluded['automatic_labels'], ['MEMBERSHIP'])
+        self.assertEqual(excluded['effective_labels'], [])
+        self.assertEqual((await analytics.membership_costs('2026-09', 'ytd'))
+                         ['overall']['card_benefits'], '0.00')
+        restored = await review.mutate_label('benefit', 'MEMBERSHIP', None)
+        self.assertEqual(restored['effective_labels'], ['MEMBERSHIP'])
+
 
     async def test_pending_manual_audit_noops_clear_and_classifier_survival(self):
         excluded = await review.mutate_label("china", "CHINA", "exclude")

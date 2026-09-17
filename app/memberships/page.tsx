@@ -9,6 +9,7 @@ import CategoryEditor, { mergeCategoryDetail, mutateCategoryOverride, type Categ
 import LabelEditor, { mergeLabelDetail, type LabelDetail, useLabelOptions } from '@/components/label-editor'
 import { membershipPeriods, membershipRangeText, membershipSummaryMatches,
   membershipSummaryPath, membershipTransactionsPath, type MembershipPeriod } from './period'
+import type { MembershipView } from './period'
 
 type MembershipMetrics = {
   gross_charges: string
@@ -35,6 +36,7 @@ type MembershipSummary = {
   overall: MembershipMetrics
   months: Array<MembershipMetrics & { month: string }>
   accounts: MembershipAccount[]
+  type_counts: { charges: number; refunds: number; card_benefits: number; excluded: number }
 }
 type Detail = CategoryDetail & LabelDetail & {
   transaction_id: string
@@ -63,6 +65,11 @@ function money(value: string) {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(Number(value))
 }
 
+function signedMoney(value: string) {
+  const amount = Number(value)
+  return (amount > 0 ? '+' : '') + money(value)
+}
+
 function contributesToCost(detail: Detail) {
   const amount = Number(detail.amount)
   if (detail.is_internal_transfer) return false
@@ -75,8 +82,10 @@ export default function MembershipsPage() {
   const [period, setPeriod] = useState<MembershipPeriod>('trailing_12m')
   const [summary, setSummary] = useState<MembershipSummary | null>(null)
   const [accountId, setAccountId] = useState<string | null>(null)
+  const [view, setView] = useState<MembershipView>('all')
   const [details, setDetails] = useState<Detail[]>([])
   const [total, setTotal] = useState(0)
+  const [viewCounts, setViewCounts] = useState({ charges: 0, refunds: 0, card_benefits: 0, all: 0 })
   const [offset, setOffset] = useState(0)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [revision, setRevision] = useState(0)
@@ -114,7 +123,7 @@ export default function MembershipsPage() {
     if (!startMonth) return
     let active = true
     setDetailLoading(true)
-    fetch(membershipTransactionsPath(startMonth, endMonth, accountId, offset, PAGE_SIZE))
+    fetch(membershipTransactionsPath(startMonth, endMonth, accountId, offset, PAGE_SIZE, view))
       .then(response => response.ok ? response.json() : Promise.reject())
       .then(data => {
         if (!active) return
@@ -124,11 +133,12 @@ export default function MembershipsPage() {
         }
         setDetails(data.transactions || [])
         setTotal(data.total || 0)
+        if (data.membership_counts) setViewCounts(data.membership_counts)
       })
       .catch(() => { if (active) setError('Membership transactions could not be loaded.') })
       .finally(() => { if (active) setDetailLoading(false) })
     return () => { active = false }
-  }, [startMonth, endMonth, accountId, offset, revision])
+  }, [startMonth, endMonth, accountId, offset, view, revision])
 
   const selectedAccount = summary?.accounts.find(account => account.account_id === accountId)
   const chartData = useMemo(() => (summary?.months || []).map(month => ({
@@ -150,6 +160,17 @@ export default function MembershipsPage() {
     setOffset(0)
     setSelected(new Set())
     setDetails([])
+    setViewCounts({ charges: 0, refunds: 0, card_benefits: 0, all: 0 })
+    setStatus('')
+  }
+
+  function changeView(nextView: MembershipView) {
+    setView(nextView)
+    setOffset(0)
+    setSelected(new Set())
+    setDetails([])
+    setTotal(0)
+    setViewCounts({ charges: 0, refunds: 0, card_benefits: 0, all: 0 })
     setStatus('')
   }
 
@@ -220,7 +241,7 @@ export default function MembershipsPage() {
     <header className="mt-4 flex flex-wrap items-end justify-between gap-4">
       <div>
         <h1 className="text-3xl font-bold">Membership costs</h1>
-        <p className="mt-1 text-sm text-muted-foreground">Recorded charges and credits on transactions labeled Membership.</p>
+        <p className="mt-1 text-sm text-muted-foreground">Recorded charges and credits on transactions labeled Membership. Net cost = gross charges − refunds − card benefits; each posts in its own month and account.</p>
         {summary && <p className="mt-1 text-sm text-muted-foreground">
           {membershipRangeText(summary.start_month, summary.end_month, period)}
           {endMonth === currentMonth() ? ' · current month is partial' : ''}
@@ -264,9 +285,9 @@ export default function MembershipsPage() {
         </div>)}
       </section>
       <p className="mt-3 text-xs text-muted-foreground">
-        {summary.overall.membership_transaction_count} labeled transactions · {summary.overall.excluded_transaction_count} excluded from cost
+        {summary.type_counts.charges} charges · {summary.type_counts.refunds} refunds · {summary.type_counts.card_benefits} card benefit credits · {summary.overall.excluded_transaction_count} excluded from cost
         {summary.overall.unclassified_count > 0 ? ` (${summary.overall.unclassified_count} unclassified)` : ''}.
-        {' '}Labeled payments, transfers, adjustments, income, and unclassified entries do not affect cost.
+        {' '}Payments, transfers, adjustments, income, and unclassified entries do not affect cost.
       </p>
 
       <section className="mt-8 rounded-lg border bg-white p-5 shadow-sm">
@@ -297,22 +318,28 @@ export default function MembershipsPage() {
         <h2 className="text-lg font-semibold">By account</h2>
         {summary.accounts.length === 0 && <p className="mt-3 text-sm text-muted-foreground">No Membership transactions in this period.</p>}
         <div className="mt-3 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {summary.accounts.map(account => <button key={account.account_id} type="button"
-            aria-pressed={accountId === account.account_id}
-            className={`rounded-lg border bg-white p-4 text-left shadow-sm hover:border-blue-500 ${accountId === account.account_id ? 'border-blue-600 ring-2 ring-blue-200' : ''}`}
-            onClick={() => changeAccount(accountId === account.account_id ? null : account.account_id)}>
+          {summary.accounts.map(account => <div key={account.account_id}
+            className={`rounded-lg border bg-white p-4 text-left shadow-sm ${accountId === account.account_id ? 'border-blue-600 ring-2 ring-blue-200' : ''}`}>
+            <button type="button" aria-pressed={accountId === account.account_id}
+              className="w-full text-left hover:text-blue-800"
+              onClick={() => { changeAccount(accountId === account.account_id ? null : account.account_id); changeView('all') }}>
             <AccountBadge institutionName={account.institution_name} accountName={account.account_name}
               accountMask={account.account_mask} accountType={account.account_type} accountSubtype={account.account_subtype} />
             <p className="mt-3 text-lg font-semibold">{money(account.net_cost)} net cost</p>
             <div className="mt-2 grid grid-cols-2 gap-x-3 text-sm text-muted-foreground">
               <span>Gross {money(account.gross_charges)}</span><span>Refunds {money(account.refunds)}</span>
               <span>Benefits {money(account.card_benefits)}</span>
-              <span>{account.membership_transaction_count} labeled transactions</span>
+              <span>{account.membership_transaction_count} Membership transactions</span>
             </div>
+            </button>
+            <button type="button" className="mt-3 inline-flex items-center rounded-md border px-2 py-1 text-xs font-medium"
+              onClick={event => { event.stopPropagation(); changeAccount(account.account_id); changeView('card_benefits') }}>
+              View {money(account.card_benefits)} benefits
+            </button>
             {account.excluded_transaction_count > 0 && <p className="mt-2 text-xs text-muted-foreground">
               {account.excluded_transaction_count} excluded from cost
             </p>}
-          </button>)}
+          </div>)}
         </div>
       </section>
 
@@ -322,8 +349,15 @@ export default function MembershipsPage() {
             <h2 className="text-lg font-semibold">Membership transactions</h2>
             <p className="text-sm text-muted-foreground">
               {selectedAccount ? `${selectedAccount.institution_name} · ${selectedAccount.account_name}` : 'All accounts'}
-              {' · '}{total} labeled transactions in the reporting period
+              {' · '}{total} {view === 'all' ? 'Membership transactions' : view === 'card_benefits' ? 'card benefit credits' : view === 'charges' ? 'membership charges' : 'membership refunds'} in the reporting period
             </p>
+          </div>
+          <div className="flex flex-wrap gap-2" aria-label="Membership transaction type filter">
+            {([['all', 'All'], ['charges', 'Charges'], ['refunds', 'Refunds'], ['card_benefits', 'Card Benefits']] as const).map(([value, label]) => (
+              <button key={value} type="button" aria-pressed={view === value}
+                className={`rounded-md border px-2 py-1 text-xs ${view === value ? 'border-blue-600 bg-blue-50 text-blue-800' : 'bg-white'}`}
+                onClick={() => changeView(value)}>{label}{summary && <span className="ml-1">({value === 'all' ? viewCounts.all : viewCounts[value]})</span>}</button>
+            ))}
           </div>
           {accountId && <button type="button" className="text-sm text-blue-700 underline"
             onClick={() => changeAccount(null)}>Show all accounts</button>}
@@ -347,14 +381,17 @@ export default function MembershipsPage() {
               onChange={() => toggleSelected(detail.transaction_id)} /></label>
             <div className="min-w-0 flex-1">
               <p className="font-medium">{detail.merchant_name || detail.description || 'Unknown transaction'}</p>
-              <p className="text-sm text-muted-foreground">{detail.transaction_date} · {detail.description} · {detail.transaction_type.replace(/_/g, ' ')}</p>
+              <p className="text-sm text-muted-foreground">{detail.transaction_date} · {detail.description}</p>
+              <span className="mt-1 inline-flex rounded-full border px-2 py-0.5 text-xs font-medium capitalize">
+                {detail.transaction_type.replace(/_/g, ' ')}
+              </span>
               {detail.institution_name && detail.account_name && <div className="mt-2">
                 <AccountBadge institutionName={detail.institution_name} accountName={detail.account_name}
                   accountMask={detail.account_mask} accountType={detail.account_type || ''} accountSubtype={detail.account_subtype} />
               </div>}
             </div>
             <div className="text-right">
-              <p className="font-semibold">{money(detail.amount)}</p>
+              <p className="font-semibold">{signedMoney(detail.amount)}</p>
               {!contributesToCost(detail) && <p className="text-xs text-amber-800">Excluded from cost</p>}
             </div>
             <div className="grid w-full gap-x-5 md:grid-cols-2">

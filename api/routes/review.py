@@ -176,8 +176,18 @@ async def _apply_label(db, transaction, label, decision, actor):
         await db.flush()
     overrides = (await db.execute(select(ManualTransactionLabelOverride).where(
         ManualTransactionLabelOverride.transaction_id == transaction.transaction_id))).scalars().all()
+    context = (await db.execute(
+        select(Item.institution_id, Account.type, Account.name)
+        .join(RawTransaction, RawTransaction.item_id == Item.item_id)
+        .join(Account, (Account.account_id == RawTransaction.account_id)
+              & (Account.item_id == Item.item_id))
+        .where(RawTransaction.transaction_id == transaction.transaction_id,
+               Account.account_id == transaction.account_id,
+               Item.user_id == actor)
+    )).one()
     return {"transaction_id": transaction.transaction_id,
-            **label_result(transaction, overrides)}, changed
+            **label_result(transaction, overrides, institution_id=context[0],
+                           account_type=context[1], account_name=context[2])}, changed
 
 
 async def mutate_label(transaction_id, label, decision):
@@ -397,7 +407,9 @@ async def transactions_needing_review(
                 "description": transaction.description,
                 "amount": _money(transaction.amount),
                 "plaid_category": transaction.plaid_category,
-                **label_result(transaction, label_overrides.get(transaction.transaction_id, ())),
+                **label_result(transaction, label_overrides.get(transaction.transaction_id, ()),
+                               institution_id=item.institution_id,
+                               account_type=account.type, account_name=account.name),
                 **_result(transaction, override_type),
             }
             for transaction, account, item, override_type in rows

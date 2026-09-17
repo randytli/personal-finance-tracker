@@ -28,6 +28,94 @@ def account(identifier):
 
 
 class MembershipTests(unittest.TestCase):
+    def test_membership_detail_views_filter_before_pagination_and_reconcile_benefits(self):
+        bank = SimpleNamespace(institution_id='ins_10', institution_name='American Express')
+        card = account('card'); card.name = 'Platinum Card'
+        rows = []
+        for ident, amount, kind in [('charge', '-20', 'expense'), ('refund', '3', 'refund'),
+                                    ('benefit', '7', 'card_benefit')]:
+            tx = transaction(ident, date(2026, 9, 1), amount, kind,
+                             spending=kind == 'expense')
+            tx.description = {'charge': 'Walmart', 'refund': 'IC Instacart Subscrip',
+                              'benefit': 'PLATINUM UBER ONE CREDIT'}[ident]
+            rows.append((tx, False, None, bank, card))
+
+        class Session:
+            async def __aenter__(self): return self
+            async def __aexit__(self, *_): return False
+
+        decisions = {row[0].transaction_id: [SimpleNamespace(label='MEMBERSHIP',
+            decision='include', cleared_at=None)] for row in rows}
+        with (patch('api.routes.analytics._active_month_rows', AsyncMock(return_value=rows)),
+              patch('api.routes.analytics.load_label_overrides', AsyncMock(return_value=decisions)),
+              patch('api.routes.analytics.SessionLocal', return_value=Session())):
+            result = asyncio.run(analytics_transactions(
+                month='2026-09', category=None, transaction_type=None, limit=1, offset=0,
+                institution_id=None, account_id=None, label='MEMBERSHIP',
+                membership_view='card_benefits'))
+        self.assertEqual(result['total'], 1)
+        self.assertEqual(result['transactions'][0]['transaction_id'], 'benefit')
+        self.assertEqual(result['membership_counts'],
+                         {'charges': 1, 'refunds': 1, 'card_benefits': 1, 'all': 3})
+
+    def test_confirmed_benefit_credits_follow_account_and_posting_month(self):
+        amex = SimpleNamespace(institution_id='ins_10', institution_name='American Express')
+        other = SimpleNamespace(institution_id='ins_other', institution_name='Other')
+        platinum = account('platinum')
+        platinum.name = 'Platinum Card'
+        gold = account('gold')
+        gold.name = 'American Express Gold Card'
+        fee = transaction('fee', date(2026, 8, 5), '-13.81', 'expense', spending=True)
+        fee.merchant_name = fee.description = 'Walmart'
+        benefit = transaction('benefit', date(2026, 9, 5), '13.81', 'card_benefit')
+        benefit.merchant_name = benefit.description = 'Walmart'
+        refund = transaction('refund', date(2026, 9, 6), '2', 'refund')
+        refund.description = 'IC Instacart Subscrip'
+        other_benefit = transaction('dining', date(2026, 9, 7), '10', 'card_benefit')
+        other_benefit.description = 'AMEX DINING CREDIT'
+        rows = [(fee, False, None, amex, platinum),
+                (benefit, False, None, amex, platinum),
+                (refund, False, None, amex, platinum),
+                (other_benefit, False, None, amex, platinum)]
+        before = summarize_monthly_transactions(rows)
+        summary = summarize_memberships(rows, {}, '2026-08', '2026-09', 'ytd')
+        self.assertEqual(summary['overall']['gross_charges'], '13.81')
+        self.assertEqual(summary['overall']['refunds'], '2.00')
+        self.assertEqual(summary['overall']['card_benefits'], '13.81')
+        self.assertEqual(summary['overall']['net_cost'], '-2.00')
+        self.assertEqual(summary['months'][0]['net_cost'], '13.81')
+        self.assertEqual(summary['months'][1]['net_cost'], '-15.81')
+        self.assertEqual(summary['overall']['membership_transaction_count'], 3)
+        self.assertEqual(summarize_monthly_transactions(rows), before)
+        self.assertNotIn('MEMBERSHIP', label_result(other_benefit,
+            institution_id=amex.institution_id, account_type='credit',
+            account_name=platinum.name)['effective_labels'])
+        for item, card in ((other, platinum), (amex, gold)):
+            wrong = summarize_memberships([(benefit, False, None, item, card)], {},
+                                           '2026-09', '2026-09', 'ytd')
+            self.assertEqual(wrong['overall']['card_benefits'], '0.00')
+
+    def test_uber_one_benefit_manual_label_and_type_precedence(self):
+        amex = SimpleNamespace(institution_id='ins_10', institution_name='American Express')
+        platinum = account('platinum')
+        platinum.name = 'Platinum Card'
+        credit = transaction('uber-credit', date(2026, 9, 3), '9.99', 'card_benefit')
+        credit.description = 'PLATINUM UBER ONE CREDIT'
+        rows = [(credit, False, None, amex, platinum)]
+        self.assertEqual(summarize_memberships(rows, {}, '2026-09', '2026-09', 'ytd')
+                         ['overall']['card_benefits'], '9.99')
+        excluded = {'uber-credit': [SimpleNamespace(label='MEMBERSHIP',
+            decision='exclude', cleared_at=None)]}
+        self.assertEqual(summarize_memberships(rows, excluded, '2026-09', '2026-09', 'ytd')
+                         ['overall']['card_benefits'], '0.00')
+        excluded['uber-credit'][0].cleared_at = datetime.now()
+        self.assertEqual(summarize_memberships(rows, excluded, '2026-09', '2026-09', 'ytd')
+                         ['overall']['card_benefits'], '9.99')
+        overridden = [(credit, False, 'refund', amex, platinum)]
+        changed = summarize_memberships(overridden, {}, '2026-09', '2026-09', 'ytd')
+        self.assertEqual((changed['overall']['refunds'], changed['overall']['card_benefits']),
+                         ('9.99', '0.00'))
+
     def test_ytd_and_trailing_summary_use_the_same_period_for_all_metrics(self):
         bank = SimpleNamespace(institution_id='ins_test', institution_name='Test Bank')
         old_card, current_card = account('old'), account('current')

@@ -32,11 +32,12 @@ describe('Membership reporting periods', () => {
       'https://example.test')
     expect(Object.fromEntries(ytd.searchParams)).toEqual({
       start_month: '2026-01', end_month: '2026-09', label: 'MEMBERSHIP',
-      limit: '50', offset: '50', account_id: 'card',
+      limit: '50', offset: '50', membership_view: 'all', account_id: 'card',
     })
     const trailingDetails = new URL(
       membershipTransactionsPath('2025-10', '2026-09', null, 0, 50), 'https://example.test')
     expect(trailingDetails.searchParams.get('start_month')).toBe('2025-10')
     expect(trailingDetails.searchParams.has('account_id')).toBe(false)
+    expect(trailingDetails.searchParams.get('membership_view')).toBe('all')
   })
 })

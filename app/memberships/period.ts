@@ -1,4 +1,5 @@
 export type MembershipPeriod = 'trailing_12m' | 'ytd'
+export type MembershipView = 'all' | 'charges' | 'refunds' | 'card_benefits'
 
 export const membershipPeriods: ReadonlyArray<{ value: MembershipPeriod; label: string }> = [
   { value: 'trailing_12m', label: 'Trailing 12 months' },
@@ -16,6 +17,7 @@ export function membershipTransactionsPath(
   accountId: string | null,
   offset: number,
   limit: number,
+  view: MembershipView = 'all',
 ) {
   const parameters = new URLSearchParams({
     start_month: startMonth,
@@ -23,6 +25,7 @@ export function membershipTransactionsPath(
     label: 'MEMBERSHIP',
     limit: String(limit),
     offset: String(offset),
+    membership_view: view,
   })
   if (accountId) parameters.set('account_id', accountId)
   return '/api/pft/analytics/transactions?' + parameters.toString()

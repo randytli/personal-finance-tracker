@@ -19,6 +19,16 @@ Only effective MEMBERSHIP transactions contribute:
 - Card benefits: positive effective card benefits on their own accounts.
 - Net cost: gross charges minus refunds minus card benefits.
 
+Confirmed American Express Platinum Digital Entertainment, Uber One, and
+$13.81 Walmart credits automatically receive MEMBERSHIP when their positive
+credit, institution, exact description, and Platinum card account match
+reviewed benefit evidence. Other card benefits do not gain the label automatically. Charges
+retain their own independent membership rules. A benefit and its fee need not
+be paired: each is reported on its own posting date and account, so a period
+containing only a credit may show negative net cost. Refunds and benefits are
+separate buckets and each transaction reduces cost at most once. Manual
+classification and label decisions retain precedence.
+
 Labeled payments, transfers, internal transfers, income, adjustments, and
 unclassified entries remain visible in transaction details but contribute zero.
 The labeled transaction count includes these rows; a separate excluded count

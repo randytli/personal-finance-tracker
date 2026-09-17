@@ -3,6 +3,7 @@ import re
 from decimal import Decimal, InvalidOperation
 
 from sqlalchemy import select
+from api.card_benefits import membership_benefit
 
 
 ALLOWED_LABELS = ("CHINA", "MEMBERSHIP")
@@ -80,14 +81,17 @@ def _membership_expense_amount_match(transaction, merchant, description):
         return False
 
 
-def automatic_labels(transaction):
+def automatic_labels(transaction, *, institution_id=None, account_type=None, account_name=None):
     merchant = _value(transaction, "merchant_name")
     description = _value(transaction, "description")
     values = set()
     if _china_match(merchant) or _china_match(description):
         values.add("CHINA")
     if (normalize_label_text(description) in MEMBERSHIP_EXACT_DESCRIPTIONS
-            or _membership_expense_amount_match(transaction, merchant, description)):
+            or _membership_expense_amount_match(transaction, merchant, description)
+            or membership_benefit(description, _value(transaction, "amount") or 0,
+                institution_id=institution_id, account_type=account_type,
+                account_name=account_name)):
         values.add("MEMBERSHIP")
     return frozenset(values)
 
@@ -100,8 +104,8 @@ def active_label_decisions(overrides):
     }
 
 
-def effective_labels(transaction, decisions=None):
-    values = set(automatic_labels(transaction))
+def effective_labels(transaction, decisions=None, **context):
+    values = set(automatic_labels(transaction, **context))
     for label, decision in (decisions or {}).items():
         if decision == "include":
             values.add(label)
@@ -110,12 +114,12 @@ def effective_labels(transaction, decisions=None):
     return tuple(sorted(values))
 
 
-def label_result(transaction, overrides=()):
+def label_result(transaction, overrides=(), **context):
     decisions = active_label_decisions(overrides)
     return {
-        "automatic_labels": sorted(automatic_labels(transaction)),
+        "automatic_labels": sorted(automatic_labels(transaction, **context)),
         "manual_label_decisions": decisions,
-        "effective_labels": list(effective_labels(transaction, decisions)),
+        "effective_labels": list(effective_labels(transaction, decisions, **context)),
     }
 
 

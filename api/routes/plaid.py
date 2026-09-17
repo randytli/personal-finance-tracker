@@ -26,6 +26,9 @@ from sqlalchemy.dialects.postgresql import insert
 from api.db import SessionLocal
 from api.models import Account, Item, RawTransaction, Transaction, LegacyConsumerRow
 from api.consumer_scope import initial_consumer_scope, account_type_drift
+from api.card_benefits import (AMERICAN_EXPRESS_INSTITUTION_ID,
+    AMEX_MERCHANT_BENEFIT_ACCOUNT_NAMES, CARD_BENEFIT_DESCRIPTIONS,
+    normalized_benefit_text)
 from api.statement_semantics import normalized_raw_values, statement_classification, lock_consumer_derivation
 import os, uuid
 
@@ -201,23 +204,6 @@ SPENDING_CATEGORIES = {
     "TRANSPORTATION",
     "TRAVEL",
 }
-CARD_BENEFIT_DESCRIPTIONS = {
-    "AMEX LULULEMON CREDIT",
-    "AMEX RESY CREDIT",
-    "AMEX AIRLINE FEE REIMBURSEMENT",
-    "AMEX DINING CREDIT",
-    "PLATINUM DIGITAL ENTERTAINMENT CREDIT",
-    "PLATINUM HOTEL CREDIT",
-    "PLATINUM LULULEMON CREDIT",
-    "PLATINUM RESY CREDIT",
-    "PLATINUM SAKS CREDIT",
-    "PLATINUM UBER ONE CREDIT",
-}
-AMEX_MERCHANT_BENEFIT_ACCOUNT_NAMES = {
-    "DUNKIN DONUTS": "AMERICAN EXPRESS GOLD CARD",
-    "WALMART": "PLATINUM CARD",
-}
-AMERICAN_EXPRESS_INSTITUTION_ID = "ins_10"
 CREDIT_CARD_PAYMENT_DESCRIPTIONS = {
     "PAYMENT THANK YOU MOBILE",
 }
@@ -258,7 +244,11 @@ def classify_transaction(
         and transaction.account_id in amex_benefit_account_ids
         and (
             normalized_description in CARD_BENEFIT_DESCRIPTIONS
-            or transaction.account_id in merchant_benefit_account_ids
+            or (normalized_description == "WALMART"
+                and amount == Decimal("13.81")
+                and transaction.account_id in merchant_benefit_account_ids)
+            or (normalized_description != "WALMART"
+                and transaction.account_id in merchant_benefit_account_ids)
         )
     ):
         return "card_benefit", False, False
@@ -273,7 +263,7 @@ def classify_transaction(
     return None, None, None
 
 def _normalized_match_text(value):
-    return " ".join(re.findall(r"[A-Z0-9]+", (value or "").upper()))
+    return normalized_benefit_text(value)
 
 def _is_same_merchant_or_description(expense, credit):
     expense_merchant = _normalized_match_text(expense.merchant_name)
