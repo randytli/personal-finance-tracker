@@ -9,7 +9,8 @@ from fastapi import HTTPException
 
 from api.labels import label_result
 from api.routes.analytics import (
-    analytics_transactions, summarize_memberships, summarize_monthly_transactions,
+    analytics_transactions, membership_costs, summarize_memberships,
+    summarize_monthly_transactions,
 )
 
 
@@ -27,6 +28,116 @@ def account(identifier):
 
 
 class MembershipTests(unittest.TestCase):
+    def test_ytd_and_trailing_summary_use_the_same_period_for_all_metrics(self):
+        bank = SimpleNamespace(institution_id='ins_test', institution_name='Test Bank')
+        old_card, current_card = account('old'), account('current')
+        rows = [
+            (transaction('old', date(2025, 12, 2), '-100', 'expense', spending=True),
+             False, None, bank, old_card),
+            (transaction('refund', date(2026, 1, 3), '20', 'refund'),
+             False, None, bank, current_card),
+            (transaction('charge', date(2026, 9, 4), '-30', 'expense', spending=True),
+             False, None, bank, current_card),
+            (transaction('benefit', date(2026, 9, 5), '5', 'card_benefit'),
+             False, None, bank, current_card),
+            (transaction('payment', date(2026, 9, 6), '40', 'payment', internal=True),
+             False, None, bank, current_card),
+            (transaction('unknown', date(2026, 9, 7), '7', None),
+             False, None, bank, current_card),
+        ]
+        include = lambda: [SimpleNamespace(label='MEMBERSHIP', decision='include', cleared_at=None)]
+        decisions = {row[0].transaction_id: include() for row in rows}
+        trailing = summarize_memberships(rows, decisions, '2025-10', '2026-09')
+        ytd = summarize_memberships(rows, decisions, '2026-01', '2026-09', 'ytd')
+        self.assertEqual((trailing['period'], trailing['start_month'], len(trailing['months'])),
+                         ('trailing_12m', '2025-10', 12))
+        self.assertEqual((ytd['period'], ytd['start_month'], len(ytd['months'])),
+                         ('ytd', '2026-01', 9))
+        self.assertEqual(trailing['overall'], {
+            'gross_charges': '130.00', 'refunds': '20.00', 'card_benefits': '5.00',
+            'net_cost': '105.00', 'membership_transaction_count': 6,
+            'excluded_transaction_count': 2, 'unclassified_count': 1,
+        })
+        self.assertEqual(ytd['overall'], {
+            'gross_charges': '30.00', 'refunds': '20.00', 'card_benefits': '5.00',
+            'net_cost': '5.00', 'membership_transaction_count': 5,
+            'excluded_transaction_count': 2, 'unclassified_count': 1,
+        })
+        self.assertEqual([entry['account_id'] for entry in ytd['accounts']], ['current'])
+        self.assertEqual(ytd['accounts'][0]['net_cost'], '5.00')
+        self.assertEqual(ytd['months'][0]['month'], '2026-01')
+        self.assertEqual(ytd['months'][-1]['month'], '2026-09')
+        self.assertEqual(sum(Decimal(month['net_cost']) for month in ytd['months']), Decimal('5'))
+
+    def test_membership_endpoint_defaults_to_trailing_and_queries_ytd_bounds(self):
+        class Session:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *_):
+                return False
+
+        with (
+            patch('api.routes.analytics._active_analytics_rows', AsyncMock(return_value=[])) as active_rows,
+            patch('api.routes.analytics.load_label_overrides', AsyncMock(return_value={})),
+            patch('api.routes.analytics.SessionLocal', return_value=Session()),
+        ):
+            trailing = asyncio.run(membership_costs('2026-09'))
+            active_rows.assert_awaited_with(date(2025, 10, 1), date(2026, 9, 30))
+            ytd = asyncio.run(membership_costs('2026-09', 'ytd'))
+            active_rows.assert_awaited_with(date(2026, 1, 1), date(2026, 9, 30))
+            january = asyncio.run(membership_costs('2026-01', 'ytd'))
+            active_rows.assert_awaited_with(date(2026, 1, 1), date(2026, 1, 31))
+        self.assertEqual((trailing['start_month'], len(trailing['months'])), ('2025-10', 12))
+        self.assertEqual((ytd['start_month'], len(ytd['months'])), ('2026-01', 9))
+        self.assertEqual((january['start_month'], len(january['months'])), ('2026-01', 1))
+        with self.assertRaises(HTTPException) as invalid:
+            asyncio.run(membership_costs('2026-09', 'custom'))
+        self.assertEqual(invalid.exception.status_code, 422)
+
+    def test_ytd_drilldown_excludes_prior_year_and_keeps_account_pagination(self):
+        class Session:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *_):
+                return False
+
+        bank = SimpleNamespace(institution_id='ins_test', institution_name='Test Bank')
+        card = account('card')
+        rows = [
+            (transaction('old', date(2025, 12, 1), '-10', 'expense', spending=True),
+             False, None, bank, card),
+            (transaction('jan', date(2026, 1, 1), '-20', 'expense', spending=True),
+             False, None, bank, card),
+            (transaction('sep', date(2026, 9, 1), '-30', 'expense', spending=True),
+             False, None, bank, card),
+        ]
+        decisions = {row[0].transaction_id: [
+            SimpleNamespace(label='MEMBERSHIP', decision='include', cleared_at=None)]
+            for row in rows}
+
+        async def rows_in_range(start, end):
+            return [row for row in rows if start <= row[0].transaction_date <= end]
+
+        with (
+            patch('api.routes.analytics._active_analytics_rows',
+                  AsyncMock(side_effect=rows_in_range)) as active_rows,
+            patch('api.routes.analytics.load_label_overrides',
+                  AsyncMock(return_value=decisions)),
+            patch('api.routes.analytics.SessionLocal', return_value=Session()),
+        ):
+            kwargs = dict(month=None, start_month='2026-01', end_month='2026-09',
+                          label='MEMBERSHIP', category=None, transaction_type=None,
+                          institution_id=None, account_id='card', limit=1)
+            first = asyncio.run(analytics_transactions(offset=0, **kwargs))
+            second = asyncio.run(analytics_transactions(offset=1, **kwargs))
+            active_rows.assert_awaited_with(date(2026, 1, 1), date(2026, 9, 30))
+        self.assertEqual(first['total'], 2)
+        self.assertEqual(first['transactions'][0]['transaction_id'], 'sep')
+        self.assertEqual(second['transactions'][0]['transaction_id'], 'jan')
+        self.assertEqual(first['start_month'], '2026-01')
+
     def test_instacart_exact_description_labels_refund_without_changing_type_or_monthly_totals(self):
         bank = SimpleNamespace(institution_id='ins_test', institution_name='Test Bank')
         card = account('card')

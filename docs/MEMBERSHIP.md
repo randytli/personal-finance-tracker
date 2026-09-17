@@ -5,8 +5,13 @@ classification. It can coexist with `CHINA` and any supported category. The
 existing label editor and atomic bulk editor can include, exclude, or restore
 the automatic decision for each label independently.
 
-The Membership page reports the selected ending month and previous 11 calendar
-months. It uses the transaction's actual account ID for account breakdowns.
+The Membership page defaults to the selected ending month and previous 11
+calendar months. YTD instead reports January through the selected ending
+month's end. The selected period applies to the overall metrics, monthly trend,
+account breakdown, labeled/excluded counts, and paginated transaction details.
+The current ending month is marked partial. The existing Membership API defaults
+to trailing 12 months when no period is supplied. The page uses each
+transaction's actual account ID for account breakdowns.
 Only effective MEMBERSHIP transactions contribute:
 
 - Gross charges: included negative expenses, expressed as positive dollars.

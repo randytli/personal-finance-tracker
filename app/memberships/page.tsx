@@ -7,6 +7,8 @@ import AccountBadge from '@/components/account-badge'
 import BulkTransactionEditor, { bulkErrorMessage, type BulkEditRequest } from '@/components/bulk-transaction-editor'
 import CategoryEditor, { mergeCategoryDetail, mutateCategoryOverride, type CategoryDetail, type CategoryOption } from '@/components/category-editor'
 import LabelEditor, { mergeLabelDetail, type LabelDetail, useLabelOptions } from '@/components/label-editor'
+import { membershipPeriods, membershipRangeText, membershipSummaryMatches,
+  membershipSummaryPath, membershipTransactionsPath, type MembershipPeriod } from './period'
 
 type MembershipMetrics = {
   gross_charges: string
@@ -27,6 +29,7 @@ type MembershipAccount = MembershipMetrics & {
   account_subtype: string | null
 }
 type MembershipSummary = {
+  period: MembershipPeriod
   start_month: string
   end_month: string
   overall: MembershipMetrics
@@ -69,6 +72,7 @@ function contributesToCost(detail: Detail) {
 
 export default function MembershipsPage() {
   const [endMonth, setEndMonth] = useState(currentMonth)
+  const [period, setPeriod] = useState<MembershipPeriod>('trailing_12m')
   const [summary, setSummary] = useState<MembershipSummary | null>(null)
   const [accountId, setAccountId] = useState<string | null>(null)
   const [details, setDetails] = useState<Detail[]>([])
@@ -96,28 +100,21 @@ export default function MembershipsPage() {
   useEffect(() => {
     let active = true
     setLoading(true)
-    fetch(`/api/pft/analytics/memberships?end_month=${endMonth}`)
+    fetch(membershipSummaryPath(endMonth, period))
       .then(response => response.ok ? response.json() : Promise.reject())
       .then(data => { if (active) setSummary(data) })
       .catch(() => { if (active) setError('Membership costs could not be loaded.') })
       .finally(() => { if (active) setLoading(false) })
     return () => { active = false }
-  }, [endMonth, revision])
+  }, [endMonth, period, revision])
 
-  const startMonth = summary?.end_month === endMonth ? summary.start_month : null
+  const startMonth = summary && membershipSummaryMatches(summary, endMonth, period)
+    ? summary.start_month : null
   useEffect(() => {
     if (!startMonth) return
     let active = true
     setDetailLoading(true)
-    const parameters = new URLSearchParams({
-      start_month: startMonth,
-      end_month: endMonth,
-      label: 'MEMBERSHIP',
-      limit: String(PAGE_SIZE),
-      offset: String(offset),
-    })
-    if (accountId) parameters.set('account_id', accountId)
-    fetch(`/api/pft/analytics/transactions?${parameters}`)
+    fetch(membershipTransactionsPath(startMonth, endMonth, accountId, offset, PAGE_SIZE))
       .then(response => response.ok ? response.json() : Promise.reject())
       .then(data => {
         if (!active) return
@@ -154,6 +151,16 @@ export default function MembershipsPage() {
     setSelected(new Set())
     setDetails([])
     setStatus('')
+  }
+
+  function changePeriod(nextPeriod: MembershipPeriod) {
+    if (nextPeriod === period) return
+    setPeriod(nextPeriod)
+    setSummary(null)
+    setDetails([])
+    setTotal(0)
+    setError('')
+    changeAccount(null)
   }
 
   function toggleSelected(id: string) {
@@ -215,23 +222,31 @@ export default function MembershipsPage() {
         <h1 className="text-3xl font-bold">Membership costs</h1>
         <p className="mt-1 text-sm text-muted-foreground">Recorded charges and credits on transactions labeled Membership.</p>
         {summary && <p className="mt-1 text-sm text-muted-foreground">
-          {summary.start_month} through {summary.end_month} · trailing 12 months
+          {membershipRangeText(summary.start_month, summary.end_month, period)}
           {endMonth === currentMonth() ? ' · current month is partial' : ''}
         </p>}
       </div>
-      <label className="text-sm font-medium">Ending month{' '}
-        <input type="month" value={endMonth} max={currentMonth()}
-          className="ml-2 rounded-md border bg-white px-3 py-2"
-          onChange={event => {
-            if (!event.target.value) return
-            setEndMonth(event.target.value)
-            setSummary(null)
-            setDetails([])
-            setTotal(0)
-            setError('')
-            changeAccount(null)
-          }} />
-      </label>
+      <div className="flex flex-wrap items-center gap-3">
+        <label className="text-sm font-medium">Period{' '}
+          <select value={period} className="ml-2 rounded-md border bg-white px-3 py-2"
+            onChange={event => changePeriod(event.target.value as MembershipPeriod)}>
+            {membershipPeriods.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+          </select>
+        </label>
+        <label className="text-sm font-medium">Ending month{' '}
+          <input type="month" value={endMonth} max={currentMonth()}
+            className="ml-2 rounded-md border bg-white px-3 py-2"
+            onChange={event => {
+              if (!event.target.value) return
+              setEndMonth(event.target.value)
+              setSummary(null)
+              setDetails([])
+              setTotal(0)
+              setError('')
+              changeAccount(null)
+            }} />
+        </label>
+      </div>
     </header>
     {error && <p role="alert" className="mt-5 rounded-md bg-red-50 p-3 text-sm text-red-800">{error}</p>}
     {status && <p role="status" className="mt-5 rounded-md border bg-slate-50 p-3 text-sm">{status}</p>}

@@ -3,6 +3,7 @@ from datetime import date
 from decimal import Decimal
 import os
 import re
+from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy import select
@@ -18,6 +19,7 @@ from api.models import Account, Item, ManualClassificationOverride, RawTransacti
 router = APIRouter(prefix="/analytics")
 ZERO = Decimal("0")
 DETAIL_TYPES = ALLOWED_TRANSACTION_TYPES | {"unclassified"}
+MembershipPeriod = Literal["trailing_12m", "ytd"]
 
 
 def _money(value):
@@ -182,9 +184,15 @@ def _finalize_membership_metrics(metrics):
     }
 
 
-def summarize_memberships(rows, label_overrides, start_month, end_month):
+def summarize_memberships(rows, label_overrides, start_month, end_month,
+                          period: MembershipPeriod = "trailing_12m"):
+    start_date, _ = _month_bounds(start_month)
+    end_date, _ = _month_bounds(end_month)
+    month_count = (end_date.year - start_date.year) * 12 + end_date.month - start_date.month + 1
+    if not 1 <= month_count <= 12:
+        raise HTTPException(status_code=422, detail="membership period must span 1 to 12 months")
     months = {month: _empty_membership_metrics()
-              for month in (_shift_month(start_month, offset) for offset in range(12))}
+              for month in (_shift_month(start_month, offset) for offset in range(month_count))}
     overall = _empty_membership_metrics()
     accounts = {}
     for row in rows:
@@ -213,6 +221,7 @@ def summarize_memberships(rows, label_overrides, start_month, end_month):
             }
         _accumulate_membership(accounts[account_id]["metrics"], transaction, override_type)
     return {
+        "period": period,
         "start_month": start_month,
         "end_month": end_month,
         "overall": _finalize_membership_metrics(overall),
@@ -409,15 +418,23 @@ async def spending_breakdown(
 
 
 @router.get("/memberships")
-async def membership_costs(end_month: str = Query(..., pattern=r"^\d{4}-\d{2}$")):
-    start_month = _shift_month(end_month, -11)
-    start_date, _ = _month_bounds(start_month)
+async def membership_costs(
+    end_month: str = Query(..., pattern=r"^\d{4}-\d{2}$"),
+    period: MembershipPeriod = "trailing_12m",
+):
     _, end_date = _month_bounds(end_month)
+    if period == "trailing_12m":
+        start_month = _shift_month(end_month, -11)
+    elif period == "ytd":
+        start_month = f"{end_date.year:04d}-01"
+    else:
+        raise HTTPException(status_code=422, detail="unsupported membership period")
+    start_date, _ = _month_bounds(start_month)
     rows = await _active_analytics_rows(start_date, end_date)
     async with SessionLocal() as db:
         overrides = await load_label_overrides(
             db, [transaction.transaction_id for transaction, *_ in rows])
-    return summarize_memberships(rows, overrides, start_month, end_month)
+    return summarize_memberships(rows, overrides, start_month, end_month, period)
 
 
 @router.get("/transactions")
