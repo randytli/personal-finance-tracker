@@ -68,38 +68,58 @@ class ManualReviewTests(unittest.TestCase):
                 db.execute(text("INSERT INTO raw_transactions VALUES (:id, :item, :removed)"),
                            dict(id=ident, item=item, removed=removed))
 
-            def query(kind="all", offset=0, limit=100, mode="credits_transfers"):
+            def query(kind="all", offset=0, limit=100, mode="credits_transfers", direction="incoming"):
                 statement = (select(Transaction.transaction_id)
                     .join(RawTransaction, RawTransaction.transaction_id == Transaction.transaction_id)
                     .join(Item, Item.item_id == RawTransaction.item_id)
                     .join(Account, true())
                     .outerjoin(ManualClassificationOverride, ManualClassificationOverride.transaction_id == Transaction.transaction_id)
-                    .where(*_review_filters(mode, kind))
+                    .where(*_review_filters(mode, kind, direction))
                     .order_by(Transaction.transaction_date.desc(), Transaction.transaction_id)
                     .offset(offset).limit(limit))
                 return list(db.execute(statement).scalars())
 
-            self.assertEqual(query(), ["a", "b", "e", "j"])
-            self.assertEqual(query("transfer"), ["a"])
+            self.assertEqual(query(), ["a", "b", "d", "e", "j", "l"])
+            self.assertEqual(query("transfer"), ["a", "d"])
+            self.assertEqual(query("payment"), ["l"])
             self.assertEqual(query("income"), ["b"])
             self.assertEqual(query("unclassified"), ["e"])
             self.assertEqual(query("card_benefit"), ["j"])
-            self.assertEqual(query(offset=1, limit=2), ["b", "e"])
+            self.assertEqual(query(offset=1, limit=2), ["b", "d"])
             db.execute(text("UPDATE transactions SET transaction_date='2026-08-01' WHERE transaction_id='b'"))
             self.assertEqual(query(limit=2), ["b", "a"])
-            self.assertEqual(query(offset=2, limit=2), ["e", "j"])
+            self.assertEqual(query(offset=2, limit=2), ["d", "e"])
             self.assertEqual(query(mode="needs_review"), ["e", "i"])
+            self.assertEqual(query(mode="needs_review", direction="outgoing"), ["e", "i"])
             value = transaction("20", "transfer")
             self.assertIsNone(validate_manual_override(value, "refund"))
             db.execute(text("INSERT INTO manual_classification_overrides VALUES ('a', 'refund')"))
-            self.assertEqual(query("transfer"), [])
+            self.assertEqual(query("transfer"), ["d"])
             self.assertEqual(query("refund"), ["a"])
             self.assertEqual(effective_classification(value, "refund")[0], "refund")
             db.execute(text("UPDATE manual_classification_overrides SET transaction_type=NULL WHERE transaction_id='a'"))
-            self.assertEqual(query("transfer"), ["a"])
+            self.assertEqual(query("transfer"), ["a", "d"])
             self.assertEqual(query("refund"), [])
             self.assertEqual(effective_classification(value)[0], "transfer")
             self.assertIn("internal transfers", validate_manual_override(transaction("40", "transfer", is_internal_transfer=True), "refund"))
+
+            for ident, amount, kind in (("m", -20, "transfer"), ("n", -30, "payment"),
+                                        ("o", -40, None), ("p", -50, "expense"),
+                                        ("q", 15, "reimbursement")):
+                db.execute(text("INSERT INTO transactions VALUES (:id, '2026-07-01', :amount, :kind, false)"),
+                           dict(id=ident, amount=amount, kind=kind))
+                db.execute(text("INSERT INTO raw_transactions VALUES (:id, 'active', false)"), {"id": ident})
+            self.assertEqual(query(direction="outgoing"), ["m", "n", "o"])
+            self.assertEqual(query("transfer", direction="outgoing"), ["m"])
+            self.assertEqual(query("payment", direction="outgoing"), ["n"])
+            self.assertEqual(query("unclassified", direction="outgoing"), ["o"])
+            self.assertEqual(query("reimbursement"), ["q"])
+            self.assertEqual(query(direction="all", offset=0, limit=2), ["b", "a"])
+            self.assertEqual(query(direction="all", offset=2, limit=2), ["d", "e"])
+            db.execute(text("INSERT INTO manual_classification_overrides VALUES ('m', 'expense')"))
+            self.assertEqual(query(direction="outgoing"), ["n", "o"])
+            db.execute(text("UPDATE manual_classification_overrides SET transaction_type=NULL WHERE transaction_id='m'"))
+            self.assertEqual(query(direction="outgoing"), ["m", "n", "o"])
         engine.dispose()
 
     def test_review_order_prioritizes_non_credit_then_date_and_id(self):

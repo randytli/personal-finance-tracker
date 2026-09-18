@@ -4,16 +4,18 @@ import Link from 'next/link'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import AccountBadge from '@/components/account-badge'
 import BulkTransactionEditor, { bulkErrorMessage, type BulkEditRequest } from '@/components/bulk-transaction-editor'
+import CategoryEditor, { mergeCategoryDetail, mutateCategoryOverride, type CategoryDetail } from '@/components/category-editor'
 import { CategoryBadge } from '@/components/category-display'
 import LabelEditor, { mergeLabelDetail, type LabelDetail, useLabelOptions } from '@/components/label-editor'
 
 const TYPES = ['expense', 'refund', 'income', 'card_benefit', 'payment', 'transfer', 'adjustment'] as const
-type TransactionType = typeof TYPES[number]
-const CREDIT_TYPES = ['refund', 'income', 'transfer', 'card_benefit', 'adjustment'] as const
-const FILTERS = ['all', 'transfer', 'income', 'refund', 'card_benefit', 'unclassified'] as const
+type TransactionType = typeof TYPES[number] | 'reimbursement'
+const CREDIT_TYPES = ['reimbursement', 'refund', 'income', 'transfer', 'payment', 'card_benefit', 'adjustment'] as const
+const OUTGOING_TYPES = ['expense', 'transfer', 'payment', 'adjustment'] as const
+const FILTERS = ['all', 'transfer', 'payment', 'income', 'refund', 'reimbursement', 'card_benefit', 'unclassified'] as const
 const PAGE_SIZE = 50
 
-type ReviewTransaction = LabelDetail & {
+type ReviewTransaction = CategoryDetail & LabelDetail & {
   transaction_id: string
   transaction_date: string
   institution_name: string
@@ -27,6 +29,7 @@ type ReviewTransaction = LabelDetail & {
   automatic_transaction_type: TransactionType | null
   effective_transaction_type: TransactionType | null
   override_transaction_type: TransactionType | null
+  effective_is_internal_transfer: boolean | null
 }
 
 type Undo = { transaction: ReviewTransaction; transactionType: TransactionType }
@@ -41,18 +44,30 @@ export default function ReviewPage() {
   const [undo, setUndo] = useState<Undo | null>(null)
   const [mode, setMode] = useState<'needs_review' | 'credits_transfers'>('needs_review')
   const [typeFilter, setTypeFilter] = useState('all')
+  const [direction, setDirection] = useState<'incoming' | 'outgoing' | 'all'>('incoming')
+  const [categoryOptions, setCategoryOptions] = useState<Array<{ value: string; label: string }>>([])
+  const [categoryBusy, setCategoryBusy] = useState(false)
   const [offset, setOffset] = useState(0)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [bulkBusy, setBulkBusy] = useState(false)
   const requestId = useRef(0)
   const labelOptions = useLabelOptions()
 
+  useEffect(() => {
+    if (mode !== 'credits_transfers') return
+    let active = true
+    fetch('/api/pft/review/categories').then(response => response.ok ? response.json() : Promise.reject())
+      .then(data => { if (active) setCategoryOptions(data.categories || []) })
+      .catch(() => { if (active) setError('Category options could not be loaded.') })
+    return () => { active = false }
+  }, [mode])
+
   const load = useCallback(async () => {
     const id = ++requestId.current
     setLoading(true)
     setError('')
     try {
-      const params = new URLSearchParams({ mode, transaction_type: typeFilter, limit: String(PAGE_SIZE), offset: String(offset) })
+      const params = new URLSearchParams({ mode, transaction_type: typeFilter, direction, limit: String(PAGE_SIZE), offset: String(offset) })
       const response = await fetch(`/api/pft/review/transactions?${params}`)
       if (!response.ok) throw new Error('load failed')
       const data = await response.json()
@@ -69,7 +84,7 @@ export default function ReviewPage() {
     } finally {
       if (id === requestId.current) setLoading(false)
     }
-  }, [mode, typeFilter, offset])
+  }, [mode, typeFilter, direction, offset])
 
   useEffect(() => { setSelected(new Set()); void load() }, [load])
 
@@ -128,6 +143,19 @@ export default function ReviewPage() {
     setTransactions(current => current.map(transaction => mergeLabelDetail(transaction, changed)))
   }
 
+  async function saveCategory(detail: CategoryDetail, category: string | null): Promise<boolean> {
+    setCategoryBusy(true)
+    setError('')
+    try {
+      const changed = await mutateCategoryOverride(detail.transaction_id, category)
+      setTransactions(current => current.map(transaction => mergeCategoryDetail(transaction, changed)))
+      return true
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Category change failed.')
+      return false
+    } finally { setCategoryBusy(false) }
+  }
+
   async function applyBulk(request: BulkEditRequest) {
     setBulkBusy(true)
     setError('')
@@ -171,20 +199,27 @@ export default function ReviewPage() {
         {(['needs_review', 'credits_transfers'] as const).map((view) => (
           <button key={view} aria-pressed={mode === view} disabled={bulkBusy || busy !== null}
             className={`rounded-md border px-4 py-2 text-sm ${mode === view ? 'bg-black text-white' : 'bg-white'}`}
-            onClick={() => { setMode(view); setOffset(0); setTypeFilter('all'); setChoices({}); setSelected(new Set()) }}>
+            onClick={() => { setMode(view); setDirection('incoming'); setOffset(0); setTypeFilter('all'); setChoices({}); setSelected(new Set()) }}>
             {view === 'needs_review' ? 'Needs Review' : 'Credits & Transfers'}
           </button>
         ))}
       </nav>
-      {mode === 'credits_transfers' && (
-        <label className="mt-4 block text-sm">Effective type{' '}
+      {mode === 'credits_transfers' && <div className="mt-4 flex flex-wrap gap-4">
+        <label className="text-sm">Direction{' '}
+          <select aria-label="Direction filter" value={direction} disabled={bulkBusy || busy !== null}
+            className="rounded-md border px-3 py-2"
+            onChange={(event) => { setDirection(event.target.value as typeof direction); setOffset(0); setChoices({}); setSelected(new Set()) }}>
+            <option value="incoming">Incoming</option><option value="outgoing">Outgoing</option><option value="all">All</option>
+          </select>
+        </label>
+        <label className="text-sm">Effective type{' '}
           <select aria-label="Effective type filter" value={typeFilter} disabled={bulkBusy || busy !== null}
             className="rounded-md border px-3 py-2"
             onChange={(event) => { setTypeFilter(event.target.value); setOffset(0); setChoices({}); setSelected(new Set()) }}>
             {FILTERS.map((type) => <option key={type} value={type}>{type === 'card_benefit' ? 'Card Benefit' : type.charAt(0).toUpperCase() + type.slice(1)}</option>)}
           </select>
         </label>
-      )}
+      </div>}
 
       {undo && (
         <div className="mt-5 rounded-md border bg-white p-4 text-sm">
@@ -238,6 +273,11 @@ export default function ReviewPage() {
                   Effective type: {transaction.effective_transaction_type?.replace('_', ' ') || 'unclassified'}
                   {transaction.override_transaction_type && ` · Automatic: ${transaction.automatic_transaction_type?.replace('_', ' ') || 'unclassified'}`}
                 </p>}
+                {mode === 'credits_transfers' && (transaction.effective_is_internal_transfer ||
+                  transaction.effective_transaction_type === 'transfer' || transaction.effective_transaction_type === 'payment') &&
+                  <p className="mt-2 inline-block rounded-full border border-slate-300 bg-slate-100 px-2 py-1 text-xs font-medium text-slate-700">
+                    {transaction.effective_is_internal_transfer ? 'Confirmed internal transfer · excluded money movement' : 'Excluded money movement'}
+                  </p>}
               </div>
               <p className="text-lg font-semibold">{transaction.amount}</p>
             </div>
@@ -245,6 +285,7 @@ export default function ReviewPage() {
               <select
                 aria-label={`Classification for ${transaction.description || transaction.transaction_id}`}
                 className="rounded-md border px-3 py-2 text-sm"
+                disabled={busy !== null || bulkBusy || (mode === 'credits_transfers' && transaction.effective_is_internal_transfer === true)}
                 value={choices[transaction.transaction_id] || ''}
                 onChange={(event) => setChoices((current) => ({
                   ...current,
@@ -252,11 +293,13 @@ export default function ReviewPage() {
                 }))}
               >
                 <option value="">Choose classification</option>
-                {(mode === 'credits_transfers' ? CREDIT_TYPES : TYPES).map((type) => <option key={type} value={type}>{type.replace('_', ' ')}</option>)}
+                {(mode === 'credits_transfers' ? Number(transaction.amount) < 0 ? OUTGOING_TYPES : CREDIT_TYPES : TYPES)
+                  .map((type) => <option key={type} value={type}>{type.replace('_', ' ')}</option>)}
               </select>
               <button
                 className="rounded-md bg-black px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
-                disabled={bulkBusy || busy !== null || !choices[transaction.transaction_id]}
+                disabled={bulkBusy || busy !== null || !choices[transaction.transaction_id] ||
+                  (mode === 'credits_transfers' && transaction.effective_is_internal_transfer === true)}
                 onClick={() => save(transaction)}
               >
                 {busy === transaction.transaction_id ? 'Saving…' : 'Save'}
@@ -266,6 +309,9 @@ export default function ReviewPage() {
                   onClick={() => clearOverride(transaction)}>Restore automatic</button>
               )}
             </div>
+            {mode === 'credits_transfers' && transaction.effective_transaction_type === 'reimbursement' &&
+              <CategoryEditor detail={transaction} options={categoryOptions}
+                busy={categoryBusy || bulkBusy || busy !== null} save={saveCategory} />}
             <LabelEditor detail={transaction} options={labelOptions.options}
               optionsLoading={labelOptions.loading} optionsError={labelOptions.error}
               disabled={bulkBusy} onRetryOptions={labelOptions.retry} onChanged={updateLabels} />

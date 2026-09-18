@@ -9,7 +9,7 @@ from api.categories import MANUAL_CATEGORIES, active_category, effective_categor
 from api.benefit_categories import BENEFIT_CATEGORIES, BENEFIT_CATEGORY_LABELS, active_benefit_category, effective_benefit_category
 from api.labels import ALLOWED_LABELS, label_result, load_label_overrides
 from api.models import ManualCategoryOverride, ManualBenefitCategoryOverride
-from sqlalchemy import case, func, select, update
+from sqlalchemy import and_, case, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert
 
 from api.classification import effective_classification, validate_manual_override
@@ -370,7 +370,7 @@ def _review_ordering():
     )
 
 
-def _review_filters(mode="needs_review", transaction_type="all"):
+def _review_filters(mode="needs_review", transaction_type="all", direction="incoming"):
     effective_type = func.coalesce(
         ManualClassificationOverride.transaction_type, Transaction.transaction_type,
         "unclassified",
@@ -382,11 +382,13 @@ def _review_filters(mode="needs_review", transaction_type="all"):
         RawTransaction.is_removed.is_(False),
     ]
     if mode == "credits_transfers":
-        filters.extend([
-            Transaction.amount > 0,
-            Transaction.is_internal_transfer.is_not(True),
-            effective_type.in_(("transfer", "income", "refund", "card_benefit", "unclassified")),
-        ])
+        incoming = and_(Transaction.amount > 0,
+            effective_type.in_(("transfer", "payment", "income", "refund",
+                                "reimbursement", "card_benefit", "unclassified")))
+        outgoing = and_(Transaction.amount < 0,
+            effective_type.in_(("transfer", "payment", "unclassified")))
+        filters.append(incoming if direction == "incoming" else
+                       outgoing if direction == "outgoing" else or_(incoming, outgoing))
         if transaction_type != "all":
             filters.append(effective_type == transaction_type)
     else:
@@ -416,9 +418,10 @@ async def transactions_needing_review(
     limit: int = Query(100, ge=1, le=200),
     offset: int = Query(0, ge=0),
     mode: Literal["needs_review", "credits_transfers"] = "needs_review",
-    transaction_type: Literal["all", "transfer", "income", "refund", "card_benefit", "unclassified"] = "all",
+    transaction_type: Literal["all", "transfer", "payment", "income", "refund", "reimbursement", "card_benefit", "unclassified"] = "all",
+    direction: Literal["incoming", "outgoing", "all"] = "incoming",
 ):
-    filters = _review_filters(mode, transaction_type)
+    filters = _review_filters(mode, transaction_type, direction)
     joins = (
         (RawTransaction, RawTransaction.transaction_id == Transaction.transaction_id),
         (Item, Item.item_id == RawTransaction.item_id),
@@ -439,7 +442,8 @@ async def transactions_needing_review(
         ).where(*filters)
         total = await db.scalar(count_statement)
 
-        statement = select(Transaction, Account, Item, ManualClassificationOverride.transaction_type)
+        statement = select(Transaction, Account, Item, ManualClassificationOverride.transaction_type,
+                           ManualCategoryOverride)
         for model, condition in joins:
             statement = statement.join(model, condition)
         statement = (
@@ -447,6 +451,8 @@ async def transactions_needing_review(
                 ManualClassificationOverride,
                 ManualClassificationOverride.transaction_id == Transaction.transaction_id,
             )
+            .outerjoin(ManualCategoryOverride,
+                ManualCategoryOverride.transaction_id == Transaction.transaction_id)
             .where(*filters)
             .order_by(*((
                 Transaction.transaction_date.desc(), Transaction.transaction_id,
@@ -456,7 +462,7 @@ async def transactions_needing_review(
         )
         rows = (await db.execute(statement)).all()
         label_overrides = await load_label_overrides(
-            db, [transaction.transaction_id for transaction, _, _, _ in rows]
+            db, [transaction.transaction_id for transaction, *_ in rows]
         )
 
     return {
@@ -473,12 +479,16 @@ async def transactions_needing_review(
                 "description": transaction.description,
                 "amount": _money(transaction.amount),
                 "plaid_category": transaction.plaid_category,
+                "original_category": transaction.plaid_category,
+                "override_category": active_category(category_override),
+                "effective_category": effective_category(transaction, category_override, override_type),
+                "category_editable": category_editable(transaction, override_type),
                 **label_result(transaction, label_overrides.get(transaction.transaction_id, ()),
                                institution_id=item.institution_id,
                                account_type=account.type, account_name=account.name),
                 **_result(transaction, override_type),
             }
-            for transaction, account, item, override_type in rows
+            for transaction, account, item, override_type, category_override in rows
         ],
     }
 

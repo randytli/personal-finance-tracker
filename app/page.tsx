@@ -25,10 +25,12 @@ type Category = {
   category: string
   gross_spending: string
   refunds: string
+  reimbursements: string
   net_spending: string
   spending_transaction_count: number
   expense_transaction_count: number
   refund_transaction_count: number
+  reimbursement_transaction_count: number
 }
 type BenefitCategory = { benefit_category: string; benefit_amount: string; benefit_transaction_count: number }
 
@@ -36,6 +38,7 @@ type Monthly = {
   month: string
   gross_spending: string
   refunds: string
+  reimbursements: string
   card_benefits: string
   net_spending: string
   income: string
@@ -56,6 +59,8 @@ type BreakdownGroup = {
   account_subtype?: string | null
   gross_spending: string
   refunds: string
+  reimbursements: string
+  reimbursement_transaction_count: number
   card_benefits: string
   benefit_amount?: string
   benefit_transaction_count?: number
@@ -110,12 +115,14 @@ export default function HomePage() {
   const [trend, setTrend] = useState<TrendMonth[]>([])
   const [groupBy, setGroupBy] = useState<'institution' | 'account'>('institution')
   const [breakdown, setBreakdown] = useState<BreakdownGroup[]>([])
-  const [categoryMode, setCategoryMode] = useState<'gross' | 'refunds' | 'benefits'>('gross')
+  const [categoryMode, setCategoryMode] = useState<'gross' | 'refunds' | 'reimbursements' | 'benefits'>('gross')
   const [detailFilter, setDetailFilter] = useState<{
     category?: string; benefitCategory?: string; transactionType?: string; secondary?: BreakdownGroup
   } | null>(null)
   const [details, setDetails] = useState<Detail[]>([])
   const [detailTotal, setDetailTotal] = useState(0)
+  const [detailReimbursements, setDetailReimbursements] = useState('0.00')
+  const [detailOffset, setDetailOffset] = useState(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [categoryOptions, setCategoryOptions] = useState<Array<{ value: string; label: string }>>([])
@@ -192,7 +199,8 @@ export default function HomePage() {
   useEffect(() => {
     let active = true
     setBreakdown([])
-    const breakdownMode = categoryMode === 'benefits' ? 'benefits' : 'spending'
+    const breakdownMode = categoryMode === 'benefits' ? 'benefits'
+      : categoryMode === 'reimbursements' ? 'reimbursements' : 'spending'
     fetch(`/api/pft/analytics/breakdown?month=${month}&group_by=${groupBy}&mode=${breakdownMode}`)
       .then((response) => response.ok ? response.json() : Promise.reject())
       .then((data) => { if (active) setBreakdown(data.groups || []) })
@@ -205,7 +213,7 @@ export default function HomePage() {
     let active = true
     setDetails([])
     setDetailTotal(0)
-    const parameters = new URLSearchParams({ month, limit: '100' })
+    const parameters = new URLSearchParams({ month, limit: '100', offset: String(detailOffset) })
     if (detailFilter.category) parameters.set('category', detailFilter.category)
     if (detailFilter.benefitCategory) parameters.set('benefit_category', detailFilter.benefitCategory)
     if (detailFilter.transactionType) parameters.set('transaction_type', detailFilter.transactionType)
@@ -219,12 +227,13 @@ export default function HomePage() {
         if (!active) return
         setDetails(data.transactions || [])
         setDetailTotal(data.total || 0)
+        setDetailReimbursements(data.reimbursements || '0.00')
       })
       .catch(() => { if (active) setError('Transaction details could not be loaded.') })
     return () => { active = false }
-  }, [detailFilter, month, categoryRevision, detailRevision])
+  }, [detailFilter, detailOffset, month, categoryRevision, detailRevision])
 
-  useEffect(() => { setSelectedDetails(new Set()) }, [detailFilter])
+  useEffect(() => { setSelectedDetails(new Set()); setDetailOffset(0) }, [detailFilter])
 
   function updateLabels(changed: LabelDetail) {
     setDetails(current => current.map(detail => mergeLabelDetail(detail, changed)))
@@ -266,21 +275,21 @@ export default function HomePage() {
   })), [trend])
   const categories = useMemo(() => {
     const included = (monthly?.category_breakdown || []).filter((category) => (
-      categoryMode === 'gross'
-        ? category.expense_transaction_count > 0
-        : category.refund_transaction_count > 0
+      categoryMode === 'gross' ? category.expense_transaction_count > 0
+        : categoryMode === 'refunds' ? category.refund_transaction_count > 0
+          : category.reimbursement_transaction_count > 0
     ))
     return [...included].sort((a, b) => (
-      categoryMode === 'gross'
-        ? Number(b.gross_spending) - Number(a.gross_spending)
-        : Number(b.refunds) - Number(a.refunds)
+      categoryMode === 'gross' ? Number(b.gross_spending) - Number(a.gross_spending)
+        : categoryMode === 'refunds' ? Number(b.refunds) - Number(a.refunds)
+          : Number(b.reimbursements) - Number(a.reimbursements)
     ))
   }, [monthly, categoryMode])
 
   const benefitCategories = useMemo(() => [...(monthly?.benefit_category_breakdown || [])]
     .sort((a, b) => Number(b.benefit_amount) - Number(a.benefit_amount)), [monthly])
 
-  function selectCategoryMode(mode: 'gross' | 'refunds' | 'benefits') {
+  function selectCategoryMode(mode: 'gross' | 'refunds' | 'reimbursements' | 'benefits') {
     setCategoryMode(mode)
     setDetailFilter(null)
     setDetails([])
@@ -338,9 +347,11 @@ export default function HomePage() {
             <MetricCard label="Income" value={money(monthly.income)} onClick={() => setDetailFilter({ transactionType: 'income' })} />
             <MetricCard label="Net Savings" value={money(monthly.net_savings)} />
             <MetricCard label="Refunds" value={money(monthly.refunds)} selected={categoryMode === 'refunds'} onClick={() => selectCategoryMode('refunds')} />
+            <MetricCard label="Reimbursements" value={money(monthly.reimbursements)} selected={categoryMode === 'reimbursements'} onClick={() => selectCategoryMode('reimbursements')} />
             <MetricCard label="Card Benefits" value={money(monthly.card_benefits)} selected={categoryMode === 'benefits'} onClick={() => selectCategoryMode('benefits')} />
             <MetricCard label="Needs Review" value={String(monthly.unclassified_count)} onClick={() => setDetailFilter({ transactionType: 'unclassified' })} />
           </section>
+          <p className="mt-3 text-sm text-muted-foreground">Net Spending = Gross Spending − Refunds − Reimbursements − Card Benefits.</p>
 
           <section className="mt-8 grid gap-6 lg:grid-cols-2">
             <Card className="p-5">
@@ -364,16 +375,20 @@ export default function HomePage() {
             <Card className="overflow-hidden">
               <div className="p-5">
                 <h2 className="text-lg font-semibold">
-                  {categoryMode === 'benefits' ? 'Card Benefits by Category' : categoryMode === 'gross' ? 'Gross Spending by Category' : 'Refunds by Category'}
+                  {categoryMode === 'benefits' ? 'Card Benefits by Category'
+                    : categoryMode === 'gross' ? 'Gross Spending by Category'
+                      : categoryMode === 'refunds' ? 'Refunds by Category' : 'Reimbursements by Category'}
                 </h2>
-                <p className="text-xs text-muted-foreground">Card benefits use separate benefit categories, independent of spending categories and labels.</p>
+                {categoryMode === 'benefits' && <p className="text-xs text-muted-foreground">Card benefits use separate benefit categories, independent of spending categories and labels.</p>}
+                {categoryMode === 'reimbursements' && <p className="text-xs text-muted-foreground">Reimbursements reduce spending in the month received.</p>}
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead className="bg-slate-50 text-left">
                     <tr>
                       <th className="p-3">{categoryMode === 'benefits' ? 'Benefit Category' : 'Category'}</th>
-                      <th>{categoryMode === 'benefits' ? 'Credits' : categoryMode === 'gross' ? 'Gross' : 'Refunds'}</th>
+                      <th>{categoryMode === 'benefits' ? 'Credits' : categoryMode === 'gross' ? 'Gross'
+                        : categoryMode === 'refunds' ? 'Refunds' : 'Reimbursements'}</th>
                       <th>Transactions</th>
                     </tr>
                   </thead>
@@ -391,12 +406,15 @@ export default function HomePage() {
                         className="cursor-pointer border-t hover:bg-slate-50"
                         onClick={() => setDetailFilter({
                           category: category.category,
-                          transactionType: categoryMode === 'gross' ? 'expense' : 'refund',
+                          transactionType: categoryMode === 'gross' ? 'expense'
+                            : categoryMode === 'refunds' ? 'refund' : 'reimbursement',
                         })}
                       >
                         <td className="p-3 font-medium"><CategoryBadge category={category.category} /></td>
-                        <td>{money(categoryMode === 'gross' ? category.gross_spending : category.refunds)}</td>
-                        <td>{categoryMode === 'gross' ? category.expense_transaction_count : category.refund_transaction_count}</td>
+                        <td>{money(categoryMode === 'gross' ? category.gross_spending
+                          : categoryMode === 'refunds' ? category.refunds : category.reimbursements)}</td>
+                        <td>{categoryMode === 'gross' ? category.expense_transaction_count
+                          : categoryMode === 'refunds' ? category.refund_transaction_count : category.reimbursement_transaction_count}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -407,7 +425,8 @@ export default function HomePage() {
 
           <Card className="mt-6 overflow-hidden">
             <div className="flex items-center justify-between p-5">
-              <h2 className="text-lg font-semibold">{categoryMode === 'benefits' ? `Card Benefits by ${groupBy}` : `Spending by ${groupBy}`}</h2>
+              <h2 className="text-lg font-semibold">{categoryMode === 'benefits' ? `Card Benefits by ${groupBy}`
+                : categoryMode === 'reimbursements' ? `Reimbursements by ${groupBy}` : `Spending by ${groupBy}`}</h2>
               <select className="rounded-md border px-3 py-2 text-sm" value={groupBy} onChange={(event) => setGroupBy(event.target.value as 'institution' | 'account')}>
                 <option value="institution">Institution</option><option value="account">Account</option>
               </select>
@@ -432,8 +451,10 @@ export default function HomePage() {
                   {group.account_name ? (
                     <AccountBadge institutionName={group.institution_name} accountName={group.account_name} accountMask={group.account_mask || null} accountType={group.account_type || ''} accountSubtype={group.account_subtype} />
                   ) : <InstitutionBadge institutionName={group.institution_name} />}
-                  <p className="mt-3 text-xl font-bold">{money(categoryMode === 'benefits' ? group.benefit_amount || group.card_benefits : group.net_spending)}</p>
-                  <p className="text-xs text-muted-foreground">{categoryMode === 'benefits' ? 'card benefits' : 'net spending'}</p>
+                  <p className="mt-3 text-xl font-bold">{money(categoryMode === 'benefits' ? group.benefit_amount || group.card_benefits
+                    : categoryMode === 'reimbursements' ? group.reimbursements : group.net_spending)}</p>
+                  <p className="text-xs text-muted-foreground">{categoryMode === 'benefits' ? 'card benefits'
+                    : categoryMode === 'reimbursements' ? 'reimbursements' : 'net spending'}</p>
                 </button>
               ))}
             </div>
@@ -460,6 +481,8 @@ export default function HomePage() {
                     </button>
                   )}
                   <p className="text-sm text-muted-foreground">{detailTotal} matching transactions</p>
+                  {detailFilter.transactionType === 'reimbursement' &&
+                    <p className="text-sm font-medium text-slate-700">Total reimbursements: {money(detailReimbursements)}</p>}
                 </div>
                 <button type="button" className="text-sm text-blue-700 underline" onClick={() => { setDetailFilter(null); setSelectedDetails(new Set()) }}>Close</button>
               </div>
@@ -511,6 +534,13 @@ export default function HomePage() {
                   onApply={applyBulk}
                   onClear={() => setSelectedDetails(new Set())}
                 />
+              </div>}
+              {detailTotal > 100 && <div className="flex items-center gap-4 border-t p-4 text-sm">
+                <button type="button" disabled={detailOffset === 0}
+                  className="disabled:opacity-40" onClick={() => setDetailOffset(Math.max(0, detailOffset - 100))}>Previous</button>
+                <span>{detailOffset + 1}–{Math.min(detailOffset + 100, detailTotal)} of {detailTotal}</span>
+                <button type="button" disabled={detailOffset + 100 >= detailTotal}
+                  className="disabled:opacity-40" onClick={() => setDetailOffset(detailOffset + 100)}>Next</button>
               </div>}
             </Card>
           )}
