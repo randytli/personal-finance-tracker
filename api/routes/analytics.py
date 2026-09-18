@@ -67,7 +67,8 @@ async def _active_analytics_rows(start_date, end_date):
         )
         .outerjoin(
             ManualClassificationOverride,
-            ManualClassificationOverride.transaction_id == Transaction.transaction_id,
+            (ManualClassificationOverride.transaction_id == Transaction.transaction_id)
+            & ManualClassificationOverride.cleared_at.is_(None),
         )
         .where(
             # Category overrides never change classification or monetary eligibility.
@@ -92,7 +93,8 @@ async def _active_month_rows(month, category=None):
     rows = await _active_analytics_rows(start_date, end_date)
     if category is None:
         return rows
-    return [row for row in rows if _category(_analytics_row(row)[0], _analytics_row(row)[5]) == category]
+    return [row for row in rows if _category(_analytics_row(row)[0], _analytics_row(row)[5],
+                                           _analytics_row(row)[2]) == category]
 
 
 def _analytics_row(row):
@@ -105,14 +107,16 @@ def _analytics_row(row):
     return tuple(values)
 
 
-def _category(transaction, override=None):
-    return effective_category(transaction, override)
+def _category(transaction, override=None, classification_override=None):
+    return effective_category(transaction, override, classification_override)
 
 
 def _empty_metrics():
     return {
         "gross_spending": ZERO,
         "refunds": ZERO,
+        "reimbursements": ZERO,
+        "reimbursement_transaction_count": 0,
         "card_benefits": ZERO,
         "net_spending": ZERO,
         "income": ZERO,
@@ -134,6 +138,9 @@ def _accumulate(metrics, transaction, override_type):
         metrics["gross_spending"] -= amount
     elif transaction_type == "refund" and amount > 0:
         metrics["refunds"] += amount
+    elif transaction_type == "reimbursement" and amount > 0:
+        metrics["reimbursements"] += amount
+        metrics["reimbursement_transaction_count"] += 1
     elif transaction_type == "card_benefit" and amount > 0:
         metrics["card_benefits"] += amount
     elif transaction_type == "income" and amount > 0:
@@ -142,10 +149,11 @@ def _accumulate(metrics, transaction, override_type):
 
 def _finalize_metrics(metrics):
     values = dict(metrics)
-    values["net_spending"] = values["gross_spending"] - values["refunds"] - values["card_benefits"]
+    values["net_spending"] = (values["gross_spending"] - values["refunds"]
+                              - values["reimbursements"] - values["card_benefits"])
     values["net_savings"] = values["income"] - values["net_spending"]
     return {
-        key: value if key == "unclassified_count" else _money(value)
+        key: value if key in {"unclassified_count", "reimbursement_transaction_count"} else _money(value)
         for key, value in values.items()
     }
 
@@ -278,7 +286,10 @@ def summarize_monthly_transactions(rows):
         if is_internal_transfer is True:
             continue
         amount = Decimal(transaction.amount)
-        values = categories.setdefault(_category(transaction, category_override), [ZERO, ZERO, 0, 0, 0])
+        values = categories.setdefault(
+            _category(transaction, category_override, override_type),
+            [ZERO, ZERO, 0, 0, 0, ZERO, 0],
+        )
         if transaction_type == "expense" and is_spending is True and amount < 0:
             values[0] -= amount
             values[2] += 1
@@ -287,19 +298,24 @@ def summarize_monthly_transactions(rows):
             values[1] += amount
             values[2] += 1
             values[4] += 1
+        elif transaction_type == "reimbursement" and amount > 0:
+            values[5] += amount
+            values[6] += 1
 
     category_breakdown = [
         {
             "category": category,
             "gross_spending": _money(values[0]),
             "refunds": _money(values[1]),
-            "net_spending": _money(values[0] - values[1]),
+            "reimbursements": _money(values[5]),
+            "net_spending": _money(values[0] - values[1] - values[5]),
             "spending_transaction_count": values[2],
             "expense_transaction_count": values[3],
             "refund_transaction_count": values[4],
+            "reimbursement_transaction_count": values[6],
         }
         for category, values in sorted(categories.items())
-        if values[2]
+        if values[2] or values[6]
     ]
     return {**_finalize_metrics(metrics), "category_breakdown": category_breakdown,
             "benefit_category_breakdown": summarize_benefit_categories(rows)}
@@ -330,12 +346,14 @@ def summarize_benefit_categories(rows):
 def summarize_category_transactions(rows, category):
     gross_spending = ZERO
     refunds = ZERO
+    reimbursements = ZERO
     count = 0
     expense_count = 0
     refund_count = 0
+    reimbursement_count = 0
     for row in rows:
         transaction, is_removed, override_type, _, _, category_override, _ = _analytics_row(row)
-        if is_removed or _category(transaction, category_override) != category:
+        if is_removed or _category(transaction, category_override, override_type) != category:
             continue
         transaction_type, is_spending, is_internal_transfer = effective_classification(
             transaction, override_type
@@ -351,13 +369,18 @@ def summarize_category_transactions(rows, category):
             refunds += amount
             count += 1
             refund_count += 1
+        elif transaction_type == "reimbursement" and amount > 0:
+            reimbursements += amount
+            reimbursement_count += 1
     return {
         "gross_spending": _money(gross_spending),
         "refunds": _money(refunds),
-        "net_spending": _money(gross_spending - refunds),
+        "reimbursements": _money(reimbursements),
+        "net_spending": _money(gross_spending - refunds - reimbursements),
         "spending_transaction_count": count,
         "expense_transaction_count": expense_count,
         "refund_transaction_count": refund_count,
+        "reimbursement_transaction_count": reimbursement_count,
     }
 
 
@@ -365,7 +388,8 @@ def transaction_details(rows, category=None, transaction_type=None, institution_
     relevant = []
     for row in rows:
         transaction, is_removed, override_type, item, account, category_override, benefit_override = _analytics_row(row)
-        if is_removed or (category is not None and _category(transaction, category_override) != category):
+        if is_removed or (category is not None and
+                          _category(transaction, category_override, override_type) != category):
             continue
         if institution_id is not None and getattr(item, "institution_id", None) != institution_id:
             continue
@@ -374,6 +398,8 @@ def transaction_details(rows, category=None, transaction_type=None, institution_
         effective_type, is_spending, is_internal = effective_classification(transaction, override_type)
         type_label = effective_type or "unclassified"
         if transaction_type is not None and type_label != transaction_type:
+            continue
+        if transaction_type == "reimbursement" and (is_internal is True or Decimal(transaction.amount) <= 0):
             continue
         effective_benefit = effective_benefit_category(transaction, benefit_override,
             institution_id=getattr(item, "institution_id", None), account_name=getattr(account, "name", None),
@@ -402,7 +428,7 @@ def transaction_details(rows, category=None, transaction_type=None, institution_
             "plaid_category": transaction.plaid_category or "UNCATEGORIZED",
             "original_category": transaction.plaid_category,
             "override_category": active_category(category_override),
-            "effective_category": _category(transaction, category_override),
+            "effective_category": _category(transaction, category_override, override_type),
             "category_editable": editable,
             "automatic_benefit_category": effective_benefit_category(transaction, None,
                 institution_id=getattr(item, "institution_id", None), account_name=getattr(account, "name", None),
@@ -416,7 +442,12 @@ def transaction_details(rows, category=None, transaction_type=None, institution_
 
 
 def category_transaction_details(rows, category):
-    return [detail for detail in transaction_details(rows, category) if detail["transaction_type"] in {"expense", "refund"}]
+    return [detail for detail in transaction_details(rows, category)
+            if detail["is_internal_transfer"] is not True
+            and ((detail["transaction_type"] == "expense"
+                  and detail["is_spending"] is True and Decimal(detail["amount"]) < 0)
+                 or (detail["transaction_type"] in {"refund", "reimbursement"}
+                     and Decimal(detail["amount"]) > 0))]
 
 
 def summarize_breakdown(rows, group_by, mode="spending"):
@@ -448,6 +479,11 @@ def summarize_breakdown(rows, group_by, mode="spending"):
                     institution_id=item.institution_id, account_name=account.name,
                     account_type=account.type, transaction_type=kind)
                 entry["metrics"]["card_benefits"] += amount if category else ZERO
+        elif mode == "reimbursements":
+            kind, _, internal = effective_classification(transaction, override_type)
+            if kind == "reimbursement" and Decimal(transaction.amount) > 0 and internal is not True:
+                entry["metrics"]["reimbursements"] += Decimal(transaction.amount)
+                entry["metrics"]["reimbursement_transaction_count"] += 1
         else:
             _accumulate(entry["metrics"], transaction, override_type)
     result = [{**entry["metadata"], **_finalize_metrics(entry["metrics"])} for entry in groups.values()]
@@ -468,6 +504,9 @@ def summarize_breakdown(rows, group_by, mode="spending"):
                         value["benefit_transaction_count"] += 1
                         break
         return sorted(result, key=lambda value: (Decimal(value["benefit_amount"]), str(value)), reverse=True)
+    if mode == "reimbursements":
+        return sorted((value for value in result if value["reimbursement_transaction_count"] > 0),
+                      key=lambda value: (Decimal(value["reimbursements"]), str(value)), reverse=True)
     return sorted(result, key=lambda value: (Decimal(value["net_spending"]), str(value)), reverse=True)
 
 
@@ -495,7 +534,8 @@ async def spending_trend(end_month: str = Query(..., pattern=r"^\d{4}-\d{2}$")):
     months = []
     for month, month_rows in by_month.items():
         summary = summarize_monthly_transactions(month_rows)
-        months.append({"month": month, **{key: summary[key] for key in ("net_spending", "income", "net_savings")}})
+        months.append({"month": month, **{key: summary[key] for key in (
+            "net_spending", "income", "net_savings", "reimbursements", "reimbursement_transaction_count")}})
     return {"start_month": start_month, "end_month": end_month, "months": months}
 
 
@@ -503,7 +543,7 @@ async def spending_trend(end_month: str = Query(..., pattern=r"^\d{4}-\d{2}$")):
 async def spending_breakdown(
     month: str = Query(..., pattern=r"^\d{4}-\d{2}$"),
     group_by: str = Query("institution", pattern=r"^(institution|account)$"),
-    mode: str = Query("spending", pattern=r"^(spending|benefits)$"),
+    mode: str = Query("spending", pattern=r"^(spending|benefits|reimbursements)$"),
 ):
     return {"month": month, "group_by": group_by, "mode": mode, "groups": summarize_breakdown(await _active_month_rows(month), group_by, mode)}
 
@@ -604,6 +644,10 @@ async def analytics_transactions(
         if membership_view and membership_view != "all":
             details = [detail for detail in details
                        if _membership_bucket(detail, None) == membership_view]
+    reimbursement_details = [detail for detail in details
+                             if detail["transaction_type"] == "reimbursement"
+                             and detail["is_internal_transfer"] is not True
+                             and Decimal(detail["amount"]) > 0]
     page = details[offset : offset + limit]
     return {
         "month": month,
@@ -613,6 +657,8 @@ async def analytics_transactions(
         "transaction_type": transaction_type,
         "label": label,
         "total": len(details),
+        "reimbursements": _money(sum((Decimal(detail["amount"]) for detail in reimbursement_details), ZERO)),
+        "reimbursement_transaction_count": len(reimbursement_details),
         "limit": limit,
         "offset": offset,
         "transactions": page,

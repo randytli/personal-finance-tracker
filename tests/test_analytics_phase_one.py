@@ -114,6 +114,8 @@ class AnalyticsPhaseOneTests(unittest.TestCase):
             "net_spending": "40.00",
             "income": "100.00",
             "net_savings": "60.00",
+            "reimbursements": "0.00",
+            "reimbursement_transaction_count": 0,
         })
         self.assertEqual(result["months"][0]["net_savings"], "0.00")
 

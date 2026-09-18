@@ -70,24 +70,26 @@ async def label_options():
     return {"labels": [{"value": value, "label": value.title()} for value in ALLOWED_LABELS]}
 
 
-def category_result(transaction, override):
+def category_result(transaction, override, classification_type=None):
     return {'transaction_id': transaction.transaction_id,
             'original_category': transaction.plaid_category,
             'override_category': active_category(override),
-            'effective_category': effective_category(transaction, override)}
+            'effective_category': effective_category(transaction, override, classification_type)}
 
 
 async def _apply_category(db, transaction, category, actor, classification=None):
     override = await db.get(ManualCategoryOverride, transaction.transaction_id)
+    if classification is None:
+        classification = await db.get(ManualClassificationOverride, transaction.transaction_id)
+    classification_type = (classification.transaction_type if classification is not None
+                           and classification.cleared_at is None else None)
     if category is not None:
-        if classification is None:
-            classification = await db.get(ManualClassificationOverride, transaction.transaction_id)
-        if not category_editable(transaction, classification.transaction_type if classification else None):
-            raise HTTPException(422, 'category editing requires an included expense or refund')
+        if not category_editable(transaction, classification_type):
+            raise HTTPException(422, 'category editing requires an included expense, refund, or reimbursement')
         if active_category(override) == category:
-            return category_result(transaction, override), False
+            return category_result(transaction, override, classification_type), False
     elif active_category(override) is None:
-        return category_result(transaction, override), False
+        return category_result(transaction, override, classification_type), False
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     if override is None:
         override = ManualCategoryOverride(transaction_id=transaction.transaction_id,
@@ -98,7 +100,7 @@ async def _apply_category(db, transaction, category, actor, classification=None)
     override.updated_at = now
     override.cleared_by = actor if category is None else None
     override.cleared_at = now if category is None else None
-    return category_result(transaction, override), True
+    return category_result(transaction, override, classification_type), True
 
 
 async def mutate_category(transaction_id, category):
@@ -335,10 +337,10 @@ async def bulk_edit_transactions(request: BulkEditRequest):
             if request.operation == "set_category":
                 ineligible = [transaction.transaction_id for transaction, classification in rows
                     if not category_editable(transaction,
-                        classification.transaction_type if classification else None)]
+                        classification.transaction_type if classification and classification.cleared_at is None else None)]
                 if ineligible:
                     raise HTTPException(422, detail={
-                        "message": "Category editing requires included expense or refund transactions.",
+                        "message": "Category editing requires included expense, refund, or reimbursement transactions.",
                         "ineligible_count": len(ineligible),
                     })
 

@@ -41,6 +41,8 @@ class MonthlyAnalyticsTests(unittest.TestCase):
 
         self.assertEqual(result["gross_spending"], "140.00")
         self.assertEqual(result["refunds"], "25.00")
+        self.assertEqual(result["reimbursements"], "0.00")
+        self.assertEqual(result["reimbursement_transaction_count"], 0)
         self.assertEqual(result["card_benefits"], "10.00")
         self.assertEqual(result["net_spending"], "105.00")
         self.assertEqual(result["income"], "1000.00")
@@ -53,19 +55,23 @@ class MonthlyAnalyticsTests(unittest.TestCase):
                     "category": "FOOD_AND_DRINK",
                     "gross_spending": "100.00",
                     "refunds": "25.00",
+                    "reimbursements": "0.00",
                     "net_spending": "75.00",
                     "spending_transaction_count": 2,
                     "expense_transaction_count": 1,
                     "refund_transaction_count": 1,
+                    "reimbursement_transaction_count": 0,
                 },
                 {
                     "category": "UNCATEGORIZED",
                     "gross_spending": "40.00",
                     "refunds": "0.00",
+                    "reimbursements": "0.00",
                     "net_spending": "40.00",
                     "spending_transaction_count": 1,
                     "expense_transaction_count": 1,
                     "refund_transaction_count": 0,
+                    "reimbursement_transaction_count": 0,
                 },
             ],
         )
@@ -76,6 +82,8 @@ class MonthlyAnalyticsTests(unittest.TestCase):
             {
                 "gross_spending": "0.00",
                 "refunds": "0.00",
+                "reimbursements": "0.00",
+                "reimbursement_transaction_count": 0,
                 "card_benefits": "0.00",
                 "net_spending": "0.00",
                 "income": "0.00",

@@ -55,7 +55,9 @@ def active_category(override):
     return override.category if override is not None and override.cleared_at is None else None
 
 
-def effective_category(transaction, override=None):
+def effective_category(transaction, override=None, classification_override=None):
+    if (classification_override or getattr(transaction, 'transaction_type', None)) == 'reimbursement':
+        return active_category(override) or 'UNCATEGORIZED'
     return (active_category(override) or automatic_category(transaction)
             or transaction.plaid_category or 'UNCATEGORIZED')
 
@@ -65,5 +67,5 @@ def category_editable(transaction, classification_override=None):
     amount = Decimal(transaction.amount)
     return internal is not True and (
         (kind == 'expense' and spending is True and amount < 0)
-        or (kind == 'refund' and amount > 0)
+        or (kind in {'refund', 'reimbursement'} and amount > 0)
     )
