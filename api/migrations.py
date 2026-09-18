@@ -172,15 +172,16 @@ async def migrate_multi_institution(connection):
     await connection.execute(text(
         "DO $$ BEGIN "
         "IF NOT EXISTS ("
-        "SELECT 1 FROM pg_constraint WHERE conname='ck_manual_override_transaction_type' "
-        "AND pg_get_constraintdef(oid) LIKE '%adjustment%'"
+        "SELECT 1 FROM pg_constraint WHERE conrelid='manual_classification_overrides'::regclass "
+        "AND conname='ck_manual_override_transaction_type' "
+        "AND pg_get_constraintdef(oid) LIKE '%reimbursement%'"
         ") THEN "
         "ALTER TABLE manual_classification_overrides DROP CONSTRAINT IF EXISTS "
         "ck_manual_override_transaction_type; "
         "ALTER TABLE manual_classification_overrides ADD CONSTRAINT "
         "ck_manual_override_transaction_type CHECK ("
         "transaction_type IS NULL OR transaction_type IN "
-        "('expense','refund','income','card_benefit','payment','transfer','adjustment')); "
+        "('expense','refund','reimbursement','income','card_benefit','payment','transfer','adjustment')); "
         "END IF; END $$"
     ))
     await connection.execute(text(

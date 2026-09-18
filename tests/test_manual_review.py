@@ -125,11 +125,15 @@ class ManualReviewTests(unittest.TestCase):
             constraint.name for constraint in ManualClassificationOverride.__table__.constraints
         }
         self.assertIn("ck_manual_override_transaction_type", constraints)
+        constraint = next(constraint for constraint in ManualClassificationOverride.__table__.constraints
+                          if constraint.name == "ck_manual_override_transaction_type")
+        self.assertIn("reimbursement", str(constraint.sqltext))
 
     def test_migration_is_additive_and_idempotent(self):
         source = inspect.getsource(migrate_multi_institution)
         self.assertIn("CREATE TABLE IF NOT EXISTS manual_classification_overrides", source)
         self.assertIn("CREATE INDEX IF NOT EXISTS ix_manual_overrides_updated_at", source)
+        self.assertIn("pg_get_constraintdef(oid) LIKE '%reimbursement%'", source)
         self.assertNotIn("DROP TABLE", source)
         self.assertNotIn("DELETE FROM", source)
 
@@ -149,6 +153,7 @@ class ManualReviewTests(unittest.TestCase):
             {
                 "expense",
                 "refund",
+                "reimbursement",
                 "income",
                 "card_benefit",
                 "payment",
@@ -156,7 +161,7 @@ class ManualReviewTests(unittest.TestCase):
                 "adjustment",
             },
         )
-        for classification in ("refund", "income", "card_benefit", "payment", "transfer"):
+        for classification in ("refund", "reimbursement", "income", "card_benefit", "payment", "transfer"):
             with self.subTest(classification=classification):
                 self.assertIsNone(validate_manual_override(transaction("10"), classification))
         self.assertIsNone(validate_manual_override(transaction("-10"), "expense"))
@@ -170,6 +175,18 @@ class ManualReviewTests(unittest.TestCase):
                     effective_classification(value, "adjustment"),
                     ("adjustment", False, None),
                 )
+
+    def test_reimbursement_is_positive_non_spending_and_manual_only(self):
+        value = transaction("20.49", "transfer", is_spending=False)
+        self.assertIsNone(validate_manual_override(value, "reimbursement"))
+        self.assertEqual(effective_classification(value, "reimbursement"),
+                         ("reimbursement", False, None))
+        value.transaction_type = "income"
+        self.assertEqual(effective_classification(value, "reimbursement"),
+                         ("reimbursement", False, None))
+        self.assertEqual(effective_classification(value, None), ("income", False, None))
+        self.assertIn("requires a positive amount",
+                      validate_manual_override(transaction("0"), "reimbursement"))
 
     def test_adjustment_resolves_review_without_changing_analytics(self):
         value = transaction("0")
@@ -198,7 +215,7 @@ class ManualReviewTests(unittest.TestCase):
             validate_manual_override(transaction("10"), "expense"),
             "expense requires a negative amount",
         )
-        for classification in ("refund", "income", "card_benefit"):
+        for classification in ("refund", "reimbursement", "income", "card_benefit"):
             with self.subTest(classification=classification):
                 self.assertIn(
                     "requires a positive amount",
@@ -211,6 +228,8 @@ class ManualReviewTests(unittest.TestCase):
         self.assertIsNone(validate_manual_override(value, "transfer"))
         self.assertIsNone(validate_manual_override(value, "payment"))
         self.assertIn("internal transfers", validate_manual_override(value, "adjustment"))
+        self.assertIn("internal transfers", validate_manual_override(
+            transaction("10", "transfer", is_internal_transfer=True), "reimbursement"))
 
     def test_analytics_uses_effective_override(self):
         rows = [

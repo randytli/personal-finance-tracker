@@ -5,6 +5,7 @@ ALLOWED_TRANSACTION_TYPES = frozenset(
     {
         "expense",
         "refund",
+        "reimbursement",
         "income",
         "card_benefit",
         "payment",
@@ -12,7 +13,7 @@ ALLOWED_TRANSACTION_TYPES = frozenset(
         "adjustment",
     }
 )
-POSITIVE_ONLY_TYPES = frozenset({"refund", "income", "card_benefit"})
+POSITIVE_ONLY_TYPES = frozenset({"refund", "reimbursement", "income", "card_benefit"})
 INTERNAL_TRANSFER_TYPES = frozenset({"payment", "transfer"})
 
 

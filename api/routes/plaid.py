@@ -24,7 +24,8 @@ from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.dialects.postgresql import insert
 from api.db import SessionLocal
-from api.models import Account, Item, RawTransaction, Transaction, LegacyConsumerRow
+from api.models import Account, Item, RawTransaction, Transaction, LegacyConsumerRow, ManualClassificationOverride
+from api.classification import INTERNAL_TRANSFER_TYPES
 from api.consumer_scope import initial_consumer_scope, account_type_drift
 from api.card_benefits import (AMERICAN_EXPRESS_INSTITUTION_ID,
     AMEX_MERCHANT_BENEFIT_ACCOUNT_NAMES, CARD_BENEFIT_DESCRIPTIONS,
@@ -300,7 +301,9 @@ def build_classifications(
     credit_account_ids=frozenset(),
     amex_benefit_account_ids=frozenset(),
     amex_merchant_benefit_account_ids=None,
+    active_manual_types=None,
 ):
+    active_manual_types = active_manual_types or {}
     classifications = {
         transaction.transaction_id: classify_transaction(
             transaction,
@@ -361,7 +364,9 @@ def build_classifications(
     transfer_candidates = {
         transaction.transaction_id: []
         for transaction in transactions
-        if classifications[transaction.transaction_id][0] in {"transfer", "payment"}
+        if classifications[transaction.transaction_id][0] in INTERNAL_TRANSFER_TYPES
+        and (active_manual_types.get(transaction.transaction_id) is None
+             or active_manual_types[transaction.transaction_id] in INTERNAL_TRANSFER_TYPES)
     }
     eligible_transfers = [
         transaction
@@ -879,12 +884,15 @@ async def classify_transactions():
 async def _classify_transactions():
     async with SessionLocal() as db:
         result = await db.execute(
-            select(Transaction)
+            select(Transaction, ManualClassificationOverride.transaction_type)
             .join(RawTransaction, RawTransaction.transaction_id == Transaction.transaction_id)
             .join(Item, Item.item_id == RawTransaction.item_id)
             .join(Account, (Account.account_id == Transaction.account_id)
                   & (Account.account_id == RawTransaction.account_id)
                   & (Account.item_id == Item.item_id))
+            .outerjoin(ManualClassificationOverride,
+                       (ManualClassificationOverride.transaction_id == Transaction.transaction_id)
+                       & ManualClassificationOverride.cleared_at.is_(None))
             .where(
                 Account.consumer_transactions_enabled.is_(True),
                 Item.user_id == _user_id(),
@@ -892,7 +900,12 @@ async def _classify_transactions():
                 RawTransaction.is_removed.is_(False),
             )
         )
-        transactions = result.scalars().all()
+        classified_rows = result.all()
+        transactions = [transaction for transaction, _ in classified_rows]
+        active_manual_types = {
+            transaction.transaction_id: manual_type
+            for transaction, manual_type in classified_rows if manual_type is not None
+        }
         result = await db.execute(
             select(Account.account_id)
             .join(Item, Item.item_id == Account.item_id)
@@ -935,6 +948,7 @@ async def _classify_transactions():
         credit_account_ids,
         amex_benefit_account_ids,
         amex_merchant_benefit_account_ids,
+        active_manual_types=active_manual_types,
     )
     internal_transfer_matches = sum(
         1 for values in classifications.values() if values[2] is True

@@ -167,7 +167,7 @@ async def set_benefit_category_override(transaction_id: str, request: BenefitCat
 async def clear_benefit_category_override(transaction_id: str):
     return await mutate_benefit_category(transaction_id, None)
 TransactionType = Literal[
-    "expense", "refund", "income", "card_benefit", "payment", "transfer", "adjustment"
+    "expense", "refund", "reimbursement", "income", "card_benefit", "payment", "transfer", "adjustment"
 ]
 
 

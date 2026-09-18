@@ -118,7 +118,7 @@ class ManualClassificationOverride(Base):
     __table_args__ = (
         CheckConstraint(
             "transaction_type IS NULL OR transaction_type IN "
-            "('expense', 'refund', 'income', 'card_benefit', 'payment', 'transfer', "
+            "('expense', 'refund', 'reimbursement', 'income', 'card_benefit', 'payment', 'transfer', "
             "'adjustment')",
             name="ck_manual_override_transaction_type",
         ),

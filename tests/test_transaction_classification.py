@@ -283,6 +283,38 @@ class InternalTransferClassificationTests(unittest.TestCase):
         self.assertIsNone(classifications["savings-1"][2])
         self.assertIsNone(classifications["savings-2"][2])
 
+    def test_active_manual_economic_types_exclude_either_transfer_side(self):
+        transactions = [
+            transfer_transaction("checking", "checking-account", 1, "-100", "TRANSFER_OUT"),
+            transfer_transaction("credit", "credit-account", 2, "100", "TRANSFER_IN"),
+        ]
+        for transaction_id, manual_type in (
+            ("checking", "expense"),
+            ("checking", "adjustment"),
+            ("credit", "reimbursement"),
+            ("credit", "refund"),
+            ("credit", "income"),
+            ("credit", "card_benefit"),
+        ):
+            with self.subTest(transaction_id=transaction_id, manual_type=manual_type):
+                classifications, _ = build_classifications(
+                    transactions, active_manual_types={transaction_id: manual_type})
+                self.assertEqual(classifications["checking"], ("transfer", False, None))
+                self.assertEqual(classifications["credit"], ("transfer", False, None))
+
+    def test_cleared_or_manual_transfer_decision_keeps_existing_match(self):
+        transactions = [
+            transfer_transaction("checking", "checking-account", 1, "-100", "TRANSFER_OUT"),
+            transfer_transaction("credit", "credit-account", 2, "100", "TRANSFER_IN"),
+        ]
+        for overrides in ({}, {"checking": None}, {"checking": "transfer"},
+                          {"credit": "payment"}):
+            with self.subTest(overrides=overrides):
+                classifications, _ = build_classifications(
+                    transactions, active_manual_types=overrides)
+                self.assertTrue(classifications["checking"][2])
+                self.assertTrue(classifications["credit"][2])
+
 
 class CardBenefitClassificationTests(unittest.TestCase):
     BENEFIT_DESCRIPTIONS = (
