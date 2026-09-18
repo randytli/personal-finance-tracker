@@ -21,7 +21,7 @@ router = APIRouter(prefix="/analytics")
 ZERO = Decimal("0")
 DETAIL_TYPES = ALLOWED_TRANSACTION_TYPES | {"unclassified"}
 MembershipPeriod = Literal["trailing_12m", "ytd"]
-MembershipView = Literal["all", "charges", "refunds", "card_benefits"]
+MembershipView = Literal["all", "charges", "refunds", "reimbursements", "card_benefits"]
 
 
 def _money(value):
@@ -160,7 +160,10 @@ def _finalize_metrics(metrics):
 
 def _empty_membership_metrics():
     return {
-        "gross_charges": ZERO, "refunds": ZERO, "card_benefits": ZERO,
+        "gross_charges": ZERO, "refunds": ZERO, "reimbursements": ZERO,
+        "unallocated_reimbursements": ZERO, "card_benefits": ZERO,
+        "reimbursement_transaction_count": 0,
+        "unallocated_reimbursement_transaction_count": 0,
         "membership_transaction_count": 0, "excluded_transaction_count": 0,
         "unclassified_count": 0,
     }
@@ -174,6 +177,13 @@ def _accumulate_membership(metrics, transaction, override_type):
         metrics["gross_charges"] -= amount
     elif internal is not True and kind == "refund" and amount > 0:
         metrics["refunds"] += amount
+    elif internal is not True and kind == "reimbursement" and amount > 0:
+        # Phase 1 has no expense linkage. Preserve the receiving account, but
+        # do not assign its credit to any account's Membership net cost.
+        metrics["reimbursements"] += amount
+        metrics["unallocated_reimbursements"] += amount
+        metrics["reimbursement_transaction_count"] += 1
+        metrics["unallocated_reimbursement_transaction_count"] += 1
     elif internal is not True and kind == "card_benefit" and amount > 0:
         metrics["card_benefits"] += amount
     else:
@@ -182,12 +192,17 @@ def _accumulate_membership(metrics, transaction, override_type):
             metrics["unclassified_count"] += 1
 
 
-def _finalize_membership_metrics(metrics):
+def _finalize_membership_metrics(metrics, *, include_unallocated=True):
     return {
         "gross_charges": _money(metrics["gross_charges"]),
         "refunds": _money(metrics["refunds"]),
+        "reimbursements": _money(metrics["reimbursements"]),
+        "unallocated_reimbursements": _money(metrics["unallocated_reimbursements"]),
         "card_benefits": _money(metrics["card_benefits"]),
-        "net_cost": _money(metrics["gross_charges"] - metrics["refunds"] - metrics["card_benefits"]),
+        "net_cost": _money(metrics["gross_charges"] - metrics["refunds"] - metrics["card_benefits"]
+                           - (metrics["unallocated_reimbursements"] if include_unallocated else ZERO)),
+        "reimbursement_transaction_count": metrics["reimbursement_transaction_count"],
+        "unallocated_reimbursement_transaction_count": metrics["unallocated_reimbursement_transaction_count"],
         "membership_transaction_count": metrics["membership_transaction_count"],
         "excluded_transaction_count": metrics["excluded_transaction_count"],
         "unclassified_count": metrics["unclassified_count"],
@@ -209,6 +224,8 @@ def _membership_bucket(transaction, override_type):
         return "charges"
     if kind == "refund" and amount > 0:
         return "refunds"
+    if kind == "reimbursement" and amount > 0:
+        return "reimbursements"
     if kind == "card_benefit" and amount > 0:
         return "card_benefits"
     return "excluded"
@@ -224,7 +241,8 @@ def summarize_memberships(rows, label_overrides, start_month, end_month,
     months = {month: _empty_membership_metrics()
               for month in (_shift_month(start_month, offset) for offset in range(month_count))}
     overall = _empty_membership_metrics()
-    type_counts = {"charges": 0, "refunds": 0, "card_benefits": 0, "excluded": 0}
+    type_counts = {"charges": 0, "refunds": 0, "reimbursements": 0,
+                   "card_benefits": 0, "excluded": 0}
     accounts = {}
     for row in rows:
         transaction, is_removed, override_type, item, account, _, _ = _analytics_row(row)
@@ -266,7 +284,8 @@ def summarize_memberships(rows, label_overrides, start_month, end_month,
                    for month, values in months.items()],
         "accounts": sorted(
             [{**{key: value for key, value in entry.items() if key != "metrics"},
-              **_finalize_membership_metrics(entry["metrics"])} for entry in accounts.values()],
+              **_finalize_membership_metrics(entry["metrics"], include_unallocated=False)}
+             for entry in accounts.values()],
             key=lambda entry: (Decimal(entry["net_cost"]), entry["account_id"]), reverse=True,
         ),
     }
@@ -629,7 +648,8 @@ async def analytics_transactions(
         details = [detail for detail in details if label in detail["effective_labels"]]
     membership_counts = None
     if label == "MEMBERSHIP":
-        buckets = {"charges": 0, "refunds": 0, "card_benefits": 0, "excluded": 0}
+        buckets = {"charges": 0, "refunds": 0, "reimbursements": 0,
+                   "card_benefits": 0, "excluded": 0}
         for detail in details:
             bucket = _membership_bucket(detail, None)
             if bucket is None:
@@ -638,6 +658,7 @@ async def analytics_transactions(
         membership_counts = {
             "charges": buckets["charges"],
             "refunds": buckets["refunds"],
+            "reimbursements": buckets["reimbursements"],
             "card_benefits": buckets["card_benefits"],
             "all": len(details),
         }
@@ -648,6 +669,7 @@ async def analytics_transactions(
                              if detail["transaction_type"] == "reimbursement"
                              and detail["is_internal_transfer"] is not True
                              and Decimal(detail["amount"]) > 0]
+    reimbursement_total = _money(sum((Decimal(detail["amount"]) for detail in reimbursement_details), ZERO))
     page = details[offset : offset + limit]
     return {
         "month": month,
@@ -657,8 +679,11 @@ async def analytics_transactions(
         "transaction_type": transaction_type,
         "label": label,
         "total": len(details),
-        "reimbursements": _money(sum((Decimal(detail["amount"]) for detail in reimbursement_details), ZERO)),
+        "reimbursements": reimbursement_total,
         "reimbursement_transaction_count": len(reimbursement_details),
+        "unallocated_reimbursements": reimbursement_total if label == "MEMBERSHIP" else _money(ZERO),
+        "unallocated_reimbursement_transaction_count": len(reimbursement_details)
+            if label == "MEMBERSHIP" else 0,
         "limit": limit,
         "offset": offset,
         "transactions": page,

@@ -28,6 +28,108 @@ def account(identifier):
 
 
 class MembershipTests(unittest.TestCase):
+    def test_membership_reimbursements_reduce_overall_but_remain_unallocated_by_account(self):
+        bank = SimpleNamespace(institution_id='ins_test', institution_name='Test Bank')
+        card, checking = account('card'), account('checking')
+        checking.name = 'Checking'
+        checking.type = 'depository'
+        checking.subtype = 'checking'
+        rows = [
+            (transaction('prior-year', date(2025, 12, 1), '11', 'reimbursement'),
+             False, None, bank, checking),
+            (transaction('charge', date(2026, 8, 1), '-100', 'expense', spending=True),
+             False, None, bank, card),
+            (transaction('refund', date(2026, 8, 3), '10', 'refund'),
+             False, None, bank, card),
+            (transaction('benefit', date(2026, 8, 4), '5', 'card_benefit'),
+             False, None, bank, card),
+            # Manual classification and label both win; no cross-account attribution.
+            (transaction('friend', date(2026, 9, 1), '40', 'income'),
+             False, 'reimbursement', bank, checking),
+            (transaction('same-card', date(2026, 9, 2), '7', 'reimbursement'),
+             False, None, bank, card),
+            (transaction('not-labeled', date(2026, 9, 3), '3', 'reimbursement'),
+             False, None, bank, checking),
+            (transaction('internal', date(2026, 9, 4), '8', 'reimbursement', internal=True),
+             False, None, bank, checking),
+        ]
+        include = lambda: [SimpleNamespace(label='MEMBERSHIP', decision='include', cleared_at=None)]
+        decisions = {row[0].transaction_id: include() for row in rows
+                     if row[0].transaction_id != 'not-labeled'}
+        result = summarize_memberships(rows, decisions, '2026-01', '2026-09', 'ytd')
+        trailing = summarize_memberships(rows, decisions, '2025-10', '2026-09')
+        overall = result['overall']
+        self.assertEqual((overall['gross_charges'], overall['refunds'],
+                          overall['reimbursements'], overall['card_benefits'], overall['net_cost']),
+                         ('100.00', '10.00', '47.00', '5.00', '38.00'))
+        self.assertEqual((overall['unallocated_reimbursements'],
+                          overall['unallocated_reimbursement_transaction_count']), ('47.00', 2))
+        self.assertEqual(result['type_counts']['reimbursements'], 2)
+        self.assertEqual(overall['excluded_transaction_count'], 1)
+        by_account = {entry['account_id']: entry for entry in result['accounts']}
+        self.assertEqual(by_account['card']['net_cost'], '85.00')
+        self.assertEqual(by_account['card']['unallocated_reimbursements'], '7.00')
+        self.assertEqual(by_account['checking']['net_cost'], '0.00')
+        self.assertEqual(by_account['checking']['unallocated_reimbursements'], '40.00')
+        self.assertEqual(by_account['checking']['account_type'], 'depository')
+        self.assertEqual(by_account['checking']['account_name'], 'Checking')
+        self.assertEqual(sum(Decimal(entry['net_cost']) for entry in result['accounts'])
+                         - Decimal(overall['unallocated_reimbursements']), Decimal(overall['net_cost']))
+        self.assertEqual(result['months'][7]['net_cost'], '85.00')
+        self.assertEqual(result['months'][8]['net_cost'], '-47.00')
+        self.assertEqual(sum(Decimal(month['net_cost']) for month in result['months']), Decimal(overall['net_cost']))
+        self.assertEqual(trailing['overall']['unallocated_reimbursements'], '58.00')
+        self.assertEqual(trailing['overall']['net_cost'], '27.00')
+        self.assertEqual(sum(Decimal(entry['net_cost']) for entry in trailing['accounts'])
+                         - Decimal(trailing['overall']['unallocated_reimbursements']), Decimal('27.00'))
+
+    def test_membership_reimbursement_detail_filters_before_pagination(self):
+        class Session:
+            async def __aenter__(self): return self
+            async def __aexit__(self, *_): return False
+
+        bank = SimpleNamespace(institution_id='ins_test', institution_name='Test Bank')
+        card, checking = account('card'), account('checking')
+        checking.name = 'Checking'
+        checking.mask = '1106'
+        checking.type = 'depository'
+        checking.subtype = 'checking'
+        rows = [
+            (transaction('old', date(2025, 12, 1), '30', 'reimbursement'), False, None, bank, checking),
+            (transaction('jan', date(2026, 1, 1), '40', 'reimbursement'), False, None, bank, checking),
+            (transaction('sep', date(2026, 9, 1), '7', 'reimbursement'), False, None, bank, checking),
+            (transaction('card-credit', date(2026, 9, 2), '8', 'reimbursement'), False, None, bank, card),
+            (transaction('expense', date(2026, 9, 3), '-15', 'expense', spending=True), False, None, bank, checking),
+        ]
+        decisions = {row[0].transaction_id: [SimpleNamespace(
+            label='MEMBERSHIP', decision='include', cleared_at=None)] for row in rows}
+
+        async def rows_in_range(start, end):
+            return [row for row in rows if start <= row[0].transaction_date <= end]
+
+        with (patch('api.routes.analytics._active_analytics_rows', AsyncMock(side_effect=rows_in_range)),
+              patch('api.routes.analytics.load_label_overrides', AsyncMock(return_value=decisions)),
+              patch('api.routes.analytics.SessionLocal', return_value=Session())):
+            kwargs = dict(month=None, start_month='2026-01', end_month='2026-09',
+                          category=None, transaction_type=None, label='MEMBERSHIP',
+                          membership_view='reimbursements', institution_id=None,
+                          account_id='checking', limit=1)
+            first = asyncio.run(analytics_transactions(offset=0, **kwargs))
+            second = asyncio.run(analytics_transactions(offset=1, **kwargs))
+            all_view = asyncio.run(analytics_transactions(offset=0, **{
+                **kwargs, 'membership_view': 'all'}))
+        self.assertEqual((first['total'], second['total']), (2, 2))
+        self.assertEqual([first['transactions'][0]['transaction_id'],
+                          second['transactions'][0]['transaction_id']], ['sep', 'jan'])
+        self.assertEqual(first['transactions'][0]['account_mask'], '1106')
+        self.assertEqual(first['transactions'][0]['account_type'], 'depository')
+        for page in (first, second):
+            self.assertEqual((page['unallocated_reimbursements'],
+                              page['unallocated_reimbursement_transaction_count']), ('47.00', 2))
+            self.assertEqual(page['membership_counts']['reimbursements'], 2)
+        self.assertEqual(all_view['total'], 3)
+        self.assertEqual(all_view['unallocated_reimbursements'], '47.00')
+
     def test_membership_detail_views_filter_before_pagination_and_reconcile_benefits(self):
         bank = SimpleNamespace(institution_id='ins_10', institution_name='American Express')
         card = account('card'); card.name = 'Platinum Card'
@@ -56,7 +158,8 @@ class MembershipTests(unittest.TestCase):
         self.assertEqual(result['total'], 1)
         self.assertEqual(result['transactions'][0]['transaction_id'], 'benefit')
         self.assertEqual(result['membership_counts'],
-                         {'charges': 1, 'refunds': 1, 'card_benefits': 1, 'all': 3})
+                         {'charges': 1, 'refunds': 1, 'reimbursements': 0,
+                          'card_benefits': 1, 'all': 3})
 
     def test_confirmed_benefit_credits_follow_account_and_posting_month(self):
         amex = SimpleNamespace(institution_id='ins_10', institution_name='American Express')
@@ -142,13 +245,19 @@ class MembershipTests(unittest.TestCase):
         self.assertEqual((ytd['period'], ytd['start_month'], len(ytd['months'])),
                          ('ytd', '2026-01', 9))
         self.assertEqual(trailing['overall'], {
-            'gross_charges': '130.00', 'refunds': '20.00', 'card_benefits': '5.00',
+            'gross_charges': '130.00', 'refunds': '20.00', 'reimbursements': '0.00',
+            'unallocated_reimbursements': '0.00', 'card_benefits': '5.00',
             'net_cost': '105.00', 'membership_transaction_count': 6,
+            'reimbursement_transaction_count': 0,
+            'unallocated_reimbursement_transaction_count': 0,
             'excluded_transaction_count': 2, 'unclassified_count': 1,
         })
         self.assertEqual(ytd['overall'], {
-            'gross_charges': '30.00', 'refunds': '20.00', 'card_benefits': '5.00',
+            'gross_charges': '30.00', 'refunds': '20.00', 'reimbursements': '0.00',
+            'unallocated_reimbursements': '0.00', 'card_benefits': '5.00',
             'net_cost': '5.00', 'membership_transaction_count': 5,
+            'reimbursement_transaction_count': 0,
+            'unallocated_reimbursement_transaction_count': 0,
             'excluded_transaction_count': 2, 'unclassified_count': 1,
         })
         self.assertEqual([entry['account_id'] for entry in ytd['accounts']], ['current'])
@@ -284,8 +393,11 @@ class MembershipTests(unittest.TestCase):
         decisions = {row[0].transaction_id: include() for row in rows if row[0].transaction_id != 'other'}
         result = summarize_memberships(rows, decisions, '2025-10', '2026-09')
         self.assertEqual(result['overall'], {
-            'gross_charges': '100.00', 'refunds': '20.00', 'card_benefits': '10.00',
+            'gross_charges': '100.00', 'refunds': '20.00', 'reimbursements': '0.00',
+            'unallocated_reimbursements': '0.00', 'card_benefits': '10.00',
             'net_cost': '70.00', 'membership_transaction_count': 5,
+            'reimbursement_transaction_count': 0,
+            'unallocated_reimbursement_transaction_count': 0,
             'excluded_transaction_count': 2, 'unclassified_count': 1,
         })
         by_account = {value['account_id']: value for value in result['accounts']}
