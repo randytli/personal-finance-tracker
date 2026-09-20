@@ -39,5 +39,11 @@ describe('Membership reporting periods', () => {
     expect(trailingDetails.searchParams.get('start_month')).toBe('2025-10')
     expect(trailingDetails.searchParams.has('account_id')).toBe(false)
     expect(trailingDetails.searchParams.get('membership_view')).toBe('all')
+    const reimbursements = new URL(
+      membershipTransactionsPath('2026-01', '2026-09', 'receiving-account', 50, 50, 'reimbursements'),
+      'https://example.test')
+    expect(reimbursements.searchParams.get('membership_view')).toBe('reimbursements')
+    expect(reimbursements.searchParams.get('account_id')).toBe('receiving-account')
+    expect(reimbursements.searchParams.get('offset')).toBe('50')
   })
 })

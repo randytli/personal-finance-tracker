@@ -2,6 +2,9 @@ import { bulkEditRequest, bulkErrorMessage } from './bulk-transaction-editor'
 
 describe('bulk transaction editing helpers', () => {
   test('builds deterministic category and label requests', () => {
+    expect(bulkEditRequest(['b', 'a'], 'set_classification', 'reimbursement')).toEqual({
+      transaction_ids: ['a', 'b'], operation: 'set_classification', transaction_type: 'reimbursement',
+    })
     expect(bulkEditRequest(['b', 'a'], 'set_category', 'GROCERIES')).toEqual({
       transaction_ids: ['a', 'b'], operation: 'set_category', category: 'GROCERIES',
     })

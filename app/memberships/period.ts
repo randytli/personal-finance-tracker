@@ -1,5 +1,5 @@
 export type MembershipPeriod = 'trailing_12m' | 'ytd'
-export type MembershipView = 'all' | 'charges' | 'refunds' | 'card_benefits'
+export type MembershipView = 'all' | 'charges' | 'refunds' | 'reimbursements' | 'card_benefits'
 
 export const membershipPeriods: ReadonlyArray<{ value: MembershipPeriod; label: string }> = [
   { value: 'trailing_12m', label: 'Trailing 12 months' },

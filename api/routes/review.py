@@ -281,12 +281,14 @@ async def clear_label_override(transaction_id: str, label: str):
     return await mutate_label(transaction_id, label, None)
 
 
-BulkOperation = Literal["set_category", "include_label", "exclude_label", "restore_label_auto"]
+BulkOperation = Literal["set_classification", "set_category", "include_label", "exclude_label", "restore_label_auto"]
+BulkClassificationType = Literal["expense", "reimbursement"]
 
 
 class BulkEditRequest(BaseModel):
     transaction_ids: list[str]
     operation: BulkOperation
+    transaction_type: BulkClassificationType | None = None
     category: str | None = None
     label: str | None = None
 
@@ -300,12 +302,24 @@ class BulkEditRequest(BaseModel):
 
     @model_validator(mode="after")
     def valid_action(self):
-        if self.operation == "set_category":
-            if self.category not in MANUAL_CATEGORIES or self.label is not None:
+        if self.operation == "set_classification":
+            if self.transaction_type is None or self.category is not None or self.label is not None:
+                raise ValueError("set_classification requires an expense or reimbursement transaction type")
+        elif self.operation == "set_category":
+            if self.category not in MANUAL_CATEGORIES or self.label is not None or self.transaction_type is not None:
                 raise ValueError("set_category requires a supported category")
-        elif self.label not in ALLOWED_LABELS or self.category is not None:
+        elif self.label not in ALLOWED_LABELS or self.category is not None or self.transaction_type is not None:
             raise ValueError("label operation requires a supported label")
         return self
+
+
+def _bulk_classification_errors(rows, transaction_type):
+    errors = []
+    for transaction, _ in rows:
+        error = validate_manual_override(transaction, transaction_type)
+        if error is not None:
+            errors.append((transaction.transaction_id, error))
+    return errors
 
 
 @router.post("/transactions/bulk-edit")
@@ -343,12 +357,38 @@ async def bulk_edit_transactions(request: BulkEditRequest):
                         "message": "Category editing requires included expense, refund, or reimbursement transactions.",
                         "ineligible_count": len(ineligible),
                     })
+            elif request.operation == "set_classification":
+                ineligible = _bulk_classification_errors(rows, request.transaction_type)
+                if ineligible:
+                    raise HTTPException(422, detail={
+                        "message": "Every selected transaction must be eligible for the requested classification.",
+                        "ineligible_count": len(ineligible),
+                    })
 
             results = []
             changed_count = 0
             actor = _user_id()
             for transaction, classification in rows:
-                if request.operation == "set_category":
+                if request.operation == "set_classification":
+                    active_type = (classification.transaction_type if classification is not None
+                                   and classification.cleared_at is None else None)
+                    changed = active_type != request.transaction_type
+                    if changed:
+                        await db.execute(
+                            insert(ManualClassificationOverride)
+                            .values(transaction_id=transaction.transaction_id,
+                                    transaction_type=request.transaction_type,
+                                    created_by=actor, updated_by=actor,
+                                    cleared_by=None, cleared_at=None)
+                            .on_conflict_do_update(
+                                index_elements=["transaction_id"],
+                                set_={"transaction_type": request.transaction_type,
+                                      "updated_by": actor, "updated_at": func.now(),
+                                      "cleared_by": None, "cleared_at": None},
+                            )
+                        )
+                    result = _result(transaction, request.transaction_type)
+                elif request.operation == "set_category":
                     result, changed = await _apply_category(
                         db, transaction, request.category, actor, classification)
                 else:

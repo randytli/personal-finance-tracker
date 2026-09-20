@@ -7,7 +7,6 @@ jest.mock('@/components/label-editor', () => ({
   __esModule: true, default: () => null,
   useLabelOptions: () => ({ options: [], loading: false, error: null, retry: jest.fn() }),
 }))
-jest.mock('@/components/bulk-transaction-editor', () => ({ __esModule: true, default: () => null }))
 
 const originalFetch = global.fetch
 type Row = ReturnType<typeof row>
@@ -28,7 +27,7 @@ const requests: URL[] = []
 beforeEach(() => {
   requests.length = 0
   rows = [row('friend-credit', '20.49', 'transfer'),
-    row('card-payment', '5.00', 'payment', true),
+    row('card-payment', '5.00', 'transfer', true),
     row('friend-outgoing', '-12.00', 'transfer')]
   global.fetch = jest.fn(async (input, init) => {
     const url = new URL(String(input), 'http://synthetic.test')
@@ -51,6 +50,20 @@ beforeEach(() => {
       })
       data = { total: matches.length, transactions: matches.slice(Number(url.searchParams.get('offset')),
         Number(url.searchParams.get('offset')) + Number(url.searchParams.get('limit'))) }
+    } else if (url.pathname.endsWith('/bulk-edit') && init?.method === 'POST') {
+      const request = JSON.parse(String(init.body))
+      const selected = rows.filter(item => request.transaction_ids.includes(item.transaction_id))
+      const eligible = selected.filter(item => !item.effective_is_internal_transfer &&
+        (request.transaction_type === 'reimbursement' ? Number(item.amount) > 0 : Number(item.amount) < 0))
+      if (eligible.length !== selected.length) return { ok: false, json: async () => ({ detail: {
+        message: 'Every selected transaction must be eligible for the requested classification.',
+        ineligible_count: selected.length - eligible.length,
+      }}) } as Response
+      rows = rows.map(item => request.transaction_ids.includes(item.transaction_id)
+        ? { ...item, effective_transaction_type: request.transaction_type,
+          override_transaction_type: request.transaction_type,
+          category_editable: request.transaction_type === 'reimbursement' } : item)
+      data = { changed_count: selected.length, unchanged_count: 0 }
     } else if (url.pathname.endsWith('/override') && init?.method === 'PUT') {
       const id = url.pathname.split('/').at(-2)!
       const value = JSON.parse(String(init.body)).transaction_type
@@ -67,6 +80,35 @@ beforeEach(() => {
     } else throw new Error(`Unexpected request: ${url.pathname}`)
     return { ok: true, json: async () => data } as Response
   }) as typeof fetch
+})
+
+test('bulk classification shows eligibility, protects mixed selections, and refreshes rows leaving the filter', async () => {
+  render(createElement(ReviewPage))
+  await screen.findByText('Nothing needs review.')
+  fireEvent.click(screen.getByRole('button', { name: 'Credits & Transfers' }))
+  await screen.findByRole('heading', { name: 'friend-credit' })
+  fireEvent.change(screen.getByRole('combobox', { name: 'Effective type filter' }), { target: { value: 'transfer' } })
+  await screen.findByRole('heading', { name: 'friend-credit' })
+  fireEvent.click(screen.getByLabelText('Select friend-credit'))
+  fireEvent.click(screen.getByLabelText('Select card-payment'))
+  expect(screen.getByText(/2 selected/)).toBeTruthy()
+  fireEvent.change(screen.getByRole('combobox', { name: 'Bulk action' }),
+    { target: { value: 'set_classification' } })
+  fireEvent.change(screen.getByRole('combobox', { name: 'Bulk classification' }),
+    { target: { value: 'reimbursement' } })
+  expect(screen.getByText('1 of 2 selected transactions are eligible. 1 must be removed before applying.')).toBeTruthy()
+  expect((screen.getByRole('button', { name: 'Review changes' }) as HTMLButtonElement).disabled).toBe(true)
+
+  fireEvent.click(screen.getByLabelText('Select card-payment'))
+  expect(screen.getByText('1 of 1 selected transactions are eligible.')).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: 'Review changes' }))
+  expect(screen.getByText(/Reimbursement for 1 selected transactions/)).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: 'Apply to selected' }))
+  await waitFor(() => expect(screen.queryByRole('heading', { name: 'friend-credit' })).toBeNull())
+  expect(screen.getByRole('heading', { name: 'card-payment' })).toBeTruthy()
+  expect(rows.find(item => item.transaction_id === 'friend-credit')!.effective_transaction_type).toBe('reimbursement')
+  expect(rows.find(item => item.transaction_id === 'card-payment')!.effective_transaction_type).toBe('transfer')
+  expect(screen.getByRole('status').textContent).toContain('1 classifications changed')
 })
 afterEach(() => { cleanup(); global.fetch = originalFetch })
 

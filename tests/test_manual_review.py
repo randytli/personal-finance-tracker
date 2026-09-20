@@ -11,7 +11,10 @@ from api.classification import (
 from api.migrations import migrate_multi_institution
 from api.models import ManualClassificationOverride
 from api.routes.analytics import summarize_monthly_transactions
-from api.routes.review import _review_ordering, _review_filters, _user_id
+from api.routes.review import (
+    BulkEditRequest, _bulk_classification_errors, _review_ordering,
+    _review_filters, _user_id,
+)
 from sqlalchemy.dialects import postgresql
 from sqlalchemy import select, create_engine, text, true
 from api.models import Transaction, RawTransaction, Item, Account
@@ -37,6 +40,33 @@ def transaction(
 
 
 class ManualReviewTests(unittest.TestCase):
+    def test_bulk_classification_validates_full_selection_before_writes(self):
+        positive = transaction("20", "transfer")
+        positive.transaction_id = "positive"
+        negative = transaction("-12", "transfer")
+        negative.transaction_id = "negative"
+        protected = transaction("30", "payment", is_internal_transfer=True)
+        protected.transaction_id = "protected"
+        protected_outgoing = transaction("-30", "payment", is_internal_transfer=True)
+        protected_outgoing.transaction_id = "protected-outgoing"
+
+        self.assertEqual(_bulk_classification_errors(
+            [(positive, None), (negative, None), (protected, None)], "reimbursement"), [
+                ("negative", "reimbursement requires a positive amount"),
+                ("protected", "internal transfers may only be classified as payment or transfer"),
+            ])
+        self.assertEqual(_bulk_classification_errors(
+            [(positive, None), (negative, None), (protected_outgoing, None)], "expense"), [
+                ("positive", "expense requires a negative amount"),
+                ("protected-outgoing", "internal transfers may only be classified as payment or transfer"),
+            ])
+        self.assertEqual(_bulk_classification_errors([(positive, None)], "reimbursement"), [])
+        request = BulkEditRequest(transaction_ids=["b", "a", "a"],
+            operation="set_classification", transaction_type="expense")
+        self.assertEqual(request.transaction_ids, ["b", "a"])
+        source = inspect.getsource(__import__('api.routes.review', fromlist=['bulk_edit_transactions']).bulk_edit_transactions)
+        self.assertLess(source.index('_bulk_classification_errors'), source.index('results = []'))
+
     def test_credits_query_filters_effective_types_and_paginates(self):
         # Execute the production predicate against isolated, synthetic SQL tables.
         engine = create_engine("sqlite://")

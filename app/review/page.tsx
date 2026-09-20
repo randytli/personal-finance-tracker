@@ -50,6 +50,7 @@ export default function ReviewPage() {
   const [offset, setOffset] = useState(0)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [bulkBusy, setBulkBusy] = useState(false)
+  const [bulkStatus, setBulkStatus] = useState('')
   const requestId = useRef(0)
   const labelOptions = useLabelOptions()
 
@@ -159,6 +160,7 @@ export default function ReviewPage() {
   async function applyBulk(request: BulkEditRequest) {
     setBulkBusy(true)
     setError('')
+    setBulkStatus('')
     try {
       const response = await fetch('/api/pft/review/transactions/bulk-edit', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(request),
@@ -166,6 +168,7 @@ export default function ReviewPage() {
       const body = await response.json().catch(() => null)
       if (!response.ok) throw new Error(bulkErrorMessage(body))
       setSelected(new Set())
+      setBulkStatus(`${body.changed_count} ${request.operation === 'set_classification' ? 'classifications' : 'overrides'} changed · ${body.unchanged_count} already set.`)
       await load()
       return true
     } catch (caught) {
@@ -182,6 +185,16 @@ export default function ReviewPage() {
       return next
     })
   }
+
+  const selectedTransactions = transactions.filter(transaction => selected.has(transaction.transaction_id))
+  const classificationOptions = [
+    { value: 'reimbursement' as const, label: 'Reimbursement',
+      eligibleCount: selectedTransactions.filter(transaction => Number(transaction.amount) > 0
+        && transaction.effective_is_internal_transfer !== true).length },
+    { value: 'expense' as const, label: 'Expense',
+      eligibleCount: selectedTransactions.filter(transaction => Number(transaction.amount) < 0
+        && transaction.effective_is_internal_transfer !== true).length },
+  ]
 
   return (
     <main className="container mx-auto max-w-5xl px-4 py-8">
@@ -228,6 +241,7 @@ export default function ReviewPage() {
         </div>
       )}
       {error && <p role="alert" className="mt-5 rounded-md bg-red-50 p-3 text-sm text-red-800">{error}</p>}
+      {bulkStatus && <p role="status" className="mt-5 rounded-md border bg-slate-50 p-3 text-sm">{bulkStatus}</p>}
       {loading && <p className="mt-8 text-muted-foreground">Loading transactions…</p>}
       {!loading && transactions.length === 0 && !error && (
         <p className="mt-8 rounded-lg border bg-white p-8 text-center">{mode === 'needs_review' ? 'Nothing needs review.' : 'No matching credits or transfers.'}</p>
@@ -241,8 +255,10 @@ export default function ReviewPage() {
             disabled={bulkBusy || busy !== null}
             onChange={event => setSelected(event.target.checked
               ? new Set(transactions.map(transaction => transaction.transaction_id)) : new Set())} />
-          Select all displayed ({transactions.length})
+          Select current page ({transactions.length})
         </label>
+        {selected.size > 0 && <button type="button" className="ml-4 text-sm text-blue-700 underline"
+          disabled={bulkBusy || busy !== null} onClick={() => setSelected(new Set())}>Clear selection</button>}
       </div>}
 
       <div className="mt-6 space-y-4">
@@ -323,6 +339,8 @@ export default function ReviewPage() {
           transactionIds={Array.from(selected)}
           categoryOptions={[]}
           labelOptions={labelOptions.options}
+          allowClassification={mode === 'credits_transfers'}
+          classificationOptions={classificationOptions}
           busy={bulkBusy}
           onApply={applyBulk}
           onClear={() => setSelected(new Set())}

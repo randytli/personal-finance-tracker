@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
+import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import AccountBadge from '@/components/account-badge'
 import BulkTransactionEditor, { bulkErrorMessage, type BulkEditRequest } from '@/components/bulk-transaction-editor'
 import CategoryEditor, { mergeCategoryDetail, mutateCategoryOverride, type CategoryDetail, type CategoryOption } from '@/components/category-editor'
@@ -14,8 +14,12 @@ import type { MembershipView } from './period'
 type MembershipMetrics = {
   gross_charges: string
   refunds: string
+  reimbursements: string
+  unallocated_reimbursements: string
   card_benefits: string
   net_cost: string
+  reimbursement_transaction_count: number
+  unallocated_reimbursement_transaction_count: number
   membership_transaction_count: number
   excluded_transaction_count: number
   unclassified_count: number
@@ -36,7 +40,7 @@ type MembershipSummary = {
   overall: MembershipMetrics
   months: Array<MembershipMetrics & { month: string }>
   accounts: MembershipAccount[]
-  type_counts: { charges: number; refunds: number; card_benefits: number; excluded: number }
+  type_counts: { charges: number; refunds: number; reimbursements: number; card_benefits: number; excluded: number }
 }
 type Detail = CategoryDetail & LabelDetail & {
   transaction_id: string
@@ -74,7 +78,12 @@ function contributesToCost(detail: Detail) {
   const amount = Number(detail.amount)
   if (detail.is_internal_transfer) return false
   return (detail.transaction_type === 'expense' && detail.is_spending === true && amount < 0)
-    || ((detail.transaction_type === 'refund' || detail.transaction_type === 'card_benefit') && amount > 0)
+    || ((detail.transaction_type === 'refund' || detail.transaction_type === 'card_benefit'
+      || detail.transaction_type === 'reimbursement') && amount > 0)
+}
+
+function isMembershipReimbursement(detail: Detail) {
+  return detail.transaction_type === 'reimbursement' && !detail.is_internal_transfer && Number(detail.amount) > 0
 }
 
 export default function MembershipsPage() {
@@ -85,7 +94,9 @@ export default function MembershipsPage() {
   const [view, setView] = useState<MembershipView>('all')
   const [details, setDetails] = useState<Detail[]>([])
   const [total, setTotal] = useState(0)
-  const [viewCounts, setViewCounts] = useState({ charges: 0, refunds: 0, card_benefits: 0, all: 0 })
+  const [viewCounts, setViewCounts] = useState({ charges: 0, refunds: 0, reimbursements: 0, card_benefits: 0, all: 0 })
+  const [detailUnallocatedAmount, setDetailUnallocatedAmount] = useState('0.00')
+  const [detailUnallocatedCount, setDetailUnallocatedCount] = useState(0)
   const [offset, setOffset] = useState(0)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [revision, setRevision] = useState(0)
@@ -133,6 +144,8 @@ export default function MembershipsPage() {
         }
         setDetails(data.transactions || [])
         setTotal(data.total || 0)
+        setDetailUnallocatedAmount(data.unallocated_reimbursements || '0.00')
+        setDetailUnallocatedCount(data.unallocated_reimbursement_transaction_count || 0)
         if (data.membership_counts) setViewCounts(data.membership_counts)
       })
       .catch(() => { if (active) setError('Membership transactions could not be loaded.') })
@@ -146,6 +159,7 @@ export default function MembershipsPage() {
     netCost: Number(month.net_cost),
     grossCharges: Number(month.gross_charges),
     refunds: Number(month.refunds),
+    reimbursements: Number(month.reimbursements),
     cardBenefits: Number(month.card_benefits),
   })), [summary])
 
@@ -155,33 +169,36 @@ export default function MembershipsPage() {
     }
   }, [summary, accountId])
 
-  function changeAccount(nextId: string | null) {
-    setAccountId(nextId)
-    setOffset(0)
-    setSelected(new Set())
-    setDetails([])
-    setViewCounts({ charges: 0, refunds: 0, card_benefits: 0, all: 0 })
-    setStatus('')
-  }
-
-  function changeView(nextView: MembershipView) {
-    setView(nextView)
+  function resetDetails() {
     setOffset(0)
     setSelected(new Set())
     setDetails([])
     setTotal(0)
-    setViewCounts({ charges: 0, refunds: 0, card_benefits: 0, all: 0 })
+    setViewCounts({ charges: 0, refunds: 0, reimbursements: 0, card_benefits: 0, all: 0 })
+    setDetailUnallocatedAmount('0.00')
+    setDetailUnallocatedCount(0)
     setStatus('')
+  }
+
+  function changeAccount(nextId: string | null) {
+    if (nextId === accountId) return
+    setAccountId(nextId)
+    resetDetails()
+  }
+
+  function changeView(nextView: MembershipView) {
+    if (nextView === view) return
+    setView(nextView)
+    resetDetails()
   }
 
   function changePeriod(nextPeriod: MembershipPeriod) {
     if (nextPeriod === period) return
     setPeriod(nextPeriod)
     setSummary(null)
-    setDetails([])
-    setTotal(0)
     setError('')
-    changeAccount(null)
+    setAccountId(null)
+    resetDetails()
   }
 
   function toggleSelected(id: string) {
@@ -241,7 +258,7 @@ export default function MembershipsPage() {
     <header className="mt-4 flex flex-wrap items-end justify-between gap-4">
       <div>
         <h1 className="text-3xl font-bold">Membership costs</h1>
-        <p className="mt-1 text-sm text-muted-foreground">Recorded charges and credits on transactions labeled Membership. Net cost = gross charges − refunds − card benefits; each posts in its own month and account.</p>
+        <p className="mt-1 text-sm text-muted-foreground">Net Membership Cost = gross charges − refunds − reimbursements − card benefits. Each transaction affects its posted month.</p>
         {summary && <p className="mt-1 text-sm text-muted-foreground">
           {membershipRangeText(summary.start_month, summary.end_month, period)}
           {endMonth === currentMonth() ? ' · current month is partial' : ''}
@@ -258,13 +275,12 @@ export default function MembershipsPage() {
           <input type="month" value={endMonth} max={currentMonth()}
             className="ml-2 rounded-md border bg-white px-3 py-2"
             onChange={event => {
-              if (!event.target.value) return
+              if (!event.target.value || event.target.value === endMonth) return
               setEndMonth(event.target.value)
               setSummary(null)
-              setDetails([])
-              setTotal(0)
               setError('')
-              changeAccount(null)
+              setAccountId(null)
+              resetDetails()
             }} />
         </label>
       </div>
@@ -273,22 +289,33 @@ export default function MembershipsPage() {
     {status && <p role="status" className="mt-5 rounded-md border bg-slate-50 p-3 text-sm">{status}</p>}
     {loading && <p className="mt-6 text-sm text-muted-foreground">Loading membership costs…</p>}
     {summary && <>
-      <section className="mt-7 grid gap-4 sm:grid-cols-2 lg:grid-cols-4" aria-label="Overall membership costs">
+      <section className="mt-7 grid gap-4 sm:grid-cols-2 lg:grid-cols-5" aria-label="Overall membership costs">
         {([
-          ['Gross charges', summary.overall.gross_charges],
-          ['Refunds', summary.overall.refunds],
-          ['Card benefits', summary.overall.card_benefits],
-          ['Net cost', summary.overall.net_cost],
-        ] as const).map(([name, value]) => <div key={name} className="rounded-lg border bg-white p-5 shadow-sm">
-          <p className="text-sm text-muted-foreground">{name}</p>
-          <p className="mt-1 text-2xl font-bold">{money(value)}</p>
+          ['Gross charges', summary.overall.gross_charges, 'charges'],
+          ['Refunds', summary.overall.refunds, 'refunds'],
+          ['Reimbursements', summary.overall.reimbursements, 'reimbursements'],
+          ['Card benefits', summary.overall.card_benefits, 'card_benefits'],
+          ['Net cost', summary.overall.net_cost, 'all'],
+        ] as const).map(([name, value, targetView]) => <div key={name} className="rounded-lg border bg-white p-5 shadow-sm">
+          <button type="button" className="w-full text-left hover:text-blue-800"
+            onClick={() => { changeAccount(null); changeView(targetView) }}>
+            <p className="text-sm text-muted-foreground">{name}</p>
+            <p className="mt-1 text-2xl font-bold">{money(value)}</p>
+            <span className="text-xs text-blue-700 underline">{targetView === 'all' ? 'View all transactions' : 'View transactions'}</span>
+          </button>
         </div>)}
       </section>
       <p className="mt-3 text-xs text-muted-foreground">
-        {summary.type_counts.charges} charges · {summary.type_counts.refunds} refunds · {summary.type_counts.card_benefits} card benefit credits · {summary.overall.excluded_transaction_count} excluded from cost
+        {summary.type_counts.charges} charges · {summary.type_counts.refunds} refunds · {summary.type_counts.reimbursements} reimbursements · {summary.type_counts.card_benefits} card benefit credits · {summary.overall.excluded_transaction_count} excluded from cost
         {summary.overall.unclassified_count > 0 ? ` (${summary.overall.unclassified_count} unclassified)` : ''}.
         {' '}Payments, transfers, adjustments, income, and unclassified entries do not affect cost.
       </p>
+      <section aria-label="Membership reconciliation" className="mt-4 rounded-md border bg-slate-50 p-4 text-sm">
+        <p className="font-semibold">Unallocated reimbursements: {money(summary.overall.unallocated_reimbursements)} · {summary.overall.unallocated_reimbursement_transaction_count} transactions</p>
+        <p className="mt-1 text-muted-foreground">These reduce overall Membership net cost, but do not reduce any individual account’s net cost. Receiving accounts identify where the money arrived, not which membership expense it repays.</p>
+        <p className="mt-2">Sum of per-account net costs − unallocated reimbursements = overall net cost.</p>
+        <p className="text-muted-foreground">Unallocated deduction: {money(summary.overall.unallocated_reimbursements)} · Overall net cost: {money(summary.overall.net_cost)}</p>
+      </section>
 
       <section className="mt-8 rounded-lg border bg-white p-5 shadow-sm">
         <h2 className="text-lg font-semibold">Monthly membership cost</h2>
@@ -298,17 +325,23 @@ export default function MembershipsPage() {
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="month" tickFormatter={value => value.slice(5)} />
               <YAxis tickFormatter={value => `$${value}`} />
+              <Legend />
               <Tooltip content={({ active, payload }) => {
                 const month = payload?.[0]?.payload as typeof chartData[number] | undefined
                 return active && month ? <div className="rounded-md border bg-white p-3 text-xs shadow">
                   <p className="font-semibold">{month.month}</p>
                   <p>Gross charges: {money(String(month.grossCharges))}</p>
                   <p>Refunds: {money(String(month.refunds))}</p>
+                  <p>Reimbursements: {money(String(month.reimbursements))}</p>
                   <p>Card benefits: {money(String(month.cardBenefits))}</p>
                   <p className="font-semibold">Net cost: {money(String(month.netCost))}</p>
                 </div> : null
               }} />
-              <Line type="monotone" dataKey="netCost" name="Net cost" stroke="#2563eb" />
+              <Line type="monotone" dataKey="grossCharges" name="Gross charges" stroke="#0f172a" />
+              <Line type="monotone" dataKey="refunds" name="Refunds" stroke="#15803d" />
+              <Line type="monotone" dataKey="reimbursements" name="Reimbursements" stroke="#a16207" strokeDasharray="4 3" />
+              <Line type="monotone" dataKey="cardBenefits" name="Card benefits" stroke="#7e22ce" />
+              <Line type="monotone" dataKey="netCost" name="Net cost" stroke="#2563eb" strokeWidth={2} />
             </LineChart>
           </ResponsiveContainer>
         </div>
@@ -316,6 +349,7 @@ export default function MembershipsPage() {
 
       <section className="mt-8">
         <h2 className="text-lg font-semibold">By account</h2>
+        <p className="mt-1 text-sm text-muted-foreground">Account net costs exclude unallocated reimbursements. Reimbursements received are shown only as source context.</p>
         {summary.accounts.length === 0 && <p className="mt-3 text-sm text-muted-foreground">No Membership transactions in this period.</p>}
         <div className="mt-3 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {summary.accounts.map(account => <div key={account.account_id}
@@ -336,6 +370,13 @@ export default function MembershipsPage() {
               onClick={event => { event.stopPropagation(); changeAccount(account.account_id); changeView('card_benefits') }}>
               View {money(account.card_benefits)} benefits
             </button>
+            {account.unallocated_reimbursement_transaction_count > 0 && <div className="mt-3 text-xs text-muted-foreground">
+              <p>Unallocated reimbursements received: {money(account.unallocated_reimbursements)} · {account.unallocated_reimbursement_transaction_count} transactions</p>
+              <button type="button" className="mt-1 text-blue-700 underline"
+                onClick={() => { changeAccount(account.account_id); changeView('reimbursements') }}>
+                View reimbursements received
+              </button>
+            </div>}
             {account.excluded_transaction_count > 0 && <p className="mt-2 text-xs text-muted-foreground">
               {account.excluded_transaction_count} excluded from cost
             </p>}
@@ -349,11 +390,15 @@ export default function MembershipsPage() {
             <h2 className="text-lg font-semibold">Membership transactions</h2>
             <p className="text-sm text-muted-foreground">
               {selectedAccount ? `${selectedAccount.institution_name} · ${selectedAccount.account_name}` : 'All accounts'}
-              {' · '}{total} {view === 'all' ? 'Membership transactions' : view === 'card_benefits' ? 'card benefit credits' : view === 'charges' ? 'membership charges' : 'membership refunds'} in the reporting period
+              {' · '}{total} {view === 'all' ? 'Membership transactions' : view === 'card_benefits' ? 'card benefit credits' : view === 'charges' ? 'membership charges' : view === 'reimbursements' ? 'membership reimbursements' : 'membership refunds'} in the reporting period
             </p>
+            {view === 'reimbursements' && !detailLoading && <p className="mt-2 text-sm font-medium">
+              Unallocated reimbursements in this filter: {money(detailUnallocatedAmount)} · {detailUnallocatedCount} transactions across all pages.
+              <span className="block text-xs font-normal text-muted-foreground">Account filtering identifies the receiving account; these credits reduce overall cost only.</span>
+            </p>}
           </div>
           <div className="flex flex-wrap gap-2" aria-label="Membership transaction type filter">
-            {([['all', 'All'], ['charges', 'Charges'], ['refunds', 'Refunds'], ['card_benefits', 'Card Benefits']] as const).map(([value, label]) => (
+            {([['all', 'All'], ['charges', 'Charges'], ['refunds', 'Refunds'], ['reimbursements', 'Reimbursements'], ['card_benefits', 'Card Benefits']] as const).map(([value, label]) => (
               <button key={value} type="button" aria-pressed={view === value}
                 className={`rounded-md border px-2 py-1 text-xs ${view === value ? 'border-blue-600 bg-blue-50 text-blue-800' : 'bg-white'}`}
                 onClick={() => changeView(value)}>{label}{summary && <span className="ml-1">({value === 'all' ? viewCounts.all : viewCounts[value]})</span>}</button>
@@ -392,6 +437,7 @@ export default function MembershipsPage() {
             </div>
             <div className="text-right">
               <p className="font-semibold">{signedMoney(detail.amount)}</p>
+              {isMembershipReimbursement(detail) && <p className="text-xs text-muted-foreground">Reduces overall cost only · receiving account shown as context</p>}
               {!contributesToCost(detail) && <p className="text-xs text-amber-800">Excluded from cost</p>}
             </div>
             <div className="grid w-full gap-x-5 md:grid-cols-2">
