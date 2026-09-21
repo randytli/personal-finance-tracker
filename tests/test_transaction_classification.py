@@ -240,6 +240,12 @@ def transfer_transaction(transaction_id, account_id, day, amount, category):
     )
 
 
+def zelle_transaction(transaction_id, account_id, day, amount, description, category):
+    transaction = transfer_transaction(transaction_id, account_id, day, amount, category)
+    transaction.description = description
+    return transaction
+
+
 class InternalTransferClassificationTests(unittest.TestCase):
     def test_cross_institution_accounts_can_match(self):
         chase = transfer_transaction("chase-out", "chase-checking", 1, "-250", "TRANSFER_OUT")
@@ -314,6 +320,110 @@ class InternalTransferClassificationTests(unittest.TestCase):
                     transactions, active_manual_types=overrides)
                 self.assertTrue(classifications["checking"][2])
                 self.assertTrue(classifications["credit"][2])
+
+    def test_exact_zelle_codes_disambiguate_duplicate_amounts(self):
+        transactions = [
+            zelle_transaction(
+                "boa-gya", "boa", 13, "-3500",
+                "Zelle payment to rchase Conf# gya0libnb", "RENT_AND_UTILITIES",
+            ),
+            zelle_transaction(
+                "chase-gya", "chase", 13, "3500",
+                "Zelle payment from TIANRUN LI BACgya0libnb", "TRANSFER_IN",
+            ),
+            zelle_transaction(
+                "boa-gwh", "boa", 14, "-3500",
+                "Zelle payment to rchase Conf# gwhmbartr", "TRANSFER_OUT",
+            ),
+            zelle_transaction(
+                "chase-gwh", "chase", 14, "3500",
+                "Zelle payment from TIANRUN LI BACgwhmbartr", "TRANSFER_IN",
+            ),
+        ]
+
+        classifications, _ = build_classifications(transactions)
+
+        for transaction in transactions:
+            self.assertEqual(
+                classifications[transaction.transaction_id],
+                ("transfer", False, True),
+            )
+
+    def test_confirmation_code_supports_jpm_and_conf_variants(self):
+        transactions = [
+            zelle_transaction(
+                "chase-out", "chase", 1, "-150",
+                "Zelle payment to TIANRUN LI JPM99bxc4fbp", "TRANSFER_OUT",
+            ),
+            zelle_transaction(
+                "boa-in", "boa", 20, "150",
+                'Zelle payment from TIANRUN LI for "mony"; Conf# 99bxc4fbp',
+                "TRANSFER_IN",
+            ),
+        ]
+
+        classifications, _ = build_classifications(transactions)
+
+        self.assertEqual(classifications["chase-out"], ("transfer", False, True))
+        self.assertEqual(classifications["boa-in"], ("transfer", False, True))
+
+    def test_duplicate_confirmation_code_group_remains_unresolved(self):
+        transactions = [
+            zelle_transaction(
+                "out", "checking", 1, "-100",
+                "Zelle payment to savings Conf# duplicate1", "TRANSFER_OUT",
+            ),
+            zelle_transaction(
+                "in-1", "savings-1", 2, "100",
+                "Zelle payment from owner BACduplicate1", "TRANSFER_IN",
+            ),
+            zelle_transaction(
+                "in-2", "savings-2", 3, "100",
+                "Zelle payment from owner JPMduplicate1", "TRANSFER_IN",
+            ),
+        ]
+
+        classifications, _ = build_classifications(transactions)
+
+        for transaction in transactions:
+            self.assertIsNone(classifications[transaction.transaction_id][2])
+
+    def test_mismatched_or_fuzzy_codes_do_not_match_outside_date_window(self):
+        transactions = [
+            zelle_transaction(
+                "out", "checking", 1, "-100",
+                "Zelle payment to savings Conf# exactcode1", "TRANSFER_OUT",
+            ),
+            zelle_transaction(
+                "in", "savings", 20, "100",
+                "Zelle payment from owner BACexactcode2", "TRANSFER_IN",
+            ),
+        ]
+
+        classifications, _ = build_classifications(transactions)
+
+        self.assertIsNone(classifications["out"][2])
+        self.assertIsNone(classifications["in"][2])
+
+    def test_manual_non_transfer_type_blocks_confirmation_pair(self):
+        transactions = [
+            zelle_transaction(
+                "out", "checking", 1, "-100",
+                "Zelle payment to savings Conf# exactcode1", "TRANSFER_OUT",
+            ),
+            zelle_transaction(
+                "in", "savings", 20, "100",
+                "Zelle payment from owner BACexactcode1", "TRANSFER_IN",
+            ),
+        ]
+
+        classifications, _ = build_classifications(
+            transactions,
+            active_manual_types={"in": "reimbursement"},
+        )
+
+        self.assertIsNone(classifications["out"][2])
+        self.assertIsNone(classifications["in"][2])
 
 
 class CardBenefitClassificationTests(unittest.TestCase):

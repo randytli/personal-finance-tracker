@@ -296,6 +296,25 @@ def _has_exact_merchant_or_description(expense, credit):
     )
 
 
+ZELLE_CONFIRMATION_PATTERNS = (
+    re.compile(r"\bCONF(?:IRMATION)?\s*#?\s*([A-Z0-9]{8,16})\b", re.IGNORECASE),
+    re.compile(r"\b(?:BAC|JPM)([A-Z0-9]{8,16})\b", re.IGNORECASE),
+)
+
+
+def zelle_confirmation_code(description):
+    """Return one exact bank confirmation code from a Zelle description."""
+    value = description or ""
+    if re.search(r"\bZELLE\s+PAYMENT\b", value, re.IGNORECASE) is None:
+        return None
+    codes = {
+        match.group(1).upper()
+        for pattern in ZELLE_CONFIRMATION_PATTERNS
+        for match in pattern.finditer(value)
+    }
+    return codes.pop() if len(codes) == 1 else None
+
+
 def build_classifications(
     transactions,
     credit_account_ids=frozenset(),
@@ -361,9 +380,55 @@ def build_classifications(
             classifications[credit.transaction_id] = ("refund", False, False)
             refund_matches += 1
 
+    confirmation_groups = {}
+    for transaction in transactions:
+        code = zelle_confirmation_code(transaction.description)
+        if code is not None:
+            confirmation_groups.setdefault(code, []).append(transaction)
+
+    confirmation_matched = set()
+    confirmation_blocked = set()
+    for matches in confirmation_groups.values():
+        if len(matches) != 2:
+            if len(matches) > 1:
+                confirmation_blocked.update(
+                    transaction.transaction_id for transaction in matches
+                )
+            continue
+        first, second = matches
+        transaction_ids = {first.transaction_id, second.transaction_id}
+        manual_types = {
+            active_manual_types.get(first.transaction_id),
+            active_manual_types.get(second.transaction_id),
+        }
+        has_conflicting_manual_type = any(
+            manual_type is not None and manual_type not in INTERNAL_TRANSFER_TYPES
+            for manual_type in manual_types
+        )
+        if (
+            has_conflicting_manual_type
+            or first.account_id == second.account_id
+            or first.amount != -second.amount
+            or first.amount == 0
+        ):
+            confirmation_blocked.update(transaction_ids)
+            continue
+        for matched_transaction in matches:
+            transaction_type = classifications[matched_transaction.transaction_id][0]
+            if transaction_type not in INTERNAL_TRANSFER_TYPES:
+                transaction_type = "transfer"
+            classifications[matched_transaction.transaction_id] = (
+                transaction_type,
+                False,
+                True,
+            )
+        confirmation_matched.update(transaction_ids)
+
     transfer_candidates = {
         transaction.transaction_id: []
         for transaction in transactions
+        if transaction.transaction_id not in confirmation_matched
+        and transaction.transaction_id not in confirmation_blocked
         if classifications[transaction.transaction_id][0] in INTERNAL_TRANSFER_TYPES
         and (active_manual_types.get(transaction.transaction_id) is None
              or active_manual_types[transaction.transaction_id] in INTERNAL_TRANSFER_TYPES)
