@@ -44,8 +44,63 @@ class Item(Base):
     status = Column(String, nullable=False, default="pending", server_default="pending")
     access_token = Column(String, nullable=False)
     transactions_cursor = Column(String, nullable=True)
+    sync_paused = Column(Boolean, nullable=False, default=False, server_default="false")
+    last_sync_attempt_at = Column(DateTime(timezone=True))
+    last_sync_success_at = Column(DateTime(timezone=True))
+    last_sync_change_at = Column(DateTime(timezone=True))
+    next_sync_retry_at = Column(DateTime(timezone=True))
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
+class SyncRun(Base):
+    __tablename__ = "sync_runs"
+    run_id = Column(String, primary_key=True)
+    user_id = Column(String, nullable=False, index=True)
+    trigger_source = Column(String, nullable=False)
+    started_at = Column(DateTime(timezone=True), nullable=False)
+    finished_at = Column(DateTime(timezone=True))
+    duration_ms = Column(Integer)
+    status = Column(String, nullable=False)
+    classification_status = Column(String, nullable=False, server_default="not_run")
+    classified_count = Column(Integer, nullable=False, server_default="0")
+    classification_duration_ms = Column(Integer)
+    published_at = Column(DateTime(timezone=True))
+    error_category = Column(String)
+
+
+class SyncItemRun(Base):
+    __tablename__ = "sync_item_runs"
+    run_id = Column(String, ForeignKey("sync_runs.run_id"), primary_key=True)
+    item_id = Column(String, ForeignKey("items.item_id"), primary_key=True)
+    started_at = Column(DateTime(timezone=True), nullable=False)
+    finished_at = Column(DateTime(timezone=True))
+    status = Column(String, nullable=False)
+    phase = Column(String, nullable=False)
+    pages_fetched = Column(Integer, nullable=False, server_default="0")
+    received_added = Column(Integer, nullable=False, server_default="0")
+    received_modified = Column(Integer, nullable=False, server_default="0")
+    received_removed = Column(Integer, nullable=False, server_default="0")
+    added_count = Column(Integer, nullable=False, server_default="0")
+    modified_count = Column(Integer, nullable=False, server_default="0")
+    removed_count = Column(Integer, nullable=False, server_default="0")
+    skipped_disabled_count = Column(Integer, nullable=False, server_default="0")
+    normalized_count = Column(Integer, nullable=False, server_default="0")
+    classified_count = Column(Integer, nullable=False, server_default="0")
+    retry_count = Column(Integer, nullable=False, server_default="0")
+    error_category = Column(String)
+    request_id = Column(String)
+
+
+class SyncRuntimeState(Base):
+    __tablename__ = "sync_runtime_state"
+    user_id = Column(String, primary_key=True)
+    last_published_run_id = Column(String, ForeignKey("sync_runs.run_id"))
+    published_at = Column(DateTime(timezone=True))
+    requested_sequence = Column(Integer, nullable=False, server_default="0")
+    handled_sequence = Column(Integer, nullable=False, server_default="0")
+    jobs_heartbeat_at = Column(DateTime(timezone=True))
+    last_backup_at = Column(DateTime(timezone=True))
 
 class RawTransaction(Base):
     __tablename__ = "raw_transactions"

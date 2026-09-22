@@ -3,6 +3,21 @@ import os
 from sqlalchemy import text
 
 
+async def migrate_sync_runs(connection):
+    """Add M2 run state without changing existing financial rows or cursors."""
+    from api.models import SyncRun, SyncItemRun, SyncRuntimeState
+    for name, definition in (
+        ("sync_paused", "BOOLEAN NOT NULL DEFAULT false"),
+        ("last_sync_attempt_at", "TIMESTAMPTZ"),
+        ("last_sync_success_at", "TIMESTAMPTZ"),
+        ("last_sync_change_at", "TIMESTAMPTZ"),
+        ("next_sync_retry_at", "TIMESTAMPTZ"),
+    ):
+        await connection.execute(text(f"ALTER TABLE items ADD COLUMN IF NOT EXISTS {name} {definition}"))
+    for table in (SyncRun.__table__, SyncItemRun.__table__, SyncRuntimeState.__table__):
+        await connection.run_sync(lambda sync, table=table: table.create(sync, checkfirst=True))
+
+
 async def migrate_transaction_labels(connection):
     from api.labels import LABEL_CHECK
     from api.models import ManualTransactionLabelOverride
