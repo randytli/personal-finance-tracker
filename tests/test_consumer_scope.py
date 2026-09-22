@@ -16,6 +16,7 @@ from api.models import Base, Account, Item, RawTransaction, Transaction
 from api.migrations import migrate_consumer_scope
 from api.routes import plaid, review, analytics
 from api.services.derivation import normalize_item_transactions, classify_active_transactions
+from api.services.persistence import persist_account_metadata, persist_consumer_transactions
 
 
 class ScopePolicyTests(unittest.TestCase):
@@ -285,20 +286,20 @@ class ConsumerDatabaseTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_caller_transaction_owns_normalization_and_classification(self):
         await self.migrate()
-        await plaid.persist_account_metadata("i", [self.account("card")])
         class RollBack(Exception):
             pass
 
         with self.assertRaises(RollBack):
             async with self.sessions.begin() as db:
-                db.add(RawTransaction(transaction_id="uncommitted", item_id="i", account_id="card",
-                                      transaction_date=date(2026, 8, 1),
-                                      payload=jsonable_encoder(self.tx("uncommitted"))))
-                await db.flush()
+                await persist_account_metadata(db, "scope-test", "i", [self.account("card")])
+                await persist_consumer_transactions(db, "scope-test", "i", None,
+                    [self.tx("uncommitted")], [], [], "c1", 1)
                 self.assertEqual((await normalize_item_transactions(db, "scope-test", "i"))["normalized_count"], 1)
                 self.assertEqual((await classify_active_transactions(db, "scope-test"))["expense"], 1)
                 self.assertEqual((await db.get(Transaction, "uncommitted")).transaction_type, "expense")
                 raise RollBack
         async with self.sessions() as db:
+            self.assertIsNone(await db.get(Account, "card"))
+            self.assertIsNone((await db.get(Item, "i")).transactions_cursor)
             self.assertIsNone(await db.get(RawTransaction, "uncommitted"))
             self.assertIsNone(await db.get(Transaction, "uncommitted"))
