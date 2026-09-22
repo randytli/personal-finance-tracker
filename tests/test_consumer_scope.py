@@ -10,6 +10,7 @@ from unittest.mock import patch
 from fastapi import HTTPException
 from fastapi.encoders import jsonable_encoder
 from sqlalchemy import select, text
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 
 from api.consumer_scope import initial_consumer_scope, account_type_drift
@@ -332,6 +333,8 @@ class ConsumerDatabaseTests(unittest.IsolatedAsyncioTestCase):
                 ("active-transfer", "i", "active-bank", -40, "TRANSFER_OUT"),
                 ("pending-transfer", "pending", "pending-bank", 40, "TRANSFER_IN"),
                 ("other-transfer", "other-pending", "other-bank", 40, "TRANSFER_IN"),
+                ("active-payment-counterpart", "i", "active-bank", -60, "TRANSFER_OUT"),
+                ("pending-payment", "pending", "pending-bank", 60, "LOAN_PAYMENTS"),
             ):
                 db.add(RawTransaction(transaction_id=ident, item_id=item_id, account_id=account_id,
                                       transaction_date=date(2026, 8, 1), payload={}))
@@ -348,7 +351,10 @@ class ConsumerDatabaseTests(unittest.IsolatedAsyncioTestCase):
             preview = await derivation.preview_pending_classification(db, "scope-test", "pending")
             self.assertEqual(await db.scalar(text("SHOW transaction_read_only")), "on")
             self.assertEqual(preview["status"], "unpublished")
-            self.assertEqual(preview["transactions"], [{
+            self.assertEqual(sorted(preview["transactions"], key=lambda row: row["transaction_id"]), [{
+                "transaction_id": "pending-payment", "transaction_type": "payment",
+                "is_spending": False, "is_internal_transfer": True, "status": "unpublished",
+            }, {
                 "transaction_id": "pending-transfer", "transaction_type": "transfer",
                 "is_spending": False, "is_internal_transfer": True, "status": "unpublished",
             }])
@@ -356,6 +362,8 @@ class ConsumerDatabaseTests(unittest.IsolatedAsyncioTestCase):
             self.assertIsNone((await db.get(Transaction, "pending-transfer")).transaction_type)
             self.assertIsNone((await db.get(Transaction, "active-transfer")).is_internal_transfer)
             self.assertIsNone((await db.get(Transaction, "other-transfer")).transaction_type)
+            self.assertIsNone((await db.get(Transaction, "pending-payment")).transaction_type)
+            self.assertIsNone((await db.get(Transaction, "active-payment-counterpart")).is_internal_transfer)
             self.assertEqual((await db.get(ManualTransactionLabelOverride,
                                           ("active-transfer", "MEMBERSHIP"))).decision, "include")
         result = await plaid.update_item_status("pending", plaid.ItemStatusUpdate(status="active"))
@@ -364,6 +372,8 @@ class ConsumerDatabaseTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual((await db.get(Item, "pending")).status, "active")
             self.assertTrue((await db.get(Transaction, "pending-transfer")).is_internal_transfer)
             self.assertTrue((await db.get(Transaction, "active-transfer")).is_internal_transfer)
+            self.assertTrue((await db.get(Transaction, "active-payment-counterpart")).is_internal_transfer)
+            self.assertTrue((await db.get(Transaction, "pending-payment")).is_internal_transfer)
             self.assertIsNone((await db.get(Transaction, "other-transfer")).transaction_type)
             self.assertEqual((await db.get(ManualTransactionLabelOverride,
                                           ("active-transfer", "MEMBERSHIP"))).decision, "include")
@@ -402,3 +412,35 @@ class ConsumerDatabaseTests(unittest.IsolatedAsyncioTestCase):
         async with self.sessions() as db:
             self.assertEqual((await db.get(ManualClassificationOverride,
                                            "active-transfer")).transaction_type, "transfer")
+
+    async def test_composed_services_use_current_rows_with_loaded_orm_objects(self):
+        await plaid.persist_account_metadata("i", [self.account("card")])
+        await plaid.persist_consumer_transactions("i", None, [self.tx("changed")], [], [], "c1", 1)
+        await plaid.normalize_transactions("i")
+        await plaid.classify_transactions()
+        async with self.sessions.begin() as db:
+            # Callers may retain ORM objects across the service calls.
+            raw = await db.get(RawTransaction, "changed")
+            normalized = await db.get(Transaction, "changed")
+            changed = self.tx("changed", amount=-25)
+            changed["personal_finance_category"]["primary"] = "INCOME"
+            await persist_consumer_transactions(db, "scope-test", "i", "c1", [], [changed], [], "c2", 1)
+            await normalize_item_transactions(db, "scope-test", "i")
+            result = await classify_active_transactions(db, "scope-test")
+            self.assertEqual(result["income"], 1)
+            self.assertEqual(normalized.amount, 25)
+            self.assertEqual(raw.payload["amount"], -25)
+        async with self.sessions() as db:
+            normalized = await db.get(Transaction, "changed")
+            self.assertEqual((normalized.amount, normalized.transaction_type), (25, "income"))
+
+    async def test_derivation_guard_locks_entire_owned_scope_before_composition(self):
+        await self.seed_pending_activation()
+        async with self.sessions.begin() as db:
+            await lock_consumer_derivation(db, "scope-test")
+            for model, key in ((Item, "i"), (Item, "pending"), (Item, "other-pending"),
+                               (Account, "active-bank"), (Account, "pending-bank")):
+                with self.assertRaises(DBAPIError) as error:
+                    async with self.sessions.begin() as contender:
+                        await contender.get(model, key, with_for_update={"nowait": True})
+                self.assertEqual(error.exception.orig.sqlstate, "55P03")

@@ -17,7 +17,7 @@ async def normalize_item_transactions(db, user_id, item_id):
     item = await db.scalar(select(Item).where(
         Item.item_id == item_id, Item.user_id == user_id,
         Item.status.in_(("pending", "active")),
-    ).with_for_update())
+    ).with_for_update().execution_options(populate_existing=True))
     if item is None:
         raise HTTPException(status_code=404, detail="Item not found")
     await db.execute(select(Account).where(Account.item_id == item_id)
@@ -29,7 +29,7 @@ async def normalize_item_transactions(db, user_id, item_id):
             RawTransaction.item_id == item.item_id,
             RawTransaction.is_removed.is_(False),
             Account.consumer_transactions_enabled.is_(True),
-        )
+        ).execution_options(populate_existing=True)
     )
     raw_transactions = result.scalars().all()
     for raw_transaction in raw_transactions:
@@ -76,6 +76,7 @@ async def _classification_inputs(db, user_id, item_scope):
             item_scope,
             RawTransaction.is_removed.is_(False),
         )
+        .execution_options(populate_existing=True)
     )
     classified_rows = result.all()
     transactions = [ClassificationCandidate(
@@ -212,7 +213,7 @@ async def preview_pending_classification(db, user_id, item_id):
 async def validate_consumer_activation(db, item_id):
     accounts = {a.account_id: a for a in (await db.execute(
         select(Account).where(Account.item_id == item_id)
-        .order_by(Account.account_id).with_for_update()
+        .order_by(Account.account_id).with_for_update().execution_options(populate_existing=True)
     )).scalars()}
     if not any(a.consumer_transactions_enabled for a in accounts.values()):
         raise HTTPException(409, "Discover at least one enabled consumer account before activation")
@@ -221,6 +222,7 @@ async def validate_consumer_activation(db, item_id):
         .outerjoin(Transaction, Transaction.transaction_id == RawTransaction.transaction_id)
         .outerjoin(LegacyConsumerRow, LegacyConsumerRow.transaction_id == RawTransaction.transaction_id)
         .where(RawTransaction.item_id == item_id)
+        .execution_options(populate_existing=True)
     )).all()
     for raw, normalized, legacy in rows:
         account = accounts.get(raw.account_id)
@@ -237,7 +239,7 @@ async def activate_item(db, user_id, item_id):
     item = await db.scalar(select(Item).where(
         Item.item_id == item_id, Item.user_id == user_id,
         Item.status.in_(("pending", "active", "disabled")),
-    ).with_for_update())
+    ).with_for_update().execution_options(populate_existing=True))
     if item is None:
         raise HTTPException(404, "Item not found")
     await validate_consumer_activation(db, item_id)

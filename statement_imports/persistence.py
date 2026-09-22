@@ -51,11 +51,11 @@ async def target(db, user_id, account_id, adapter, lock=False):
     q = select(Item).where(Item.item_id == item_id, Item.user_id == user_id)
     if lock:
         q = q.with_for_update()
-    item = await db.scalar(q)
+    item = await db.scalar(q.execution_options(populate_existing=True))
     q = select(Account).where(Account.account_id == account_id)
     if lock:
         q = q.with_for_update()
-    account = await db.scalar(q)
+    account = await db.scalar(q.execution_options(populate_existing=True))
     if (item is None or account is None or account.item_id != item.item_id
             or item.status not in {"pending", "active"} or not account.consumer_transactions_enabled
             or (account.type, account.subtype) not in adapter.supported_accounts):
@@ -66,7 +66,8 @@ async def target(db, user_id, account_id, adapter, lock=False):
 async def external_classifications(db, user_id, excluded=()):
     rows = (await db.execute(select(Transaction).join(Account, Account.account_id == Transaction.account_id)
                             .join(Item, Item.item_id == Account.item_id).where(Item.user_id == user_id)
-                            .order_by(Transaction.transaction_id))).scalars()
+                            .order_by(Transaction.transaction_id)
+                            .execution_options(populate_existing=True))).scalars()
     return digest([(t.transaction_id, t.transaction_type, t.is_spending, t.is_internal_transfer)
                    for t in rows if t.transaction_id not in excluded])
 
@@ -77,9 +78,10 @@ async def preview(db, user_id, account_id, adapter, data, through=None):
     file_hash = hashlib.sha256(data).hexdigest()
     previous = await db.scalar(select(StatementImportBatch).where(
         StatementImportBatch.account_id == account_id, StatementImportBatch.adapter == adapter.name,
-        StatementImportBatch.file_sha256 == file_hash))
+        StatementImportBatch.file_sha256 == file_hash).execution_options(populate_existing=True))
     raw = list((await db.execute(select(RawTransaction).where(RawTransaction.account_id == account_id)
-                                .order_by(RawTransaction.transaction_id))).scalars())
+                                .order_by(RawTransaction.transaction_id)
+                                .execution_options(populate_existing=True))).scalars())
     entries, blockers = [], []
     if parsed.errors:
         blockers.append("parsing_errors")
@@ -130,7 +132,8 @@ async def preview(db, user_id, account_id, adapter, data, through=None):
     override_snapshot = []
     for model in (ManualClassificationOverride, ManualCategoryOverride):
         rows = (await db.execute(select(model).join(Transaction, Transaction.transaction_id == model.transaction_id)
-                .where(Transaction.account_id == account_id).order_by(model.transaction_id))).scalars()
+                .where(Transaction.account_id == account_id).order_by(model.transaction_id)
+                .execution_options(populate_existing=True))).scalars()
         override_snapshot.extend((model.__tablename__, r.transaction_id, r.updated_at, r.cleared_at,
                                   getattr(r, "category", None), getattr(r, "transaction_type", None)) for r in rows)
     # Raw payload fingerprints cover raw-only changes without exposing payloads.
@@ -175,7 +178,8 @@ async def apply(db, user_id, account_id, adapter, data, through, approved, confi
         raise ImportBlocked("File, target, or parser settings differ from approval")
     existing = await db.scalar(select(StatementImportBatch).where(
         StatementImportBatch.account_id == account_id, StatementImportBatch.adapter == adapter.name,
-        StatementImportBatch.file_sha256 == approved["file_sha256"]))
+        StatementImportBatch.file_sha256 == approved["file_sha256"])
+        .execution_options(populate_existing=True))
     if existing:
         if (existing.status != "applied" or existing.import_through != through
                 or existing.adapter_version != adapter.version or approved["blockers"]):
@@ -218,7 +222,8 @@ async def apply(db, user_id, account_id, adapter, data, through, approved, confi
 
 async def rollback_preview(db, user_id, batch_id, lock=False):
     batch = await db.scalar(select(StatementImportBatch).where(StatementImportBatch.batch_id == batch_id,
-                                                            StatementImportBatch.user_id == user_id))
+                                                            StatementImportBatch.user_id == user_id)
+                            .execution_options(populate_existing=True))
     if batch is None:
         raise ImportBlocked("Batch not found for current user")
     owner = await db.scalar(select(Item.user_id).where(Item.item_id == batch.item_id))
@@ -230,7 +235,8 @@ async def rollback_preview(db, user_id, batch_id, lock=False):
         await db.refresh(batch, with_for_update=True)
     rows = (await db.execute(select(RawTransaction).join(StatementImportRow,
             StatementImportRow.row_id == RawTransaction.statement_row_id)
-            .where(StatementImportRow.batch_id == batch_id))).scalars().all()
+            .where(StatementImportRow.batch_id == batch_id)
+            .execution_options(populate_existing=True))).scalars().all()
     ids = [r.transaction_id for r in rows]
     blockers = []
     expected = {e["transaction_id"]: e["canonical"] for e in batch.manifest["rows"]
@@ -244,7 +250,8 @@ async def rollback_preview(db, user_id, batch_id, lock=False):
         blockers.append("external_classifications_changed_requires_reconciliation")
     override_rows = []
     for model in (ManualClassificationOverride, ManualCategoryOverride):
-        for row in (await db.execute(select(model).where(model.transaction_id.in_(ids)))).scalars():
+        for row in (await db.execute(select(model).where(model.transaction_id.in_(ids))
+                                    .execution_options(populate_existing=True))).scalars():
             override_rows.append((model.__tablename__, row.transaction_id, row.updated_at, row.cleared_at))
     result = {"batch_id": batch_id, "status": batch.status, "rows": len(rows),
               "active_rows": sum(not r.is_removed for r in rows), "override_rows": len(override_rows),
@@ -280,7 +287,8 @@ async def block_plaid_overlap(db, item_id, transactions):
     accounts = {t["account_id"] for t in transactions}
     imported = (await db.execute(select(RawTransaction).where(RawTransaction.item_id == item_id,
                 RawTransaction.account_id.in_(accounts), RawTransaction.source == "statement",
-                RawTransaction.is_removed.is_(False)))).scalars().all()
+                RawTransaction.is_removed.is_(False))
+                .execution_options(populate_existing=True))).scalars().all()
     for tx in transactions:
         incoming_date = tx["date"] if isinstance(tx["date"], date) else date.fromisoformat(tx["date"])
         for row in imported:

@@ -17,16 +17,17 @@ async def persist_consumer_transactions(db, user_id, item_id, starting_cursor, a
     item = (await db.execute(select(Item).where(
         Item.item_id == item_id, Item.user_id == user_id,
         Item.status.in_(("pending", "active")),
-    ).with_for_update())).scalar_one_or_none()
+    ).with_for_update().execution_options(populate_existing=True))).scalar_one_or_none()
     if item is None or item.transactions_cursor != starting_cursor:
         raise HTTPException(409, "Item changed during sync; retry")
     accounts = {a.account_id: a for a in (await db.execute(
         select(Account).where(Account.item_id == item_id)
-        .order_by(Account.account_id).with_for_update()
+        .order_by(Account.account_id).with_for_update().execution_options(populate_existing=True)
     )).scalars()}
     ids = {t["transaction_id"] for t in added + modified + removed}
     existing = {r.transaction_id: r for r in (await db.execute(
         select(RawTransaction).where(RawTransaction.transaction_id.in_(ids))
+        .execution_options(populate_existing=True)
     )).scalars()}
     batch_owners = {}
     for kind, batch, accepted in (
@@ -152,7 +153,7 @@ async def persist_account_metadata(db, user_id, item_id, accounts):
     item = (await db.execute(select(Item).where(
         Item.item_id == item_id, Item.user_id == user_id,
         Item.status.in_(("active", "pending")),
-    ).with_for_update())).scalar_one_or_none()
+    ).with_for_update().execution_options(populate_existing=True))).scalar_one_or_none()
     if item is None:
         raise HTTPException(404, "Item not found")
     account_ids = sorted({account["account_id"] for account in accounts})
@@ -160,7 +161,7 @@ async def persist_account_metadata(db, user_id, item_id, accounts):
         await db.execute(select(Account).where(Account.account_id.in_(account_ids))
                          .order_by(Account.account_id).with_for_update())
     for account in accounts:
-        existing = await db.get(Account, account["account_id"])
+        existing = await db.get(Account, account["account_id"], populate_existing=True)
         if existing and existing.item_id != item_id:
             raise HTTPException(409, "Account ownership conflict")
         values = {

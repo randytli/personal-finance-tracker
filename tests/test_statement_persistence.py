@@ -13,7 +13,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from fastapi import HTTPException
-from sqlalchemy import select, text, func
+from sqlalchemy import select, text, func, update
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 
 from api.models import (Base, Item, Account, RawTransaction, Transaction, StatementImportBatch,
@@ -127,6 +127,33 @@ class StatementDatabaseTests(unittest.IsolatedAsyncioTestCase):
     async def apply(self, manifest, data=None):
         async with self.sessions.begin() as db:
             return await apply(db, "test", "card", self.adapter, data or csv_bytes(), None, manifest, manifest["digest"])
+
+    async def test_apply_revalidates_cached_account_scope(self):
+        manifest = await self.preview()
+        async with self.sessions.begin() as db:
+            cached = await db.get(Account, "card")
+            await db.execute(update(Account).where(Account.account_id == "card")
+                             .values(consumer_transactions_enabled=False)
+                             .execution_options(synchronize_session=False))
+            self.assertTrue(cached.consumer_transactions_enabled)
+            with self.assertRaises(ImportBlocked):
+                await apply(db, "test", "card", self.adapter, csv_bytes(), None,
+                            manifest, manifest["digest"])
+            self.assertEqual(await db.scalar(select(func.count()).select_from(StatementImportBatch)), 0)
+
+    async def test_apply_revalidates_cached_batch_after_concurrent_rollback(self):
+        manifest = await self.preview()
+        applied = await self.apply(manifest)
+        async with self.sessions.begin() as db:
+            cached = await db.get(StatementImportBatch, applied["batch_id"])
+            async with self.sessions.begin() as writer:
+                proposal, _, _ = await rollback_preview(writer, "test", applied["batch_id"])
+                await rollback(writer, "test", applied["batch_id"], proposal["digest"], "Synthetic rollback")
+            self.assertEqual(cached.status, "applied")
+            with self.assertRaises(ImportBlocked):
+                await apply(db, "test", "card", self.adapter, csv_bytes(), None,
+                            manifest, manifest["digest"])
+            self.assertEqual(cached.status, "rolled_back")
 
     async def test_apply_rerun_override_rollback_and_analytics(self):
         p = await self.preview()
