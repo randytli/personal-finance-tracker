@@ -6,7 +6,8 @@ from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 from api.models import Base
 from api.migrations import (migrate_multi_institution, migrate_manual_categories,
                             migrate_consumer_scope, migrate_statement_imports,
-                            migrate_transaction_labels, migrate_benefit_categories)
+                            migrate_transaction_labels, migrate_benefit_categories,
+                            migrate_sync_runs)
 
 DATABASE_URL = os.environ["DATABASE_URL"]   # postgresql+asyncpg://supabase:...
 
@@ -22,6 +23,7 @@ async def init_db():
         await migrate_statement_imports(connection)
         await migrate_transaction_labels(connection)
         await migrate_benefit_categories(connection)
+        await migrate_sync_runs(connection)
 
 
 async def verify_database_name():

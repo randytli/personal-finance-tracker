@@ -1,6 +1,7 @@
 """Consumer derivation using a caller-owned transaction and session."""
 
 from fastapi import HTTPException
+from decimal import Decimal, InvalidOperation
 from sqlalchemy import and_, func, or_, select, text, update
 from sqlalchemy.dialects.postgresql import insert
 
@@ -10,6 +11,27 @@ from api.classification_rules import (
 )
 from api.models import Account, Item, LegacyConsumerRow, ManualClassificationOverride, RawTransaction, Transaction
 from api.statement_semantics import lock_consumer_derivation, normalized_raw_values
+
+
+class NormalizationInputError(ValueError):
+    """Invalid stored source evidence; safe to isolate at the Item savepoint."""
+
+
+def validate_normalization_input(raw):
+    payload = raw.payload
+    if not isinstance(payload, dict) or "amount" not in payload:
+        raise NormalizationInputError("Missing source amount")
+    try:
+        amount = Decimal(str(payload["amount"]))
+    except (InvalidOperation, ValueError):
+        raise NormalizationInputError("Invalid source amount") from None
+    if not amount.is_finite():
+        raise NormalizationInputError("Non-finite source amount")
+    if raw.source == "statement" and "kind" not in payload:
+        raise NormalizationInputError("Missing statement kind")
+    category = payload.get("personal_finance_category")
+    if raw.source == "plaid" and category is not None and not isinstance(category, dict):
+        raise NormalizationInputError("Invalid source category")
 
 
 async def normalize_item_transactions(db, user_id, item_id):
@@ -33,6 +55,7 @@ async def normalize_item_transactions(db, user_id, item_id):
     )
     raw_transactions = result.scalars().all()
     for raw_transaction in raw_transactions:
+        validate_normalization_input(raw_transaction)
         values = {
             "transaction_id": raw_transaction.transaction_id,
             "account_id": raw_transaction.account_id,

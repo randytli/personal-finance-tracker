@@ -29,6 +29,7 @@ async def persist_consumer_transactions(db, user_id, item_id, starting_cursor, a
         select(RawTransaction).where(RawTransaction.transaction_id.in_(ids))
         .execution_options(populate_existing=True)
     )).scalars()}
+    changed_transaction_ids = set()
     batch_owners = {}
     for kind, batch, accepted in (
         ("added", added, accepted_added), ("modified", modified, accepted_modified),
@@ -78,6 +79,8 @@ async def persist_consumer_transactions(db, user_id, item_id, starting_cursor, a
         raise HTTPException(409, str(exc)) from None
     for transaction in accepted_added:
         payload = jsonable_encoder(transaction)
+        if transaction["transaction_id"] not in existing:
+            changed_transaction_ids.add(transaction["transaction_id"])
         await db.execute(
             insert(RawTransaction)
             .values(
@@ -92,6 +95,10 @@ async def persist_consumer_transactions(db, user_id, item_id, starting_cursor, a
 
     for transaction in accepted_modified:
         payload = jsonable_encoder(transaction)
+        prior = existing.get(transaction["transaction_id"])
+        if (prior is None or prior.is_removed or prior.transaction_date != transaction["date"]
+                or prior.payload != payload):
+            changed_transaction_ids.add(transaction["transaction_id"])
         statement = insert(RawTransaction).values(
                 transaction_id=transaction["transaction_id"],
                 item_id=item_id,
@@ -116,6 +123,9 @@ async def persist_consumer_transactions(db, user_id, item_id, starting_cursor, a
             raise HTTPException(409, "Transaction ownership conflict")
 
     for transaction in accepted_removed:
+        prior = existing.get(transaction["transaction_id"])
+        if (prior is not None and not prior.is_removed) or transaction["transaction_id"] in batch_owners:
+            changed_transaction_ids.add(transaction["transaction_id"])
         await db.execute(
             update(RawTransaction)
             .where(
@@ -142,6 +152,7 @@ async def persist_consumer_transactions(db, user_id, item_id, starting_cursor, a
         "removed_count": len(accepted_removed),
         "skipped_disabled_counts": skipped,
         "pages_fetched": pages_fetched,
+        "changed_transaction_count": len(changed_transaction_ids),
     }
 
 
