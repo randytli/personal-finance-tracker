@@ -15,6 +15,7 @@ from api.consumer_scope import initial_consumer_scope, account_type_drift
 from api.models import Base, Account, Item, RawTransaction, Transaction
 from api.migrations import migrate_consumer_scope
 from api.routes import plaid, review, analytics
+from api.services.derivation import normalize_item_transactions, classify_active_transactions
 
 
 class ScopePolicyTests(unittest.TestCase):
@@ -281,3 +282,23 @@ class ConsumerDatabaseTests(unittest.IsolatedAsyncioTestCase):
                 transaction = await db.get(Transaction, ident)
                 self.assertEqual(transaction.transaction_type, kind, ident)
                 self.assertEqual(transaction.is_internal_transfer, matched, ident)
+
+    async def test_caller_transaction_owns_normalization_and_classification(self):
+        await self.migrate()
+        await plaid.persist_account_metadata("i", [self.account("card")])
+        class RollBack(Exception):
+            pass
+
+        with self.assertRaises(RollBack):
+            async with self.sessions.begin() as db:
+                db.add(RawTransaction(transaction_id="uncommitted", item_id="i", account_id="card",
+                                      transaction_date=date(2026, 8, 1),
+                                      payload=jsonable_encoder(self.tx("uncommitted"))))
+                await db.flush()
+                self.assertEqual((await normalize_item_transactions(db, "scope-test", "i"))["normalized_count"], 1)
+                self.assertEqual((await classify_active_transactions(db, "scope-test"))["expense"], 1)
+                self.assertEqual((await db.get(Transaction, "uncommitted")).transaction_type, "expense")
+                raise RollBack
+        async with self.sessions() as db:
+            self.assertIsNone(await db.get(RawTransaction, "uncommitted"))
+            self.assertIsNone(await db.get(Transaction, "uncommitted"))

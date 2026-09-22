@@ -24,13 +24,14 @@ from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.dialects.postgresql import insert
 from api.db import SessionLocal
-from api.models import Account, Item, RawTransaction, Transaction, LegacyConsumerRow, ManualClassificationOverride
+from api.models import Account, Item, RawTransaction, Transaction, LegacyConsumerRow
 from api.classification import INTERNAL_TRANSFER_TYPES
 from api.consumer_scope import initial_consumer_scope, account_type_drift
 from api.card_benefits import (AMERICAN_EXPRESS_INSTITUTION_ID,
     AMEX_MERCHANT_BENEFIT_ACCOUNT_NAMES, CARD_BENEFIT_DESCRIPTIONS,
     normalized_benefit_text)
-from api.statement_semantics import normalized_raw_values, statement_classification, lock_consumer_derivation
+from api.statement_semantics import statement_classification
+from api.services.derivation import normalize_item_transactions, classify_active_transactions
 import os, uuid
 
 router = APIRouter(prefix="/plaid")
@@ -889,164 +890,11 @@ async def persist_account_metadata(item_id, accounts):
 
 @router.post("/transactions/normalize")
 async def normalize_transactions(item_id: str = Query(..., min_length=1)):
-    async with SessionLocal.begin() as guard:
-        await lock_consumer_derivation(guard, _user_id())
-        return await _normalize_transactions(item_id)
+    async with SessionLocal.begin() as db:
+        return await normalize_item_transactions(db, _user_id(), item_id)
 
-
-async def _normalize_transactions(item_id):
-    item = await _get_item(item_id, ("pending", "active"))
-    async with SessionLocal() as db:
-        result = await db.execute(
-            select(RawTransaction).join(Account,
-                (Account.account_id == RawTransaction.account_id)
-                & (Account.item_id == RawTransaction.item_id)).where(
-                RawTransaction.item_id == item.item_id,
-                RawTransaction.is_removed.is_(False),
-                Account.consumer_transactions_enabled.is_(True),
-            )
-        )
-        raw_transactions = result.scalars().all()
-
-    async with SessionLocal() as db:
-        async with db.begin():
-            for raw_transaction in raw_transactions:
-                values = {
-                    "transaction_id": raw_transaction.transaction_id,
-                    "account_id": raw_transaction.account_id,
-                    "transaction_date": raw_transaction.transaction_date,
-                    **normalized_raw_values(raw_transaction),
-                    "transaction_type": None,
-                    "is_spending": None,
-                    "is_internal_transfer": None,
-                }
-                statement = insert(Transaction).values(**values)
-                await db.execute(
-                    statement.on_conflict_do_update(
-                        index_elements=["transaction_id"],
-                        set_={
-                            "account_id": values["account_id"],
-                            "transaction_date": values["transaction_date"],
-                            "amount": values["amount"],
-                            "merchant_name": values["merchant_name"],
-                            "description": values["description"],
-                            "plaid_category": values["plaid_category"],
-                            "statement_kind": values["statement_kind"],
-                            "updated_at": func.now(),
-                        },
-                    )
-                )
-
-    return {"normalized_count": len(raw_transactions)}
 
 @router.post("/transactions/classify")
 async def classify_transactions():
-    async with SessionLocal.begin() as guard:
-        await lock_consumer_derivation(guard, _user_id())
-        return await _classify_transactions()
-
-
-async def _classify_transactions():
-    async with SessionLocal() as db:
-        result = await db.execute(
-            select(Transaction, ManualClassificationOverride.transaction_type)
-            .join(RawTransaction, RawTransaction.transaction_id == Transaction.transaction_id)
-            .join(Item, Item.item_id == RawTransaction.item_id)
-            .join(Account, (Account.account_id == Transaction.account_id)
-                  & (Account.account_id == RawTransaction.account_id)
-                  & (Account.item_id == Item.item_id))
-            .outerjoin(ManualClassificationOverride,
-                       (ManualClassificationOverride.transaction_id == Transaction.transaction_id)
-                       & ManualClassificationOverride.cleared_at.is_(None))
-            .where(
-                Account.consumer_transactions_enabled.is_(True),
-                Item.user_id == _user_id(),
-                Item.status == "active",
-                RawTransaction.is_removed.is_(False),
-            )
-        )
-        classified_rows = result.all()
-        transactions = [transaction for transaction, _ in classified_rows]
-        active_manual_types = {
-            transaction.transaction_id: manual_type
-            for transaction, manual_type in classified_rows if manual_type is not None
-        }
-        result = await db.execute(
-            select(Account.account_id)
-            .join(Item, Item.item_id == Account.item_id)
-            .where(
-                Account.type == "credit",
-                Account.consumer_transactions_enabled.is_(True),
-                Item.user_id == _user_id(),
-                Item.status == "active",
-            )
-        )
-        credit_account_ids = set(result.scalars().all())
-        result = await db.execute(
-            select(Account.account_id, Account.name)
-            .join(Item, Item.item_id == Account.item_id)
-            .where(
-                Account.type == "credit",
-                Account.consumer_transactions_enabled.is_(True),
-                Item.institution_id == AMERICAN_EXPRESS_INSTITUTION_ID,
-                Item.user_id == _user_id(),
-                Item.status == "active",
-            )
-        )
-        amex_credit_accounts = result.all()
-        amex_benefit_account_ids = {
-            account_id for account_id, _ in amex_credit_accounts
-        }
-        amex_merchant_benefit_account_ids = {
-            description: {
-                account_id
-                for account_id, account_name in amex_credit_accounts
-                if _normalized_match_text(account_name) == required_account_name
-            }
-            for description, required_account_name in (
-                AMEX_MERCHANT_BENEFIT_ACCOUNT_NAMES.items()
-            )
-        }
-
-    classifications, refund_matches = build_classifications(
-        transactions,
-        credit_account_ids,
-        amex_benefit_account_ids,
-        amex_merchant_benefit_account_ids,
-        active_manual_types=active_manual_types,
-    )
-    internal_transfer_matches = sum(
-        1 for values in classifications.values() if values[2] is True
-    ) // 2
-    counts = {
-        "card_benefit": 0,
-        "expense": 0,
-        "income": 0,
-        "payment": 0,
-        "refund": 0,
-        "transfer": 0,
-        "unclassified": 0,
-    }
-    async with SessionLocal() as db:
-        async with db.begin():
-            for transaction in transactions:
-                transaction_type, is_spending, is_internal_transfer = (
-                    classifications[transaction.transaction_id]
-                )
-                await db.execute(
-                    update(Transaction)
-                    .where(Transaction.transaction_id == transaction.transaction_id)
-                    .values(
-                        transaction_type=transaction_type,
-                        is_spending=is_spending,
-                        is_internal_transfer=is_internal_transfer,
-                    )
-                )
-                counts[transaction_type or "unclassified"] += 1
-
-    return {
-        "classified_count": len(transactions) - counts["unclassified"],
-        "refund_matches": refund_matches,
-        "internal_transfer_matches": internal_transfer_matches,
-        **counts,
-    }
+    async with SessionLocal.begin() as db:
+        return await classify_active_transactions(db, _user_id())
