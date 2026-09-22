@@ -4,8 +4,6 @@ from pydantic import BaseModel, Field
 import json
 import logging
 import plaid
-from decimal import Decimal
-from difflib import SequenceMatcher
 import re
 from plaid.api import plaid_api
 from plaid.model.country_code import CountryCode
@@ -22,11 +20,12 @@ from plaid.model.transactions_sync_request import TransactionsSyncRequest
 from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from api.db import SessionLocal
-from api.models import Account, Item, RawTransaction, Transaction, LegacyConsumerRow
-from api.classification import INTERNAL_TRANSFER_TYPES
-from api.card_benefits import CARD_BENEFIT_DESCRIPTIONS, normalized_benefit_text
-from api.statement_semantics import statement_classification
-from api.services.derivation import normalize_item_transactions, classify_active_transactions
+from api.models import Account, Item, RawTransaction
+from api.statement_semantics import lock_consumer_derivation
+from api.services.derivation import (
+    activate_item, classify_active_transactions, normalize_item_transactions,
+    preview_pending_classification, validate_consumer_activation,
+)
 from api.services.persistence import (
     persist_account_metadata as persist_account_metadata_in_session,
     persist_consumer_transactions as persist_consumer_transactions_in_session,
@@ -191,282 +190,10 @@ def _log_link_token_plaid_error(exc):
         request_id,
     )
 
-SPENDING_CATEGORIES = {
-    "BANK_FEES",
-    "ENTERTAINMENT",
-    "FOOD_AND_DRINK",
-    "GENERAL_MERCHANDISE",
-    "GENERAL_SERVICES",
-    "GOVERNMENT_AND_NON_PROFIT",
-    "HOME_IMPROVEMENT",
-    "MEDICAL",
-    "PERSONAL_CARE",
-    "RENT_AND_UTILITIES",
-    "TRANSPORTATION",
-    "TRAVEL",
-}
-CREDIT_CARD_PAYMENT_DESCRIPTIONS = {
-    "PAYMENT THANK YOU MOBILE",
-}
-
-def classify_transaction(
-    transaction,
-    credit_account_ids=frozenset(),
-    amex_benefit_account_ids=frozenset(),
-    amex_merchant_benefit_account_ids=None,
-):
-    seed = statement_classification(getattr(transaction, "statement_kind", None), transaction.amount)
-    if seed is not None:
-        return seed
-    category = transaction.plaid_category
-    amount = transaction.amount
-    description = (transaction.description or "").upper()
-
-    if amount > 0 and re.search(
-        r"\b(?:INTRST\s+PYMNT|INTEREST\s+(?:PAYMENT|PAID|EARNED|CREDIT))\b",
-        description,
-    ):
-        return "income", False, False
-    if category == "LOAN_PAYMENTS":
-        return "payment", False, None
-    if (
-        amount > 0
-        and transaction.account_id in credit_account_ids
-        and category == "LOAN_DISBURSEMENTS"
-        and _normalized_match_text(description) in CREDIT_CARD_PAYMENT_DESCRIPTIONS
-    ):
-        return "payment", False, None
-    normalized_description = _normalized_match_text(description)
-    merchant_benefit_account_ids = (
-        amex_merchant_benefit_account_ids or {}
-    ).get(normalized_description, frozenset())
-    if (
-        amount > 0
-        and transaction.account_id in amex_benefit_account_ids
-        and (
-            normalized_description in CARD_BENEFIT_DESCRIPTIONS
-            or (normalized_description == "WALMART"
-                and amount == Decimal("13.81")
-                and transaction.account_id in merchant_benefit_account_ids)
-            or (normalized_description != "WALMART"
-                and transaction.account_id in merchant_benefit_account_ids)
-        )
-    ):
-        return "card_benefit", False, False
-    if category in {"TRANSFER_IN", "TRANSFER_OUT"}:
-        return "transfer", False, None
-    if amount < 0 and category in SPENDING_CATEGORIES:
-        return "expense", True, False
-    if amount > 0 and (
-        category == "INCOME"
-    ):
-        return "income", False, False
-    return None, None, None
-
-def _normalized_match_text(value):
-    return normalized_benefit_text(value)
-
-def _is_same_merchant_or_description(expense, credit):
-    expense_merchant = _normalized_match_text(expense.merchant_name)
-    credit_merchant = _normalized_match_text(credit.merchant_name)
-    if expense_merchant and credit_merchant:
-        return expense_merchant == credit_merchant
-
-    expense_description = _normalized_match_text(expense.description)
-    credit_description = _normalized_match_text(credit.description)
-    if len(expense_description) < 5 or len(credit_description) < 5:
-        return False
-    return SequenceMatcher(
-        None,
-        expense_description,
-        credit_description,
-    ).ratio() >= 0.9
-
-def _has_exact_merchant_or_description(expense, credit):
-    expense_merchant = _normalized_match_text(expense.merchant_name)
-    credit_merchant = _normalized_match_text(credit.merchant_name)
-    expense_description = _normalized_match_text(expense.description)
-    credit_description = _normalized_match_text(credit.description)
-    return bool(
-        (expense_merchant and expense_merchant == credit_merchant)
-        or (
-            expense_description
-            and expense_description == credit_description
-        )
-    )
-
-
-ZELLE_CONFIRMATION_PATTERNS = (
-    re.compile(r"\bCONF(?:IRMATION)?\s*#?\s*([A-Z0-9]{8,16})\b", re.IGNORECASE),
-    re.compile(r"\b(?:BAC|JPM)([A-Z0-9]{8,16})\b", re.IGNORECASE),
+from api.classification_rules import (
+    build_classifications, classify_transaction, zelle_confirmation_code,
+    _normalized_match_text,
 )
-
-
-def zelle_confirmation_code(description):
-    """Return one exact bank confirmation code from a Zelle description."""
-    value = description or ""
-    if re.search(r"\bZELLE\s+PAYMENT\b", value, re.IGNORECASE) is None:
-        return None
-    codes = {
-        match.group(1).upper()
-        for pattern in ZELLE_CONFIRMATION_PATTERNS
-        for match in pattern.finditer(value)
-    }
-    return codes.pop() if len(codes) == 1 else None
-
-
-def build_classifications(
-    transactions,
-    credit_account_ids=frozenset(),
-    amex_benefit_account_ids=frozenset(),
-    amex_merchant_benefit_account_ids=None,
-    active_manual_types=None,
-):
-    active_manual_types = active_manual_types or {}
-    classifications = {
-        transaction.transaction_id: classify_transaction(
-            transaction,
-            credit_account_ids,
-            amex_benefit_account_ids,
-            amex_merchant_benefit_account_ids,
-        )
-        for transaction in transactions
-    }
-    expenses = [
-        transaction
-        for transaction in transactions
-        if classifications[transaction.transaction_id][0] == "expense"
-    ]
-    refund_matches = 0
-
-    for credit in transactions:
-        if credit.amount <= 0 or classifications[credit.transaction_id][0] is not None:
-            continue
-        same_day_candidates = [
-            expense
-            for expense in expenses
-            if expense.account_id == credit.account_id
-            and expense.transaction_date == credit.transaction_date
-            and abs(expense.amount) == credit.amount
-            and expense.plaid_category == credit.plaid_category
-            and _has_exact_merchant_or_description(expense, credit)
-        ]
-        if len(same_day_candidates) == 1:
-            classifications[credit.transaction_id] = ("refund", False, False)
-            refund_matches += 1
-            continue
-
-        historical_candidates = [
-            expense
-            for expense in expenses
-            if expense.account_id == credit.account_id
-            and expense.transaction_date < credit.transaction_date
-            and abs(expense.amount) == credit.amount
-            and _is_same_merchant_or_description(expense, credit)
-        ]
-        if len(historical_candidates) == 1:
-            classifications[credit.transaction_id] = ("refund", False, False)
-            refund_matches += 1
-            continue
-
-        recent_exact_candidates = [
-            expense
-            for expense in historical_candidates
-            if (credit.transaction_date - expense.transaction_date).days <= 7
-            and _normalized_match_text(expense.description)
-            == _normalized_match_text(credit.description)
-        ]
-        if len(recent_exact_candidates) == 1:
-            classifications[credit.transaction_id] = ("refund", False, False)
-            refund_matches += 1
-
-    confirmation_groups = {}
-    for transaction in transactions:
-        code = zelle_confirmation_code(transaction.description)
-        if code is not None:
-            confirmation_groups.setdefault(code, []).append(transaction)
-
-    confirmation_matched = set()
-    confirmation_blocked = set()
-    for matches in confirmation_groups.values():
-        if len(matches) != 2:
-            if len(matches) > 1:
-                confirmation_blocked.update(
-                    transaction.transaction_id for transaction in matches
-                )
-            continue
-        first, second = matches
-        transaction_ids = {first.transaction_id, second.transaction_id}
-        manual_types = {
-            active_manual_types.get(first.transaction_id),
-            active_manual_types.get(second.transaction_id),
-        }
-        has_conflicting_manual_type = any(
-            manual_type is not None and manual_type not in INTERNAL_TRANSFER_TYPES
-            for manual_type in manual_types
-        )
-        if (
-            has_conflicting_manual_type
-            or first.account_id == second.account_id
-            or first.amount != -second.amount
-            or first.amount == 0
-        ):
-            confirmation_blocked.update(transaction_ids)
-            continue
-        for matched_transaction in matches:
-            transaction_type = classifications[matched_transaction.transaction_id][0]
-            if transaction_type not in INTERNAL_TRANSFER_TYPES:
-                transaction_type = "transfer"
-            classifications[matched_transaction.transaction_id] = (
-                transaction_type,
-                False,
-                True,
-            )
-        confirmation_matched.update(transaction_ids)
-
-    transfer_candidates = {
-        transaction.transaction_id: []
-        for transaction in transactions
-        if transaction.transaction_id not in confirmation_matched
-        and transaction.transaction_id not in confirmation_blocked
-        if classifications[transaction.transaction_id][0] in INTERNAL_TRANSFER_TYPES
-        and (active_manual_types.get(transaction.transaction_id) is None
-             or active_manual_types[transaction.transaction_id] in INTERNAL_TRANSFER_TYPES)
-    }
-    eligible_transfers = [
-        transaction
-        for transaction in transactions
-        if transaction.transaction_id in transfer_candidates
-    ]
-    for index, transaction in enumerate(eligible_transfers):
-        for counterpart in eligible_transfers[index + 1:]:
-            if (
-                transaction.account_id != counterpart.account_id
-                and transaction.amount == -counterpart.amount
-                and transaction.amount != 0
-                and abs(
-                    (transaction.transaction_date - counterpart.transaction_date).days
-                ) <= 3
-            ):
-                transfer_candidates[transaction.transaction_id].append(counterpart)
-                transfer_candidates[counterpart.transaction_id].append(transaction)
-
-    for transaction in eligible_transfers:
-        candidates = transfer_candidates[transaction.transaction_id]
-        if len(candidates) != 1:
-            continue
-        counterpart = candidates[0]
-        if len(transfer_candidates[counterpart.transaction_id]) != 1:
-            continue
-        for matched_transaction in (transaction, counterpart):
-            transaction_type = classifications[matched_transaction.transaction_id][0]
-            classifications[matched_transaction.transaction_id] = (
-                transaction_type,
-                False,
-                True,
-            )
-
-    return classifications, refund_matches
 
 def get_client():
     environments = {
@@ -535,40 +262,26 @@ def item_metadata(item):
 async def update_item_status(item_id: str, data: ItemStatusUpdate):
     if data.status not in {"active", "disabled"}:
         raise HTTPException(status_code=422, detail="status must be active or disabled")
-    item = await _get_item(item_id, ("pending", "active", "disabled"))
-    if item.status == "active" and data.status == "disabled":
-        raise HTTPException(status_code=409, detail="Active Items cannot be disabled through this endpoint")
-    async with SessionLocal() as db:
-        async with db.begin():
-            await db.execute(select(Item).where(Item.item_id == item_id).with_for_update())
-            if data.status == "active":
-                await validate_consumer_activation(db, item_id)
-            await db.execute(
-                update(Item).where(Item.item_id == item_id).values(status=data.status)
-            )
-    return {"item_id": item_id, "status": data.status}
+    async with SessionLocal.begin() as db:
+        if data.status == "active":
+            return await activate_item(db, _user_id(), item_id)
+        await lock_consumer_derivation(db, _user_id())
+        item = await db.scalar(select(Item).where(
+            Item.item_id == item_id, Item.user_id == _user_id(),
+            Item.status.in_(("pending", "active", "disabled")),
+        ).with_for_update())
+        if item is None:
+            raise HTTPException(404, "Item not found")
+        if item.status == "active":
+            raise HTTPException(409, "Active Items cannot be disabled through this endpoint")
+        await db.execute(update(Item).where(Item.item_id == item_id).values(status="disabled"))
+    return {"item_id": item_id, "status": "disabled"}
 
 
-async def validate_consumer_activation(db, item_id):
-    accounts = {a.account_id: a for a in (await db.execute(
-        select(Account).where(Account.item_id == item_id)
-    )).scalars()}
-    if not any(a.consumer_transactions_enabled for a in accounts.values()):
-        raise HTTPException(409, "Discover at least one enabled consumer account before activation")
-    rows = (await db.execute(
-        select(RawTransaction, Transaction, LegacyConsumerRow)
-        .outerjoin(Transaction, Transaction.transaction_id == RawTransaction.transaction_id)
-        .outerjoin(LegacyConsumerRow, LegacyConsumerRow.transaction_id == RawTransaction.transaction_id)
-        .where(RawTransaction.item_id == item_id)
-    )).all()
-    for raw, normalized, legacy in rows:
-        account = accounts.get(raw.account_id)
-        if account is None or (normalized and normalized.account_id != raw.account_id):
-            raise HTTPException(409, "Consumer transaction account ownership is inconsistent")
-        if not account.consumer_transactions_enabled:
-            if (legacy is None or legacy.item_id != item_id or legacy.account_id != raw.account_id
-                    or (normalized and legacy.normalized_account_id != normalized.account_id)):
-                raise HTTPException(409, "New disabled-account consumer data requires investigation")
+@router.get("/items/{item_id}/classification-preview")
+async def get_pending_classification_preview(item_id: str):
+    async with SessionLocal.begin() as db:
+        return await preview_pending_classification(db, _user_id(), item_id)
 
 
 @router.post("/link-token")
@@ -664,7 +377,7 @@ async def exchange_public_token(data: PublicTokenExchange):
     except plaid.ApiException as exc:
         raise _plaid_failure() from exc
 
-@router.get("/transactions")
+@router.post("/transactions")
 async def get_transactions(item_id: str = Query(..., min_length=1)):
     item = await _get_item(item_id, ("pending", "active"))
     async with SessionLocal() as db:
@@ -689,7 +402,7 @@ async def persist_consumer_transactions(item_id, starting_cursor, added, modifie
             db, _user_id(), item_id, starting_cursor, added, modified, removed, cursor, pages_fetched,
         )
 
-@router.get("/accounts")
+@router.post("/accounts")
 async def get_accounts(item_id: str = Query(..., min_length=1)):
     item = await _get_item(item_id, ("pending", "active"))
 

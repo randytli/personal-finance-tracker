@@ -1,11 +1,14 @@
 """Consumer derivation using a caller-owned transaction and session."""
 
 from fastapi import HTTPException
-from sqlalchemy import func, select, update
+from sqlalchemy import and_, func, or_, select, text, update
 from sqlalchemy.dialects.postgresql import insert
 
 from api.card_benefits import AMERICAN_EXPRESS_INSTITUTION_ID, AMEX_MERCHANT_BENEFIT_ACCOUNT_NAMES
-from api.models import Account, Item, ManualClassificationOverride, RawTransaction, Transaction
+from api.classification_rules import (
+    ClassificationCandidate, build_classifications, _normalized_match_text,
+)
+from api.models import Account, Item, LegacyConsumerRow, ManualClassificationOverride, RawTransaction, Transaction
 from api.statement_semantics import lock_consumer_derivation, normalized_raw_values
 
 
@@ -14,9 +17,11 @@ async def normalize_item_transactions(db, user_id, item_id):
     item = await db.scalar(select(Item).where(
         Item.item_id == item_id, Item.user_id == user_id,
         Item.status.in_(("pending", "active")),
-    ))
+    ).with_for_update())
     if item is None:
         raise HTTPException(status_code=404, detail="Item not found")
+    await db.execute(select(Account).where(Account.item_id == item_id)
+                     .order_by(Account.account_id).with_for_update())
     result = await db.execute(
         select(RawTransaction).join(Account,
             (Account.account_id == RawTransaction.account_id)
@@ -54,13 +59,9 @@ async def normalize_item_transactions(db, user_id, item_id):
     return {"normalized_count": len(raw_transactions)}
 
 
-async def classify_active_transactions(db, user_id):
-    await lock_consumer_derivation(db, user_id)
-    # The calculation remains in plaid.py until the M1C preview extraction.
-    from api.routes.plaid import build_classifications, _normalized_match_text
-
+async def _classification_inputs(db, user_id, item_scope):
     result = await db.execute(
-        select(Transaction, ManualClassificationOverride.transaction_type)
+        select(Transaction, Item.item_id, ManualClassificationOverride.transaction_type)
         .join(RawTransaction, RawTransaction.transaction_id == Transaction.transaction_id)
         .join(Item, Item.item_id == RawTransaction.item_id)
         .join(Account, (Account.account_id == Transaction.account_id)
@@ -72,15 +73,25 @@ async def classify_active_transactions(db, user_id):
         .where(
             Account.consumer_transactions_enabled.is_(True),
             Item.user_id == user_id,
-            Item.status == "active",
+            item_scope,
             RawTransaction.is_removed.is_(False),
         )
     )
     classified_rows = result.all()
-    transactions = [transaction for transaction, _ in classified_rows]
+    transactions = [ClassificationCandidate(
+        transaction_id=transaction.transaction_id,
+        item_id=item_id,
+        account_id=transaction.account_id,
+        transaction_date=transaction.transaction_date,
+        amount=transaction.amount,
+        merchant_name=transaction.merchant_name,
+        description=transaction.description,
+        plaid_category=transaction.plaid_category,
+        statement_kind=transaction.statement_kind,
+    ) for transaction, item_id, _ in classified_rows]
     active_manual_types = {
         transaction.transaction_id: manual_type
-        for transaction, manual_type in classified_rows if manual_type is not None
+        for transaction, _, manual_type in classified_rows if manual_type is not None
     }
     result = await db.execute(
         select(Account.account_id)
@@ -89,7 +100,7 @@ async def classify_active_transactions(db, user_id):
             Account.type == "credit",
             Account.consumer_transactions_enabled.is_(True),
             Item.user_id == user_id,
-            Item.status == "active",
+            item_scope,
         )
     )
     credit_account_ids = set(result.scalars().all())
@@ -101,7 +112,7 @@ async def classify_active_transactions(db, user_id):
             Account.consumer_transactions_enabled.is_(True),
             Item.institution_id == AMERICAN_EXPRESS_INSTITUTION_ID,
             Item.user_id == user_id,
-            Item.status == "active",
+            item_scope,
         )
     )
     amex_credit_accounts = result.all()
@@ -119,12 +130,22 @@ async def classify_active_transactions(db, user_id):
         )
     }
 
+    return (transactions, credit_account_ids, amex_benefit_account_ids,
+            amex_merchant_benefit_account_ids, active_manual_types)
+
+
+async def classify_active_transactions(db, user_id):
+    await lock_consumer_derivation(db, user_id)
+    await db.execute(select(Item).where(Item.user_id == user_id, Item.status == "active")
+                     .order_by(Item.item_id).with_for_update())
+    await db.execute(select(Account).join(Item, Item.item_id == Account.item_id)
+                     .where(Item.user_id == user_id, Item.status == "active",
+                            Account.consumer_transactions_enabled.is_(True))
+                     .order_by(Account.account_id).with_for_update(of=Account))
+    inputs = await _classification_inputs(db, user_id, Item.status == "active")
+    transactions = inputs[0]
     classifications, refund_matches = build_classifications(
-        transactions,
-        credit_account_ids,
-        amex_benefit_account_ids,
-        amex_merchant_benefit_account_ids,
-        active_manual_types=active_manual_types,
+        *inputs[:4], active_manual_types=inputs[4],
     )
     internal_transfer_matches = sum(
         1 for values in classifications.values() if values[2] is True
@@ -138,7 +159,7 @@ async def classify_active_transactions(db, user_id):
         "transfer": 0,
         "unclassified": 0,
     }
-    for transaction in transactions:
+    for transaction in sorted(transactions, key=lambda candidate: candidate.transaction_id):
         transaction_type, is_spending, is_internal_transfer = (
             classifications[transaction.transaction_id]
         )
@@ -159,3 +180,67 @@ async def classify_active_transactions(db, user_id):
         "internal_transfer_matches": internal_transfer_matches,
         **counts,
     }
+
+
+async def preview_pending_classification(db, user_id, item_id):
+    # This must be the first statement in the caller's transaction.
+    await db.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY"))
+    item = await db.scalar(select(Item).where(
+        Item.item_id == item_id, Item.user_id == user_id, Item.status == "pending",
+    ))
+    if item is None:
+        raise HTTPException(404, "Pending Item not found")
+    scope = or_(Item.status == "active", and_(Item.status == "pending", Item.item_id == item_id))
+    inputs = await _classification_inputs(db, user_id, scope)
+    classifications, _ = build_classifications(*inputs[:4], active_manual_types=inputs[4])
+    return {
+        "item_id": item_id,
+        "status": "unpublished",
+        "transactions": [
+            {
+                "transaction_id": candidate.transaction_id,
+                "transaction_type": classifications[candidate.transaction_id][0],
+                "is_spending": classifications[candidate.transaction_id][1],
+                "is_internal_transfer": classifications[candidate.transaction_id][2],
+                "status": "unpublished",
+            }
+            for candidate in inputs[0] if candidate.item_id == item_id
+        ],
+    }
+
+
+async def validate_consumer_activation(db, item_id):
+    accounts = {a.account_id: a for a in (await db.execute(
+        select(Account).where(Account.item_id == item_id)
+        .order_by(Account.account_id).with_for_update()
+    )).scalars()}
+    if not any(a.consumer_transactions_enabled for a in accounts.values()):
+        raise HTTPException(409, "Discover at least one enabled consumer account before activation")
+    rows = (await db.execute(
+        select(RawTransaction, Transaction, LegacyConsumerRow)
+        .outerjoin(Transaction, Transaction.transaction_id == RawTransaction.transaction_id)
+        .outerjoin(LegacyConsumerRow, LegacyConsumerRow.transaction_id == RawTransaction.transaction_id)
+        .where(RawTransaction.item_id == item_id)
+    )).all()
+    for raw, normalized, legacy in rows:
+        account = accounts.get(raw.account_id)
+        if account is None or (normalized and normalized.account_id != raw.account_id):
+            raise HTTPException(409, "Consumer transaction account ownership is inconsistent")
+        if not account.consumer_transactions_enabled:
+            if (legacy is None or legacy.item_id != item_id or legacy.account_id != raw.account_id
+                    or (normalized and legacy.normalized_account_id != normalized.account_id)):
+                raise HTTPException(409, "New disabled-account consumer data requires investigation")
+
+
+async def activate_item(db, user_id, item_id):
+    await lock_consumer_derivation(db, user_id)
+    item = await db.scalar(select(Item).where(
+        Item.item_id == item_id, Item.user_id == user_id,
+        Item.status.in_(("pending", "active", "disabled")),
+    ).with_for_update())
+    if item is None:
+        raise HTTPException(404, "Item not found")
+    await validate_consumer_activation(db, item_id)
+    await db.execute(update(Item).where(Item.item_id == item_id).values(status="active"))
+    await classify_active_transactions(db, user_id)
+    return {"item_id": item_id, "status": "active"}

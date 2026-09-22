@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 from api.models import Item
 from api.routes.analytics import _active_analytics_rows
-from api.routes.plaid import fetch_transaction_pages, get_accounts, get_transactions, item_metadata, normalize_transactions
+from api.routes.plaid import fetch_transaction_pages, get_accounts, get_transactions, item_metadata, normalize_transactions, router
 
 
 class Response:
@@ -45,6 +45,11 @@ class MultiInstitutionTests(unittest.TestCase):
         for endpoint in (get_accounts, get_transactions, normalize_transactions):
             parameter = inspect.signature(endpoint).parameters["item_id"]
             self.assertTrue(parameter.default.is_required())
+
+    def test_legacy_writing_fetches_require_explicit_post(self):
+        methods = {route.path: route.methods for route in router.routes}
+        self.assertEqual(methods["/plaid/accounts"], {"POST"})
+        self.assertEqual(methods["/plaid/transactions"], {"POST"})
 
     def test_item_metadata_never_exposes_access_token_or_cursor(self):
         metadata = item_metadata(SimpleNamespace(

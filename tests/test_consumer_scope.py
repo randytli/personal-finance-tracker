@@ -1,3 +1,4 @@
+import asyncio
 import os
 import unittest
 import uuid
@@ -12,11 +13,13 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 
 from api.consumer_scope import initial_consumer_scope, account_type_drift
-from api.models import Base, Account, Item, RawTransaction, Transaction
+from api.models import Base, Account, Item, ManualClassificationOverride, ManualTransactionLabelOverride, RawTransaction, Transaction
 from api.migrations import migrate_consumer_scope
 from api.routes import plaid, review, analytics
+from api.services import derivation
 from api.services.derivation import normalize_item_transactions, classify_active_transactions
 from api.services.persistence import persist_account_metadata, persist_consumer_transactions
+from api.statement_semantics import lock_consumer_derivation
 
 
 class ScopePolicyTests(unittest.TestCase):
@@ -303,3 +306,99 @@ class ConsumerDatabaseTests(unittest.IsolatedAsyncioTestCase):
             self.assertIsNone((await db.get(Item, "i")).transactions_cursor)
             self.assertIsNone(await db.get(RawTransaction, "uncommitted"))
             self.assertIsNone(await db.get(Transaction, "uncommitted"))
+
+    async def seed_pending_activation(self):
+        await self.migrate()
+        async with self.sessions.begin() as db:
+            db.add_all([
+                Item(item_id="pending", user_id="scope-test", institution_id="ins_pending",
+                     institution_name="Pending", status="pending", access_token="synthetic"),
+                Item(item_id="other-pending", user_id="scope-test", institution_id="ins_other_pending",
+                     institution_name="Other Pending", status="pending", access_token="synthetic"),
+            ])
+            await db.flush()
+            db.add_all([
+                Account(account_id="active-bank", item_id="i", name="Active Bank", type="depository",
+                        consumer_transactions_enabled=True),
+                Account(account_id="pending-bank", item_id="pending", name="Pending Bank", type="depository",
+                        consumer_transactions_enabled=True),
+                Account(account_id="other-bank", item_id="other-pending", name="Other Bank", type="depository",
+                        consumer_transactions_enabled=True),
+                Account(account_id="disabled", item_id="pending", name="Disabled", type="investment",
+                        consumer_transactions_enabled=False),
+            ])
+            await db.flush()
+            for ident, item_id, account_id, amount, category in (
+                ("active-transfer", "i", "active-bank", -40, "TRANSFER_OUT"),
+                ("pending-transfer", "pending", "pending-bank", 40, "TRANSFER_IN"),
+                ("other-transfer", "other-pending", "other-bank", 40, "TRANSFER_IN"),
+            ):
+                db.add(RawTransaction(transaction_id=ident, item_id=item_id, account_id=account_id,
+                                      transaction_date=date(2026, 8, 1), payload={}))
+                db.add(Transaction(transaction_id=ident, account_id=account_id,
+                                   transaction_date=date(2026, 8, 1), amount=amount, plaid_category=category))
+
+    async def test_pending_preview_is_read_only_and_activation_reclassifies_atomically(self):
+        await self.seed_pending_activation()
+        async with self.sessions.begin() as db:
+            db.add(ManualTransactionLabelOverride(transaction_id="active-transfer", label="MEMBERSHIP",
+                                                  decision="include", created_by="scope-test", updated_by="scope-test"))
+        await plaid.classify_transactions()
+        async with self.sessions.begin() as db:
+            preview = await derivation.preview_pending_classification(db, "scope-test", "pending")
+            self.assertEqual(await db.scalar(text("SHOW transaction_read_only")), "on")
+            self.assertEqual(preview["status"], "unpublished")
+            self.assertEqual(preview["transactions"], [{
+                "transaction_id": "pending-transfer", "transaction_type": "transfer",
+                "is_spending": False, "is_internal_transfer": True, "status": "unpublished",
+            }])
+        async with self.sessions() as db:
+            self.assertIsNone((await db.get(Transaction, "pending-transfer")).transaction_type)
+            self.assertIsNone((await db.get(Transaction, "active-transfer")).is_internal_transfer)
+            self.assertIsNone((await db.get(Transaction, "other-transfer")).transaction_type)
+            self.assertEqual((await db.get(ManualTransactionLabelOverride,
+                                          ("active-transfer", "MEMBERSHIP"))).decision, "include")
+        result = await plaid.update_item_status("pending", plaid.ItemStatusUpdate(status="active"))
+        self.assertEqual(result, {"item_id": "pending", "status": "active"})
+        async with self.sessions() as db:
+            self.assertEqual((await db.get(Item, "pending")).status, "active")
+            self.assertTrue((await db.get(Transaction, "pending-transfer")).is_internal_transfer)
+            self.assertTrue((await db.get(Transaction, "active-transfer")).is_internal_transfer)
+            self.assertIsNone((await db.get(Transaction, "other-transfer")).transaction_type)
+            self.assertEqual((await db.get(ManualTransactionLabelOverride,
+                                          ("active-transfer", "MEMBERSHIP"))).decision, "include")
+
+    async def test_activation_rolls_back_if_classification_fails(self):
+        await self.seed_pending_activation()
+        classify = derivation.classify_active_transactions
+
+        async def fail_after_classification(db, user_id):
+            await classify(db, user_id)
+            raise RuntimeError("synthetic failure")
+
+        with patch.object(derivation, "classify_active_transactions", new=fail_after_classification):
+            with self.assertRaisesRegex(RuntimeError, "synthetic failure"):
+                await plaid.update_item_status("pending", plaid.ItemStatusUpdate(status="active"))
+        async with self.sessions() as db:
+            self.assertEqual((await db.get(Item, "pending")).status, "pending")
+            self.assertIsNone((await db.get(Transaction, "pending-transfer")).transaction_type)
+            self.assertIsNone((await db.get(Transaction, "active-transfer")).transaction_type)
+
+    async def test_manual_review_waits_for_derivation_lock(self):
+        await self.seed_pending_activation()
+        async with self.sessions.begin() as db:
+            await lock_consumer_derivation(db, "scope-test")
+            task = asyncio.create_task(review.set_override(
+                "active-transfer", review.OverrideRequest(transaction_type="transfer")))
+            try:
+                with self.assertRaises(asyncio.TimeoutError):
+                    await asyncio.wait_for(asyncio.shield(task), timeout=0.05)
+                async with self.sessions() as check:
+                    self.assertIsNone(await check.get(ManualClassificationOverride, "active-transfer"))
+            except BaseException:
+                task.cancel()
+                raise
+        await asyncio.wait_for(task, timeout=2)
+        async with self.sessions() as db:
+            self.assertEqual((await db.get(ManualClassificationOverride,
+                                           "active-transfer")).transaction_type, "transfer")

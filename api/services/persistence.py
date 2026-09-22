@@ -21,7 +21,8 @@ async def persist_consumer_transactions(db, user_id, item_id, starting_cursor, a
     if item is None or item.transactions_cursor != starting_cursor:
         raise HTTPException(409, "Item changed during sync; retry")
     accounts = {a.account_id: a for a in (await db.execute(
-        select(Account).where(Account.item_id == item_id).with_for_update()
+        select(Account).where(Account.item_id == item_id)
+        .order_by(Account.account_id).with_for_update()
     )).scalars()}
     ids = {t["transaction_id"] for t in added + modified + removed}
     existing = {r.transaction_id: r for r in (await db.execute(
@@ -154,6 +155,10 @@ async def persist_account_metadata(db, user_id, item_id, accounts):
     ).with_for_update())).scalar_one_or_none()
     if item is None:
         raise HTTPException(404, "Item not found")
+    account_ids = sorted({account["account_id"] for account in accounts})
+    if account_ids:
+        await db.execute(select(Account).where(Account.account_id.in_(account_ids))
+                         .order_by(Account.account_id).with_for_update())
     for account in accounts:
         existing = await db.get(Account, account["account_id"])
         if existing and existing.item_id != item_id:
@@ -199,4 +204,3 @@ async def persist_account_metadata(db, user_id, item_id, accounts):
         "account_count": len(accounts),
         "type_drift": drift,
     }
-

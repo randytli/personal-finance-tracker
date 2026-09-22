@@ -14,6 +14,7 @@ from sqlalchemy.dialects.postgresql import insert
 
 from api.classification import effective_classification, validate_manual_override
 from api.db import SessionLocal
+from api.statement_semantics import lock_consumer_derivation
 from api.models import (
     Account,
     Item,
@@ -106,7 +107,8 @@ async def _apply_category(db, transaction, category, actor, classification=None)
 async def mutate_category(transaction_id, category):
     async with SessionLocal() as db:
         async with db.begin():
-            row = (await db.execute(_transaction_scope(transaction_id).with_for_update())).one_or_none()
+            await _lock_review_scope(db, [transaction_id])
+            row = (await db.execute(_transaction_scope(transaction_id).with_for_update(of=Transaction))).one_or_none()
             if row is None:
                 raise HTTPException(404, 'transaction not found')
             transaction = row[0]
@@ -128,7 +130,8 @@ async def mutate_benefit_category(transaction_id, category):
     actor = _user_id()
     async with SessionLocal() as db:
         async with db.begin():
-            row = (await db.execute(_transaction_scope(transaction_id).with_for_update())).one_or_none()
+            await _lock_review_scope(db, [transaction_id])
+            row = (await db.execute(_transaction_scope(transaction_id).with_for_update(of=Transaction))).one_or_none()
             if row is None:
                 raise HTTPException(404, 'transaction not found')
             transaction, account, item, _ = row
@@ -221,6 +224,23 @@ def _label_transaction_scope(transaction_id):
     )
 
 
+async def _lock_review_scope(db, transaction_ids):
+    await lock_consumer_derivation(db, _user_id())
+    rows = (await db.execute(
+        select(RawTransaction.item_id, RawTransaction.account_id)
+        .join(Item, Item.item_id == RawTransaction.item_id)
+        .where(RawTransaction.transaction_id.in_(transaction_ids), Item.user_id == _user_id())
+    )).all()
+    item_ids = sorted({item_id for item_id, _ in rows})
+    account_ids = sorted({account_id for _, account_id in rows})
+    if item_ids:
+        await db.execute(select(Item).where(Item.item_id.in_(item_ids))
+                         .order_by(Item.item_id).with_for_update())
+    if account_ids:
+        await db.execute(select(Account).where(Account.account_id.in_(account_ids))
+                         .order_by(Account.account_id).with_for_update())
+
+
 async def _apply_label(db, transaction, label, decision, actor):
     override = await db.get(ManualTransactionLabelOverride, (transaction.transaction_id, label))
     active = (override.decision if override is not None
@@ -262,8 +282,9 @@ async def mutate_label(transaction_id, label, decision):
     actor = _user_id()
     async with SessionLocal() as db:
         async with db.begin():
+            await _lock_review_scope(db, [transaction_id])
             transaction = (await db.execute(
-                _label_transaction_scope(transaction_id).with_for_update()
+                _label_transaction_scope(transaction_id).with_for_update(of=Transaction)
             )).scalar_one_or_none()
             if transaction is None:
                 raise HTTPException(404, "transaction not found")
@@ -327,6 +348,7 @@ async def bulk_edit_transactions(request: BulkEditRequest):
     ids = sorted(request.transaction_ids)
     async with SessionLocal() as db:
         async with db.begin():
+            await _lock_review_scope(db, ids)
             rows = (await db.execute(
                 select(Transaction, ManualClassificationOverride)
                 .join(RawTransaction, RawTransaction.transaction_id == Transaction.transaction_id)
@@ -538,7 +560,8 @@ async def set_override(transaction_id: str, request: OverrideRequest):
     actor = _user_id()
     async with SessionLocal() as db:
         async with db.begin():
-            row = (await db.execute(_transaction_scope(transaction_id))).one_or_none()
+            await _lock_review_scope(db, [transaction_id])
+            row = (await db.execute(_transaction_scope(transaction_id).with_for_update(of=Transaction))).one_or_none()
             if row is None:
                 raise HTTPException(status_code=404, detail="transaction not found")
             transaction, _, _, _ = row
@@ -575,7 +598,8 @@ async def clear_override(transaction_id: str):
     actor = _user_id()
     async with SessionLocal() as db:
         async with db.begin():
-            row = (await db.execute(_transaction_scope(transaction_id))).one_or_none()
+            await _lock_review_scope(db, [transaction_id])
+            row = (await db.execute(_transaction_scope(transaction_id).with_for_update(of=Transaction))).one_or_none()
             if row is None:
                 raise HTTPException(status_code=404, detail="transaction not found")
             transaction, _, _, _ = row
