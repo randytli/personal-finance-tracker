@@ -143,7 +143,7 @@ class StatementDatabaseTests(unittest.IsolatedAsyncioTestCase):
         async with self.sessions.begin() as db:
             self.assertEqual((await db.get(Item, "i")).transactions_cursor, "cursor-before")
             rows = (await db.execute(select(Transaction).order_by(Transaction.transaction_date))).scalars().all()
-            self.assertEqual([t.transaction_type for t in rows], ["expense", "refund", "payment", "expense"])
+            self.assertEqual([t.transaction_type for t in rows], [None] * 4)
             tid = rows[0].transaction_id
             db.add(ManualClassificationOverride(transaction_id=tid, transaction_type="adjustment", created_by="test", updated_by="test"))
             db.add(ManualCategoryOverride(transaction_id=tid, category="TRAVEL", created_by="test", updated_by="test"))
@@ -279,6 +279,8 @@ class StatementDatabaseTests(unittest.IsolatedAsyncioTestCase):
             other = await db.get(Item, "other")
             self.assertEqual((other.access_token, other.transactions_cursor), ("other-synthetic", "other-cursor"))
             self.assertFalse((await db.get(Transaction, "counterpart")).is_internal_transfer)
+        async with self.sessions.begin() as db:
+            (await db.get(Item, "i")).status = "active"
         await plaid.classify_transactions()
         async with self.sessions.begin() as db:
             self.assertTrue((await db.get(Transaction, "counterpart")).is_internal_transfer)

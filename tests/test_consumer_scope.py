@@ -226,3 +226,58 @@ class ConsumerDatabaseTests(unittest.IsolatedAsyncioTestCase):
         async with self.sessions() as db:
             self.assertEqual((await db.get(Item, "other-item")).transactions_cursor, None)
             self.assertIsNot((await db.get(Transaction, "credit")).is_internal_transfer, True)
+
+    async def test_official_classification_ignores_pending_item(self):
+        await self.migrate()
+        async with self.sessions.begin() as db:
+            db.add(Item(item_id="pending", user_id="scope-test", institution_id="ins_pending",
+                        institution_name="Pending", status="pending", access_token="synthetic"))
+            await db.flush()
+            db.add_all([
+                Account(account_id="active-card", item_id="i", name="Active Card", type="credit",
+                        consumer_transactions_enabled=True),
+                Account(account_id="active-bank", item_id="i", name="Active Bank", type="depository",
+                        consumer_transactions_enabled=True),
+                Account(account_id="pending-card", item_id="pending", name="Pending Card", type="credit",
+                        consumer_transactions_enabled=True),
+                Account(account_id="pending-bank", item_id="pending", name="Pending Bank", type="depository",
+                        consumer_transactions_enabled=True),
+                Account(account_id="disabled", item_id="i", name="Disabled", type="depository",
+                        consumer_transactions_enabled=False),
+            ])
+            await db.flush()
+            rows = [
+                ("active-expense", "i", "active-card", -25, "GENERAL_MERCHANDISE", "SHOP", None),
+                ("active-refund", "i", "active-card", 25, "GENERAL_MERCHANDISE", "SHOP", None),
+                ("pending-refund", "pending", "pending-card", 25, "GENERAL_MERCHANDISE", "SHOP", None),
+                ("active-transfer", "i", "active-bank", -40, "TRANSFER_OUT", None, None),
+                ("pending-transfer", "pending", "pending-bank", 40, "TRANSFER_IN", None, None),
+                ("active-payment", "i", "active-card", 60, None, None, "payment"),
+                ("active-counterpart", "i", "active-bank", -60, "TRANSFER_OUT", None, None),
+                ("disabled-transfer", "i", "disabled", 40, "TRANSFER_IN", None, None),
+            ]
+            for ident, item_id, account_id, amount, category, merchant, statement_kind in rows:
+                db.add(RawTransaction(transaction_id=ident, item_id=item_id, account_id=account_id,
+                                      transaction_date=date(2026, 8, 1), payload={}))
+                db.add(Transaction(transaction_id=ident, account_id=account_id,
+                                   transaction_date=date(2026, 8, 1), amount=amount,
+                                   plaid_category=category, merchant_name=merchant,
+                                   statement_kind=statement_kind))
+        result = await plaid.classify_transactions()
+        self.assertEqual(result["refund_matches"], 1)
+        self.assertEqual(result["internal_transfer_matches"], 1)
+        async with self.sessions() as db:
+            expected = {
+                "active-expense": ("expense", False),
+                "active-refund": ("refund", False),
+                "active-transfer": ("transfer", None),
+                "active-payment": ("payment", True),
+                "active-counterpart": ("transfer", True),
+                "pending-refund": (None, None),
+                "pending-transfer": (None, None),
+                "disabled-transfer": (None, None),
+            }
+            for ident, (kind, matched) in expected.items():
+                transaction = await db.get(Transaction, ident)
+                self.assertEqual(transaction.transaction_type, kind, ident)
+                self.assertEqual(transaction.is_internal_transfer, matched, ident)

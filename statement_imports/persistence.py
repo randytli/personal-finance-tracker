@@ -207,7 +207,8 @@ async def apply(db, user_id, account_id, adapter, data, through, approved, confi
                              payload=canonical(row), is_removed=False)
         db.add(raw)
         await db.flush()
-        seed = statement_classification(row.kind, row.amount) or (None, None, None)
+        seed = (statement_classification(row.kind, row.amount)
+                if item.status == "active" else None) or (None, None, None)
         db.add(Transaction(transaction_id=ident, account_id=account_id, transaction_date=row.transaction_date,
                            **normalized_raw_values(raw), transaction_type=seed[0], is_spending=seed[1],
                            is_internal_transfer=seed[2]))

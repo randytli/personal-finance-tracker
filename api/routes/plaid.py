@@ -961,7 +961,7 @@ async def _classify_transactions():
             .where(
                 Account.consumer_transactions_enabled.is_(True),
                 Item.user_id == _user_id(),
-                Item.status.in_(("active", "pending")),
+                Item.status == "active",
                 RawTransaction.is_removed.is_(False),
             )
         )
@@ -978,7 +978,7 @@ async def _classify_transactions():
                 Account.type == "credit",
                 Account.consumer_transactions_enabled.is_(True),
                 Item.user_id == _user_id(),
-                Item.status.in_(("active", "pending")),
+                Item.status == "active",
             )
         )
         credit_account_ids = set(result.scalars().all())
@@ -990,7 +990,7 @@ async def _classify_transactions():
                 Account.consumer_transactions_enabled.is_(True),
                 Item.institution_id == AMERICAN_EXPRESS_INSTITUTION_ID,
                 Item.user_id == _user_id(),
-                Item.status.in_(("active", "pending")),
+                Item.status == "active",
             )
         )
         amex_credit_accounts = result.all()
