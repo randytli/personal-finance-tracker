@@ -7,6 +7,7 @@ import BulkTransactionEditor, { bulkErrorMessage, type BulkEditRequest } from '@
 import CategoryEditor, { mergeCategoryDetail, mutateCategoryOverride, type CategoryDetail } from '@/components/category-editor'
 import { CategoryBadge } from '@/components/category-display'
 import LabelEditor, { mergeLabelDetail, type LabelDetail, useLabelOptions } from '@/components/label-editor'
+import { SyncHealth, consistentJson, useSyncRefresh } from '@/components/sync-health'
 
 const TYPES = ['expense', 'refund', 'income', 'card_benefit', 'payment', 'transfer', 'adjustment'] as const
 type TransactionType = typeof TYPES[number] | 'reimbursement'
@@ -53,6 +54,7 @@ export default function ReviewPage() {
   const [bulkStatus, setBulkStatus] = useState('')
   const requestId = useRef(0)
   const labelOptions = useLabelOptions()
+  const sync = useSyncRefresh()
 
   useEffect(() => {
     if (mode !== 'credits_transfers') return
@@ -69,9 +71,7 @@ export default function ReviewPage() {
     setError('')
     try {
       const params = new URLSearchParams({ mode, transaction_type: typeFilter, direction, limit: String(PAGE_SIZE), offset: String(offset) })
-      const response = await fetch(`/api/pft/review/transactions?${params}`)
-      if (!response.ok) throw new Error('load failed')
-      const data = await response.json()
+      const [data] = await consistentJson([`/api/pft/review/transactions?${params}`], sync.check)
       if (id !== requestId.current) return
       if (offset > 0 && offset >= data.total) {
         setOffset(Math.max(0, Math.floor((data.total - 1) / PAGE_SIZE) * PAGE_SIZE))
@@ -85,9 +85,18 @@ export default function ReviewPage() {
     } finally {
       if (id === requestId.current) setLoading(false)
     }
-  }, [mode, typeFilter, direction, offset])
+  }, [mode, typeFilter, direction, offset, sync.check])
 
-  useEffect(() => { setSelected(new Set()); void load() }, [load])
+  useEffect(() => {
+    setSelected(new Set())
+    void load()
+    return () => { requestId.current++ }
+  }, [load, sync.revision])
+
+  function invalidateAfterEdit() {
+    requestId.current++
+    sync.invalidate()
+  }
 
   async function save(transaction: ReviewTransaction) {
     const transactionType = choices[transaction.transaction_id]
@@ -113,7 +122,7 @@ export default function ReviewPage() {
       setUndo({ transaction, transactionType })
       setSelected(new Set())
       setChoices((current) => { const next = { ...current }; delete next[transaction.transaction_id]; return next })
-      await load()
+      invalidateAfterEdit()
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Classification could not be saved.')
     } finally {
@@ -132,7 +141,7 @@ export default function ReviewPage() {
       if (!response.ok) throw new Error('Undo could not be saved.')
       setUndo(null)
       setSelected(new Set())
-      await load()
+      invalidateAfterEdit()
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Undo could not be saved.')
     } finally {
@@ -142,6 +151,7 @@ export default function ReviewPage() {
 
   function updateLabels(changed: LabelDetail) {
     setTransactions(current => current.map(transaction => mergeLabelDetail(transaction, changed)))
+    invalidateAfterEdit()
   }
 
   async function saveCategory(detail: CategoryDetail, category: string | null): Promise<boolean> {
@@ -150,6 +160,7 @@ export default function ReviewPage() {
     try {
       const changed = await mutateCategoryOverride(detail.transaction_id, category)
       setTransactions(current => current.map(transaction => mergeCategoryDetail(transaction, changed)))
+      invalidateAfterEdit()
       return true
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Category change failed.')
@@ -169,7 +180,7 @@ export default function ReviewPage() {
       if (!response.ok) throw new Error(bulkErrorMessage(body))
       setSelected(new Set())
       setBulkStatus(`${body.changed_count} ${request.operation === 'set_classification' ? 'classifications' : 'overrides'} changed · ${body.unchanged_count} already set.`)
-      await load()
+      invalidateAfterEdit()
       return true
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Bulk change could not be saved.')
@@ -208,6 +219,7 @@ export default function ReviewPage() {
         </div>
         <p className="text-sm font-medium">{total} {mode === 'needs_review' ? 'remaining' : 'matching transactions'}</p>
       </div>
+      <div className="mt-5"><SyncHealth status={sync.status} error={sync.error} /></div>
       <nav aria-label="Review views" className="mt-5 flex gap-3">
         {(['needs_review', 'credits_transfers'] as const).map((view) => (
           <button key={view} aria-pressed={mode === view} disabled={bulkBusy || busy !== null}

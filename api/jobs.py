@@ -107,10 +107,18 @@ async def tick(user_id, *, now=None, engine=None, session_factory=None, sync=Non
                     await asyncio.to_thread(backup_fn, "daily")
                 except Exception as exc:
                     logger.error("Daily backup failed: %s", type(exc).__name__)
+                    await _assert_owner(owner, backend_pid)
+                    async with session_factory.begin() as db:
+                        state = await _state(db, user_id)
+                        state.last_backup_attempt_at = now
+                        state.last_backup_error = "backup_failed"
                 else:
                     await _assert_owner(owner, backend_pid)
                     async with session_factory.begin() as db:
-                        (await _state(db, user_id)).last_backup_at = now
+                        state = await _state(db, user_id)
+                        state.last_backup_at = now
+                        state.last_backup_attempt_at = now
+                        state.last_backup_error = None
 
             async def check_owner():
                 await _assert_owner(owner, backend_pid)

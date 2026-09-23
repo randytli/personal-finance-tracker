@@ -25,6 +25,11 @@ def transaction(identifier, month, amount, kind, *, category="FOOD_AND_DRINK",
 
 
 class ReimbursementAnalyticsTests(unittest.TestCase):
+    def setUp(self):
+        session = patch('api.routes.analytics.SessionLocal')
+        session.start()
+        self.addCleanup(session.stop)
+
     def test_expense_reimbursement_and_refund_reconcile_without_changing_spending_counts(self):
         expense = transaction("purchase", 8, "-100", "expense")
         repayment = transaction("repayment", 8, "40", "transfer", category="TRANSFER_IN")

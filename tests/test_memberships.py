@@ -3,7 +3,7 @@ import unittest
 from datetime import date, datetime
 from decimal import Decimal
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import ANY, AsyncMock, patch
 
 from fastapi import HTTPException
 
@@ -28,6 +28,11 @@ def account(identifier):
 
 
 class MembershipTests(unittest.TestCase):
+    def setUp(self):
+        session = patch('api.routes.analytics.SessionLocal')
+        session.start()
+        self.addCleanup(session.stop)
+
     def test_membership_reimbursements_reduce_overall_but_remain_unallocated_by_account(self):
         bank = SimpleNamespace(institution_id='ins_test', institution_name='Test Bank')
         card, checking = account('card'), account('checking')
@@ -85,6 +90,7 @@ class MembershipTests(unittest.TestCase):
 
     def test_membership_reimbursement_detail_filters_before_pagination(self):
         class Session:
+            execute = AsyncMock()
             async def __aenter__(self): return self
             async def __aexit__(self, *_): return False
 
@@ -104,7 +110,7 @@ class MembershipTests(unittest.TestCase):
         decisions = {row[0].transaction_id: [SimpleNamespace(
             label='MEMBERSHIP', decision='include', cleared_at=None)] for row in rows}
 
-        async def rows_in_range(start, end):
+        async def rows_in_range(start, end, db):
             return [row for row in rows if start <= row[0].transaction_date <= end]
 
         with (patch('api.routes.analytics._active_analytics_rows', AsyncMock(side_effect=rows_in_range)),
@@ -143,6 +149,7 @@ class MembershipTests(unittest.TestCase):
             rows.append((tx, False, None, bank, card))
 
         class Session:
+            execute = AsyncMock()
             async def __aenter__(self): return self
             async def __aexit__(self, *_): return False
 
@@ -268,6 +275,7 @@ class MembershipTests(unittest.TestCase):
 
     def test_membership_endpoint_defaults_to_trailing_and_queries_ytd_bounds(self):
         class Session:
+            execute = AsyncMock()
             async def __aenter__(self):
                 return self
 
@@ -280,11 +288,11 @@ class MembershipTests(unittest.TestCase):
             patch('api.routes.analytics.SessionLocal', return_value=Session()),
         ):
             trailing = asyncio.run(membership_costs('2026-09'))
-            active_rows.assert_awaited_with(date(2025, 10, 1), date(2026, 9, 30))
+            active_rows.assert_awaited_with(date(2025, 10, 1), date(2026, 9, 30), ANY)
             ytd = asyncio.run(membership_costs('2026-09', 'ytd'))
-            active_rows.assert_awaited_with(date(2026, 1, 1), date(2026, 9, 30))
+            active_rows.assert_awaited_with(date(2026, 1, 1), date(2026, 9, 30), ANY)
             january = asyncio.run(membership_costs('2026-01', 'ytd'))
-            active_rows.assert_awaited_with(date(2026, 1, 1), date(2026, 1, 31))
+            active_rows.assert_awaited_with(date(2026, 1, 1), date(2026, 1, 31), ANY)
         self.assertEqual((trailing['start_month'], len(trailing['months'])), ('2025-10', 12))
         self.assertEqual((ytd['start_month'], len(ytd['months'])), ('2026-01', 9))
         self.assertEqual((january['start_month'], len(january['months'])), ('2026-01', 1))
@@ -294,6 +302,7 @@ class MembershipTests(unittest.TestCase):
 
     def test_ytd_drilldown_excludes_prior_year_and_keeps_account_pagination(self):
         class Session:
+            execute = AsyncMock()
             async def __aenter__(self):
                 return self
 
@@ -314,7 +323,7 @@ class MembershipTests(unittest.TestCase):
             SimpleNamespace(label='MEMBERSHIP', decision='include', cleared_at=None)]
             for row in rows}
 
-        async def rows_in_range(start, end):
+        async def rows_in_range(start, end, db):
             return [row for row in rows if start <= row[0].transaction_date <= end]
 
         with (
@@ -329,7 +338,7 @@ class MembershipTests(unittest.TestCase):
                           institution_id=None, account_id='card', limit=1)
             first = asyncio.run(analytics_transactions(offset=0, **kwargs))
             second = asyncio.run(analytics_transactions(offset=1, **kwargs))
-            active_rows.assert_awaited_with(date(2026, 1, 1), date(2026, 9, 30))
+            active_rows.assert_awaited_with(date(2026, 1, 1), date(2026, 9, 30), ANY)
         self.assertEqual(first['total'], 2)
         self.assertEqual(first['transactions'][0]['transaction_id'], 'sep')
         self.assertEqual(second['transactions'][0]['transaction_id'], 'jan')

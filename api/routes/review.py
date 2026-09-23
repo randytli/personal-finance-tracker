@@ -9,7 +9,7 @@ from api.categories import MANUAL_CATEGORIES, active_category, effective_categor
 from api.benefit_categories import BENEFIT_CATEGORIES, BENEFIT_CATEGORY_LABELS, active_benefit_category, effective_benefit_category
 from api.labels import ALLOWED_LABELS, label_result, load_label_overrides
 from api.models import ManualCategoryOverride, ManualBenefitCategoryOverride
-from sqlalchemy import and_, case, func, or_, select, update
+from sqlalchemy import and_, case, func, or_, select, text, update
 from sqlalchemy.dialects.postgresql import insert
 
 from api.classification import effective_classification, validate_manual_override
@@ -495,6 +495,7 @@ async def transactions_needing_review(
         ),
     )
     async with SessionLocal() as db:
+        await db.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY"))
         count_statement = select(func.count(Transaction.transaction_id))
         for model, condition in joins:
             count_statement = count_statement.join(model, condition)

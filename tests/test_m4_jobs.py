@@ -6,7 +6,8 @@ import threading
 import unittest
 import uuid
 from datetime import datetime, timedelta, timezone
-from unittest.mock import patch
+from unittest.mock import Mock, patch
+from fastapi import HTTPException
 
 from sqlalchemy import select, text, update
 from sqlalchemy.ext.asyncio import AsyncConnection, async_sessionmaker, create_async_engine
@@ -16,6 +17,8 @@ from api.models import Account, Base, Item, SyncItemRun, SyncRun, SyncRuntimeSta
 from api.services import sync_all as service
 from api.services.sync_state import acquire_session_lock
 from api.migrations import migrate_sync_runs
+from api.routes.sync import status_for_user
+from api.routes import plaid as plaid_routes
 from tests.test_sync_all import Client, page, plaid_error, tx
 
 
@@ -57,6 +60,67 @@ class JobsDatabaseTests(unittest.IsolatedAsyncioTestCase):
 
     async def request(self, ids=None):
         return await request_sync("synthetic-user", ids, session_factory=self.sessions)
+
+    async def test_optional_metadata_failure_is_visible_without_changing_sync_success(self):
+        async with self.sessions.begin() as db:
+            await db.execute(update(Item).where(Item.item_id == 'a').values(last_sync_success_at=self.clock))
+        with patch.object(plaid_routes, 'SessionLocal', self.sessions), \
+             patch.object(plaid_routes, '_user_id', return_value='synthetic-user'), \
+             patch.object(plaid_routes, 'get_client', return_value=Mock(
+                 accounts_get=Mock(side_effect=plaid_error('INSTITUTION_DOWN')))):
+            with self.assertRaises(HTTPException):
+                await plaid_routes.get_accounts('a')
+            failed = await status_for_user('synthetic-user', session_factory=self.sessions, now=self.clock)
+            self.assertEqual(failed['institutions'][0]['metadata_warning'], 'metadata_refresh_failed')
+            self.assertEqual(failed['institutions'][0]['last_success_at'], self.clock.isoformat())
+            self.assertIsNone(failed['last_published_run_id'])
+            await plaid_routes.persist_account_metadata('a', [{
+                'account_id': 'account-a', 'name': 'Synthetic', 'type': 'credit', 'subtype': 'credit card',
+            }])
+            recovered = await status_for_user('synthetic-user', session_factory=self.sessions, now=self.clock)
+            self.assertIsNone(recovered['institutions'][0]['metadata_warning'])
+            self.assertEqual(recovered['institutions'][0]['last_success_at'], self.clock.isoformat())
+            self.assertIsNone(recovered['last_published_run_id'])
+
+    async def test_m5_status_exposes_publication_item_errors_jobs_and_backup(self):
+        old = self.clock - timedelta(minutes=8)
+        async with self.sessions.begin() as db:
+            db.add(SyncRun(run_id="published", user_id="synthetic-user", trigger_source="jobs",
+                           started_at=old, finished_at=old, status="partial",
+                           classification_status="success", published_at=old))
+            db.add(SyncRun(run_id="waiting", user_id="synthetic-user", trigger_source="jobs",
+                           started_at=self.clock, finished_at=self.clock, status="waiting",
+                           classification_status="not_run"))
+            await db.flush()
+            db.add(SyncRuntimeState(user_id="synthetic-user", last_published_run_id="published",
+                                    published_at=old, jobs_heartbeat_at=old,
+                                    last_backup_at=old - timedelta(days=2),
+                                    last_backup_attempt_at=self.clock,
+                                    last_backup_error="backup_failed"))
+            db.add(SyncItemRun(run_id="waiting", item_id="a", started_at=self.clock,
+                               finished_at=self.clock, status="waiting", phase="metadata",
+                               error_category="metadata_refresh_failed"))
+            await db.execute(update(Item).where(Item.item_id == "a").values(
+                last_sync_attempt_at=self.clock, last_sync_success_at=old))
+        result = await status_for_user("synthetic-user", session_factory=self.sessions, now=self.clock)
+        self.assertEqual(result["last_published_run_id"], "published")
+        self.assertEqual(result["current_run"]["status"], "waiting")
+        self.assertEqual(result["jobs"]["status"], "stopped")
+        self.assertEqual(result["backup"]["status"], "failed")
+        self.assertEqual(result["institutions"][0]["latest_outcome"]["error_category"],
+                         "metadata_refresh_failed")
+        self.assertEqual(result["institutions"][0]["last_success_at"], old.isoformat())
+        async with self.engine.connect() as owner:
+            acquired, _ = await acquire_session_lock(owner, "pft-jobs:synthetic-user")
+            self.assertTrue(acquired)
+            try:
+                during_backup = await status_for_user("synthetic-user", session_factory=self.sessions,
+                                                     now=self.clock)
+                self.assertEqual(during_backup["jobs"]["status"], "running")
+            finally:
+                await owner.execute(text("SELECT pg_advisory_unlock(hashtextextended(:key, 0))"),
+                                    {"key": "pft-jobs:synthetic-user"})
+                await owner.commit()
 
     async def test_startup_daily_sleep_resume_and_backup_independence(self):
         calls = []
@@ -133,7 +197,15 @@ class JobsDatabaseTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await self.poll(sync, backup_fn=failed_backup))["status"], "success")
         self.assertEqual(calls, [["a", "b"]])
         async with self.sessions() as db:
-            self.assertIsNone((await db.get(SyncRuntimeState, "synthetic-user")).last_backup_at)
+            state = await db.get(SyncRuntimeState, "synthetic-user")
+            self.assertIsNone(state.last_backup_at)
+            self.assertEqual(state.last_backup_error, 'backup_failed')
+            self.assertEqual(state.last_backup_attempt_at, self.clock)
+        await self.poll(sync, backup_fn=lambda kind: None)
+        async with self.sessions() as db:
+            state = await db.get(SyncRuntimeState, "synthetic-user")
+            self.assertEqual(state.last_backup_at, self.clock)
+            self.assertIsNone(state.last_backup_error)
 
     async def test_dedup_midrun_and_restart(self):
         first = await self.request(["a"])

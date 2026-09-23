@@ -19,6 +19,7 @@ import { BenefitCategoryBadge, CategoryBadge } from '@/components/category-displ
 import InstitutionBadge from '@/components/institution-badge'
 import LabelEditor, { mergeLabelDetail, type LabelDetail, useLabelOptions } from '@/components/label-editor'
 import PlaidLinkButton from '@/components/plaid-link-button'
+import { SyncHealth, consistentJson, useSyncRefresh } from '@/components/sync-health'
 import BenefitCategoryEditor, { type BenefitCategoryOption, type BenefitCategoryDetail } from '@/components/benefit-category-editor'
 
 type Category = {
@@ -134,6 +135,7 @@ export default function HomePage() {
   const [bulkBusy, setBulkBusy] = useState(false)
   const [detailRevision, setDetailRevision] = useState(0)
   const labelOptions = useLabelOptions()
+  const sync = useSyncRefresh()
 
   useEffect(() => {
     let active = true
@@ -148,6 +150,7 @@ export default function HomePage() {
   function updateBenefitCategory(detail: Detail, changed: BenefitCategoryDetail) {
     setDetails(current => current.map(value => value.transaction_id === detail.transaction_id ? { ...value, ...changed } : value))
     setDetailRevision(value => value + 1)
+    sync.invalidate()
   }
 
   async function saveCategory(detail: CategoryDetail, category: string | null, undo = false): Promise<boolean> {
@@ -159,6 +162,7 @@ export default function HomePage() {
       setSelectedDetails(new Set())
       setDetails(current => current.map(value => mergeCategoryDetail(value, changed)))
       setCategoryRevision(value => value + 1)
+      sync.invalidate()
       return true
     } catch (error) {
       setError(error instanceof Error ? error.message : 'Category change failed.')
@@ -172,14 +176,10 @@ export default function HomePage() {
     setLoading(true)
     setError('')
     try {
-      const [monthlyResponse, trendResponse] = await Promise.all([
-        fetch(`/api/pft/analytics/monthly?month=${month}`),
-        fetch(`/api/pft/analytics/trend?end_month=${month}`),
-      ])
-      if (!monthlyResponse.ok || !trendResponse.ok) throw new Error('request failed')
-      const [monthlyData, trendData] = await Promise.all([
-        monthlyResponse.json(), trendResponse.json(),
-      ])
+      const [monthlyData, trendData] = await consistentJson([
+        `/api/pft/analytics/monthly?month=${month}`,
+        `/api/pft/analytics/trend?end_month=${month}`,
+      ], sync.check)
       if (!isActive()) return
       setMonthly(monthlyData)
       setTrend(trendData.months || [])
@@ -188,25 +188,24 @@ export default function HomePage() {
     } finally {
       if (isActive()) setLoading(false)
     }
-  }, [month])
+  }, [month, sync.check])
 
   useEffect(() => {
     let active = true
     void loadDashboard(() => active)
     return () => { active = false }
-  }, [loadDashboard, categoryRevision])
+  }, [loadDashboard, categoryRevision, sync.revision])
 
   useEffect(() => {
     let active = true
     setBreakdown([])
     const breakdownMode = categoryMode === 'benefits' ? 'benefits'
       : categoryMode === 'reimbursements' ? 'reimbursements' : 'spending'
-    fetch(`/api/pft/analytics/breakdown?month=${month}&group_by=${groupBy}&mode=${breakdownMode}`)
-      .then((response) => response.ok ? response.json() : Promise.reject())
-      .then((data) => { if (active) setBreakdown(data.groups || []) })
+    consistentJson([`/api/pft/analytics/breakdown?month=${month}&group_by=${groupBy}&mode=${breakdownMode}`], sync.check)
+      .then(([data]) => { if (active) setBreakdown(data.groups || []) })
       .catch(() => { if (active) setError('Spending breakdown could not be loaded.') })
     return () => { active = false }
-  }, [month, groupBy, categoryMode])
+  }, [month, groupBy, categoryMode, sync.revision, sync.check])
 
   useEffect(() => {
     if (!detailFilter) return
@@ -221,9 +220,8 @@ export default function HomePage() {
       parameters.set('institution_id', detailFilter.secondary.institution_id)
       if (detailFilter.secondary.account_id) parameters.set('account_id', detailFilter.secondary.account_id)
     }
-    fetch(`/api/pft/analytics/transactions?${parameters}`)
-      .then((response) => response.ok ? response.json() : Promise.reject())
-      .then((data) => {
+    consistentJson([`/api/pft/analytics/transactions?${parameters}`], sync.check)
+      .then(([data]) => {
         if (!active) return
         setDetails(data.transactions || [])
         setDetailTotal(data.total || 0)
@@ -231,12 +229,13 @@ export default function HomePage() {
       })
       .catch(() => { if (active) setError('Transaction details could not be loaded.') })
     return () => { active = false }
-  }, [detailFilter, detailOffset, month, categoryRevision, detailRevision])
+  }, [detailFilter, detailOffset, month, categoryRevision, detailRevision, sync.revision, sync.check])
 
   useEffect(() => { setSelectedDetails(new Set()); setDetailOffset(0) }, [detailFilter])
 
   function updateLabels(changed: LabelDetail) {
     setDetails(current => current.map(detail => mergeLabelDetail(detail, changed)))
+    sync.invalidate()
   }
 
   async function applyBulk(request: BulkEditRequest) {
@@ -251,6 +250,7 @@ export default function HomePage() {
       setSelectedDetails(new Set())
       if (request.operation === 'set_category') setCategoryRevision(value => value + 1)
       else setDetailRevision(value => value + 1)
+      sync.invalidate()
       return true
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Bulk change could not be saved.')
@@ -331,6 +331,8 @@ export default function HomePage() {
           />
         </label>
       </header>
+
+      <div className="mt-5"><SyncHealth status={sync.status} error={sync.error} /></div>
 
       {error && <p role="alert" className="mt-6 rounded-md bg-red-50 p-3 text-sm text-red-800">{error}</p>}
       {categoryUndo && <p role="status" className="mt-4 rounded border p-3 text-sm">

@@ -1,6 +1,6 @@
 /** @jest-environment jsdom */
 import { createElement } from 'react'
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import MembershipsPage from './page'
 
 jest.mock('recharts', () => {
@@ -46,14 +46,19 @@ const transactions = [
   is_spending: value.transaction_type === 'expense', is_internal_transfer: false }))
 const requests: URL[] = []
 const originalFetch = global.fetch
+let publishedRunId: string | null = null
 
 beforeEach(() => {
   requests.length = 0
+  publishedRunId = null
   global.fetch = jest.fn(async input => {
     const url = new URL(String(input), 'http://synthetic.test')
     requests.push(url)
     let data: unknown
-    if (url.pathname.endsWith('/categories')) data = { categories: [] }
+    if (url.pathname.endsWith('/sync/status')) data = { last_published_run_id: publishedRunId, published_at: null,
+      current_run: null, jobs: { status: 'stopped', heartbeat_at: null },
+      backup: { status: 'never', last_success_at: null, last_attempt_at: null, error_category: null }, institutions: [] }
+    else if (url.pathname.endsWith('/categories')) data = { categories: [] }
     else if (url.pathname.endsWith('/memberships')) {
       const end = url.searchParams.get('end_month')!
       const period = url.searchParams.get('period')
@@ -79,6 +84,71 @@ beforeEach(() => {
 })
 afterEach(() => { cleanup(); global.fetch = originalFetch })
 const latestDetails = () => requests.filter(url => url.pathname.endsWith('/transactions')).at(-1)!
+
+test('refresh retains an account filter when its last matching row disappears', async () => {
+  render(createElement(MembershipsPage))
+  await screen.findByRole('region', { name: 'Overall membership costs' })
+  fireEvent.click(screen.getByRole('button', { name: 'View reimbursements received' }))
+  await waitFor(() => expect(latestDetails().searchParams.get('account_id')).toBe('checking'))
+  const baseFetch = global.fetch
+  let refreshed = false
+  global.fetch = jest.fn(async (input, init) => {
+    const result = await baseFetch(input, init)
+    if (String(input).includes('/analytics/memberships?')) {
+      const data = await result.json()
+      refreshed = true
+      return { ok: true, json: async () => ({ ...data, accounts: [] }) } as Response
+    }
+    return result
+  }) as typeof fetch
+  fireEvent.focus(window)
+  await waitFor(() => expect(refreshed).toBe(true))
+  await waitFor(() => expect(screen.queryByRole('button', { name: 'View reimbursements received' })).toBeNull())
+  expect(latestDetails().searchParams.get('account_id')).toBe('checking')
+})
+
+test('a late analytics response cannot replace a newer focus refresh', async () => {
+  render(createElement(MembershipsPage))
+  await screen.findByRole('region', { name: 'Overall membership costs' })
+  const baseFetch = global.fetch
+  let release!: (value: Response) => void
+  let oldResponse!: Response
+  let count = 0
+  global.fetch = jest.fn(async (input, init) => {
+    const result = await baseFetch(input, init)
+    if (!String(input).includes('/analytics/memberships?')) return result
+    count++
+    if (count === 1) {
+      oldResponse = result
+      return new Promise<Response>(resolve => { release = resolve })
+    }
+    const data = await result.json()
+    return { ok: true, json: async () => ({ ...data, overall: { ...data.overall, net_cost: '88.00' } }) } as Response
+  }) as typeof fetch
+  fireEvent.focus(window)
+  await waitFor(() => expect(release).toBeDefined())
+  fireEvent.focus(window)
+  await screen.findByText('$88.00')
+  await act(async () => { release(oldResponse); await Promise.resolve() })
+  expect(screen.getByText('$88.00')).toBeTruthy()
+})
+
+test('publication refresh keeps the open membership view and pagination', async () => {
+  render(createElement(MembershipsPage))
+  const summary = await screen.findByRole('region', { name: 'Overall membership costs' })
+  await waitFor(() => expect(requests.some(url => url.pathname.endsWith('/sync/status'))).toBe(true))
+  fireEvent.click(within(summary).getByRole('button', { name: /Reimbursements/ }))
+  await screen.findByText('Repayment 0')
+  fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+  await screen.findByText('Repayment 50')
+  const before = requests.filter(url => url.pathname.endsWith('/transactions')).length
+  publishedRunId = 'partial-publication'
+  fireEvent.focus(window)
+  await waitFor(() => expect(requests.filter(url => url.pathname.endsWith('/transactions')).length).toBeGreaterThan(before))
+  expect(latestDetails().searchParams.get('membership_view')).toBe('reimbursements')
+  expect(latestDetails().searchParams.get('offset')).toBe('50')
+  expect(screen.getByText('Repayment 50')).toBeTruthy()
+})
 
 test('shows backend overall/account costs, unallocated reconciliation, and reimbursement trend', async () => {
   render(createElement(MembershipsPage))

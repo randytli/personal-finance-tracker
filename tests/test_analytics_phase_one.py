@@ -31,6 +31,11 @@ def transaction(identifier, day, amount, kind, category="GENERAL_MERCHANDISE"):
 
 
 class AnalyticsPhaseOneTests(unittest.TestCase):
+    def setUp(self):
+        session = patch('api.routes.analytics.SessionLocal')
+        session.start()
+        self.addCleanup(session.stop)
+
     def test_secondary_filters_intersect_category_effective_type_and_preserve_order(self):
         amex = SimpleNamespace(institution_id="ins_10", institution_name="American Express")
         chase = SimpleNamespace(institution_id="ins_56", institution_name="Chase")

@@ -6,7 +6,7 @@ import re
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Query
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 from api.classification import ALLOWED_TRANSACTION_TYPES, effective_classification
 from api.categories import active_category, effective_category, category_editable
@@ -46,7 +46,7 @@ def _shift_month(month, offset):
     return f"{ordinal // 12:04d}-{ordinal % 12 + 1:02d}"
 
 
-async def _active_analytics_rows(start_date, end_date):
+async def _active_analytics_rows(start_date, end_date, db=None):
     statement = (
         select(
             Transaction,
@@ -84,13 +84,16 @@ async def _active_analytics_rows(start_date, end_date):
         ManualCategoryOverride.transaction_id == Transaction.transaction_id)
     statement = statement.outerjoin(ManualBenefitCategoryOverride,
         ManualBenefitCategoryOverride.transaction_id == Transaction.transaction_id)
-    async with SessionLocal() as db:
+    if db is not None:
         return (await db.execute(statement)).all()
+    async with SessionLocal() as session:
+        await session.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY"))
+        return (await session.execute(statement)).all()
 
 
-async def _active_month_rows(month, category=None):
+async def _active_month_rows(month, category=None, db=None):
     start_date, end_date = _month_bounds(month)
-    rows = await _active_analytics_rows(start_date, end_date)
+    rows = await _active_analytics_rows(start_date, end_date, db)
     if category is None:
         return rows
     return [row for row in rows if _category(_analytics_row(row)[0], _analytics_row(row)[5],
@@ -580,8 +583,9 @@ async def membership_costs(
     else:
         raise HTTPException(status_code=422, detail="unsupported membership period")
     start_date, _ = _month_bounds(start_month)
-    rows = await _active_analytics_rows(start_date, end_date)
     async with SessionLocal() as db:
+        await db.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY"))
+        rows = await _active_analytics_rows(start_date, end_date, db)
         overrides = await load_label_overrides(
             db, [transaction.transaction_id for transaction, *_ in rows])
     return summarize_memberships(rows, overrides, start_month, end_month, period)
@@ -612,10 +616,21 @@ async def analytics_transactions(
         raise HTTPException(status_code=422, detail="unsupported transaction label")
     if benefit_category is not None and benefit_category not in {"DINING_CREDIT", "TRAVEL_CREDIT", "SHOPPING_CREDIT", "TRANSPORTATION_CREDIT", "DIGITAL_ENTERTAINMENT_CREDIT", "ENTERTAINMENT_CREDIT", "GENERAL_SERVICES_CREDIT", "UNCATEGORIZED"}:
         raise HTTPException(status_code=422, detail="unsupported benefit category")
+    async with SessionLocal() as db:
+        await db.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY"))
+        return await _analytics_transactions_in_snapshot(
+            db, month, category, transaction_type, limit, offset, institution_id,
+            account_id, benefit_category, label, start_month, end_month, membership_view)
+
+
+async def _analytics_transactions_in_snapshot(
+    db, month, category, transaction_type, limit, offset, institution_id,
+    account_id, benefit_category, label, start_month, end_month, membership_view,
+):
     if month is not None:
         if start_month is not None or end_month is not None:
             raise HTTPException(status_code=422, detail="choose month or a month range")
-        rows = await _active_month_rows(month)
+        rows = await _active_month_rows(month, db=db)
     else:
         if start_month is None or end_month is None:
             raise HTTPException(status_code=422, detail="provide month or both range endpoints")
@@ -624,7 +639,7 @@ async def analytics_transactions(
         if start_date > end_date or not 0 <= ((int(end_month[:4]) - int(start_month[:4])) * 12
                                           + int(end_month[5:]) - int(start_month[5:])) < 12:
             raise HTTPException(status_code=422, detail="month range must span at most 12 months")
-        rows = await _active_analytics_rows(start_date, end_date)
+        rows = await _active_analytics_rows(start_date, end_date, db)
     details = transaction_details(
         rows, category, transaction_type, institution_id, account_id, benefit_category
     )
@@ -637,8 +652,7 @@ async def analytics_transactions(
         for transaction, _, _, item, account, _, _ in (_analytics_row(row) for row in rows)
         if item is not None and account is not None
     }
-    async with SessionLocal() as db:
-        overrides = await load_label_overrides(db, [detail["transaction_id"] for detail in details])
+    overrides = await load_label_overrides(db, [detail["transaction_id"] for detail in details])
     details = [
         {**detail, **label_result(detail, overrides.get(detail["transaction_id"], ()),
                                  **contexts.get(detail["transaction_id"], {}))}

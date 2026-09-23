@@ -230,6 +230,30 @@ class LabelDatabaseTests(unittest.IsolatedAsyncioTestCase):
             await connection.execute(text(f'DROP SCHEMA "{self.schema}" CASCADE'))
         await self.admin.dispose()
 
+    async def test_m5_membership_and_detail_labels_share_transaction_snapshot(self):
+        async with self.sessions.begin() as db:
+            (await db.get(Item, 'item')).status = 'active'
+        original = analytics.load_label_overrides
+
+        async def edit_between_reads(db, identifiers):
+            # Commit a manual edit after the response has already read its rows.
+            await review.mutate_label('china', 'MEMBERSHIP', 'include')
+            return await original(db, identifiers)
+
+        with patch.object(analytics, 'load_label_overrides', side_effect=edit_between_reads):
+            first = await analytics.membership_costs('2026-07', 'ytd')
+        self.assertEqual(first['overall']['net_cost'], '0.00')
+        self.assertEqual((await analytics.membership_costs('2026-07', 'ytd'))['overall']['net_cost'], '10.00')
+        await review.mutate_label('china', 'MEMBERSHIP', 'exclude')
+        with patch.object(analytics, 'load_label_overrides', side_effect=edit_between_reads):
+            details = await analytics.analytics_transactions(
+                month='2026-07', category=None, transaction_type=None, limit=50, offset=0,
+                label='MEMBERSHIP')
+        self.assertEqual(details['total'], 0)
+        self.assertEqual((await analytics.analytics_transactions(
+            month='2026-07', category=None, transaction_type=None, limit=50, offset=0,
+            label='MEMBERSHIP'))['total'], 1)
+
     async def test_amex_benefit_context_agrees_across_summary_details_and_label_edits(self):
         async with self.sessions.begin() as db:
             (await db.get(Item, 'item')).institution_id = 'ins_10'

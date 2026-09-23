@@ -33,7 +33,10 @@ beforeEach(() => {
     const url = new URL(String(input), 'http://synthetic.test')
     requests.push(url)
     let data: unknown
-    if (url.pathname.endsWith('/review/labels')) data = { labels: [] }
+    if (url.pathname.endsWith('/sync/status')) data = { last_published_run_id: null, published_at: null,
+      current_run: null, jobs: { status: 'stopped', heartbeat_at: null },
+      backup: { status: 'never', last_success_at: null, last_attempt_at: null, error_category: null }, institutions: [] }
+    else if (url.pathname.endsWith('/review/labels')) data = { labels: [] }
     else if (url.pathname.endsWith('/review/categories')) data = { categories: [
       { value: 'UNCATEGORIZED', label: 'Uncategorized' },
       { value: 'FOOD_AND_DRINK', label: 'Food and Drink' },

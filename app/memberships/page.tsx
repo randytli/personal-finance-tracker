@@ -7,6 +7,7 @@ import AccountBadge from '@/components/account-badge'
 import BulkTransactionEditor, { bulkErrorMessage, type BulkEditRequest } from '@/components/bulk-transaction-editor'
 import CategoryEditor, { mergeCategoryDetail, mutateCategoryOverride, type CategoryDetail, type CategoryOption } from '@/components/category-editor'
 import LabelEditor, { mergeLabelDetail, type LabelDetail, useLabelOptions } from '@/components/label-editor'
+import { SyncHealth, consistentJson, useSyncRefresh } from '@/components/sync-health'
 import { membershipPeriods, membershipRangeText, membershipSummaryMatches,
   membershipSummaryPath, membershipTransactionsPath, type MembershipPeriod } from './period'
 import type { MembershipView } from './period'
@@ -107,6 +108,7 @@ export default function MembershipsPage() {
   const [status, setStatus] = useState('')
   const [categoryOptions, setCategoryOptions] = useState<CategoryOption[]>([])
   const labelOptions = useLabelOptions()
+  const sync = useSyncRefresh()
 
   useEffect(() => {
     let active = true
@@ -120,13 +122,12 @@ export default function MembershipsPage() {
   useEffect(() => {
     let active = true
     setLoading(true)
-    fetch(membershipSummaryPath(endMonth, period))
-      .then(response => response.ok ? response.json() : Promise.reject())
-      .then(data => { if (active) setSummary(data) })
+    consistentJson([membershipSummaryPath(endMonth, period)], sync.check)
+      .then(([data]) => { if (active) setSummary(data) })
       .catch(() => { if (active) setError('Membership costs could not be loaded.') })
       .finally(() => { if (active) setLoading(false) })
     return () => { active = false }
-  }, [endMonth, period, revision])
+  }, [endMonth, period, revision, sync.revision, sync.check])
 
   const startMonth = summary && membershipSummaryMatches(summary, endMonth, period)
     ? summary.start_month : null
@@ -134,9 +135,8 @@ export default function MembershipsPage() {
     if (!startMonth) return
     let active = true
     setDetailLoading(true)
-    fetch(membershipTransactionsPath(startMonth, endMonth, accountId, offset, PAGE_SIZE, view))
-      .then(response => response.ok ? response.json() : Promise.reject())
-      .then(data => {
+    consistentJson([membershipTransactionsPath(startMonth, endMonth, accountId, offset, PAGE_SIZE, view)], sync.check)
+      .then(([data]) => {
         if (!active) return
         if (offset > 0 && offset >= data.total) {
           setOffset(Math.max(0, Math.floor((data.total - 1) / PAGE_SIZE) * PAGE_SIZE))
@@ -151,7 +151,7 @@ export default function MembershipsPage() {
       .catch(() => { if (active) setError('Membership transactions could not be loaded.') })
       .finally(() => { if (active) setDetailLoading(false) })
     return () => { active = false }
-  }, [startMonth, endMonth, accountId, offset, view, revision])
+  }, [startMonth, endMonth, accountId, offset, view, revision, sync.revision, sync.check])
 
   const selectedAccount = summary?.accounts.find(account => account.account_id === accountId)
   const chartData = useMemo(() => (summary?.months || []).map(month => ({
@@ -162,12 +162,6 @@ export default function MembershipsPage() {
     reimbursements: Number(month.reimbursements),
     cardBenefits: Number(month.card_benefits),
   })), [summary])
-
-  useEffect(() => {
-    if (summary && accountId && !summary.accounts.some(account => account.account_id === accountId)) {
-      changeAccount(null)
-    }
-  }, [summary, accountId])
 
   function resetDetails() {
     setOffset(0)
@@ -222,6 +216,7 @@ export default function MembershipsPage() {
       const changed = await mutateCategoryOverride(detail.transaction_id, category)
       setDetails(current => current.map(value => mergeCategoryDetail(value, changed)))
       setSelected(new Set())
+      refresh()
       return true
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Category could not be saved.')
@@ -285,6 +280,7 @@ export default function MembershipsPage() {
         </label>
       </div>
     </header>
+    <div className="mt-5"><SyncHealth status={sync.status} error={sync.error} /></div>
     {error && <p role="alert" className="mt-5 rounded-md bg-red-50 p-3 text-sm text-red-800">{error}</p>}
     {status && <p role="status" className="mt-5 rounded-md border bg-slate-50 p-3 text-sm">{status}</p>}
     {loading && <p className="mt-6 text-sm text-muted-foreground">Loading membership costs…</p>}
@@ -389,7 +385,8 @@ export default function MembershipsPage() {
           <div>
             <h2 className="text-lg font-semibold">Membership transactions</h2>
             <p className="text-sm text-muted-foreground">
-              {selectedAccount ? `${selectedAccount.institution_name} · ${selectedAccount.account_name}` : 'All accounts'}
+              {selectedAccount ? `${selectedAccount.institution_name} · ${selectedAccount.account_name}`
+                : accountId ? 'Selected account (no matching costs)' : 'All accounts'}
               {' · '}{total} {view === 'all' ? 'Membership transactions' : view === 'card_benefits' ? 'card benefit credits' : view === 'charges' ? 'membership charges' : view === 'reimbursements' ? 'membership reimbursements' : 'membership refunds'} in the reporting period
             </p>
             {view === 'reimbursements' && !detailLoading && <p className="mt-2 text-sm font-medium">

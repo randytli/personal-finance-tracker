@@ -1,6 +1,7 @@
 import os
 import asyncio
 import unittest
+import uuid
 from datetime import date, datetime
 from decimal import Decimal
 from types import SimpleNamespace
@@ -190,22 +191,28 @@ class CategoryDatabaseTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(engine.url.port, 55439)
         self.assertNotEqual(os.environ.get('PLAID_ENV'), 'production')
         await init_db()
+        item_id = 'synthetic-category-' + uuid.uuid4().hex
+        account_id = 'account-category-' + uuid.uuid4().hex
+        transaction_id = 'transaction-category-' + uuid.uuid4().hex
+        institution_id = 'ins-category-' + uuid.uuid4().hex
         async with SessionLocal() as db:
             async with db.begin():
-                db.add(Item(item_id='synthetic', user_id='local-sandbox-user', institution_id='ins_test',
+                db.add(Item(item_id=item_id, user_id='local-sandbox-user', institution_id=institution_id,
                     institution_name='Synthetic', status='active', access_token='synthetic-only'))
             async with db.begin():
-                db.add(Account(account_id='account', item_id='synthetic', name='Test', type='credit',
+                db.add(Account(account_id=account_id, item_id=item_id, name='Test', type='credit',
                                consumer_transactions_enabled=True))
-                db.add(RawTransaction(transaction_id='t', item_id='synthetic', account_id='account',
+                db.add(RawTransaction(transaction_id=transaction_id, item_id=item_id, account_id=account_id,
                     transaction_date=date(2026, 8, 1), payload={'amount': 12.34, 'name': 'Synthetic',
                     'personal_finance_category': {'primary': 'ENTERTAINMENT'}}))
-        await normalize_transactions('synthetic')
+        await normalize_transactions(item_id)
         await classify_transactions()
         async def snapshot():
             async with engine.connect() as connection:
-                return (await connection.execute(text('SELECT * FROM manual_category_overrides'))).all()
-        await mutate_category('t', 'GENERAL_MERCHANDISE')
+                return (await connection.execute(text(
+                    'SELECT * FROM manual_category_overrides WHERE transaction_id=:id'),
+                    {'id': transaction_id})).all()
+        await mutate_category(transaction_id, 'GENERAL_MERCHANDISE')
         saved = await snapshot()
         # Simulate the previous constraint on a populated existing table.
         from api.categories import CATEGORY_CHECK
@@ -218,15 +225,15 @@ class CategoryDatabaseTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(saved, await snapshot())
         await init_db()
         self.assertEqual(saved, await snapshot())
-        result = await mutate_category('t', CategoryRequest(category='UNCATEGORIZED').category)
+        result = await mutate_category(transaction_id, CategoryRequest(category='UNCATEGORIZED').category)
         self.assertEqual(result['effective_category'], 'UNCATEGORIZED')
         uncategorized_saved = await snapshot()
         await init_db()
         await init_db()
         self.assertEqual(uncategorized_saved, await snapshot())
-        result = await mutate_category('t', None)
+        result = await mutate_category(transaction_id, None)
         self.assertEqual(result['effective_category'], 'ENTERTAINMENT')
-        result = await mutate_category('t', CategoryRequest(category='GROCERIES').category)
+        result = await mutate_category(transaction_id, CategoryRequest(category='GROCERIES').category)
         self.assertEqual(result['effective_category'], 'GROCERIES')
         groceries_saved = await snapshot()
         await init_db()
@@ -234,40 +241,41 @@ class CategoryDatabaseTests(unittest.IsolatedAsyncioTestCase):
         from sqlalchemy.exc import IntegrityError
         with self.assertRaises(IntegrityError):
             async with engine.begin() as connection:
-                await connection.execute(text("UPDATE manual_category_overrides SET category='INVALID'"))
+                await connection.execute(text("UPDATE manual_category_overrides SET category='INVALID' "
+                                              "WHERE transaction_id=:id"), {'id': transaction_id})
         self.assertEqual(groceries_saved, await snapshot())
-        await mutate_category('t', 'GENERAL_MERCHANDISE')
+        await mutate_category(transaction_id, 'GENERAL_MERCHANDISE')
         saved = await snapshot()
-        await mutate_category('t', 'GENERAL_MERCHANDISE')
+        await mutate_category(transaction_id, 'GENERAL_MERCHANDISE')
         self.assertEqual(saved, await snapshot())
         await init_db()
         self.assertEqual(saved, await snapshot())
-        await normalize_transactions('synthetic')
+        await normalize_transactions(item_id)
         await classify_transactions()
         self.assertEqual(saved, await snapshot())
         async with SessionLocal() as db:
             async with db.begin():
-                transaction = await db.get(Transaction, 't')
+                transaction = await db.get(Transaction, transaction_id)
                 transaction.plaid_category = 'TRAVEL'
-        result = await mutate_category('t', None)
+        result = await mutate_category(transaction_id, None)
         self.assertEqual(result['effective_category'], 'TRAVEL')
         cleared = await snapshot()
-        await mutate_category('t', None)
+        await mutate_category(transaction_id, None)
         self.assertEqual(cleared, await snapshot())
-        await mutate_category('t', 'GENERAL_MERCHANDISE')
+        await mutate_category(transaction_id, 'GENERAL_MERCHANDISE')
         async with SessionLocal() as db:
-            override = await db.get(ManualCategoryOverride, 't')
+            override = await db.get(ManualCategoryOverride, transaction_id)
             self.assertEqual(override.created_at, saved[0].created_at)
             self.assertIsNone(override.cleared_at)
             self.assertIsNone(override.cleared_by)
             async with db.begin_nested():
-                transaction = await db.get(Transaction, 't')
+                transaction = await db.get(Transaction, transaction_id)
                 transaction.is_internal_transfer = True
             await db.commit()
         with self.assertRaises(HTTPException) as error:
-            await mutate_category('t', 'TRAVEL')
+            await mutate_category(transaction_id, 'TRAVEL')
         self.assertEqual(error.exception.status_code, 422)
-        await mutate_category('t', None)
+        await mutate_category(transaction_id, None)
         with self.assertRaises(HTTPException) as error:
             await mutate_category('missing', 'TRAVEL')
         self.assertEqual(error.exception.status_code, 404)

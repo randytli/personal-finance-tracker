@@ -15,6 +15,10 @@ const nextConfig = {
         source: '/api/pft/analytics/:path*',
         destination: `${apiBaseUrl}/analytics/:path*`,
       },
+      {
+        source: '/api/pft/sync/:path*',
+        destination: `${apiBaseUrl}/sync/:path*`,
+      },
     ]
   },
 }

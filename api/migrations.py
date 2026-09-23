@@ -13,6 +13,8 @@ async def migrate_sync_runs(connection):
         ("last_sync_change_at", "TIMESTAMPTZ"),
         ("next_sync_retry_at", "TIMESTAMPTZ"),
         ("sync_retry_count", "INTEGER NOT NULL DEFAULT 0"),
+        ("metadata_warning", "VARCHAR"),
+        ("metadata_warning_at", "TIMESTAMPTZ"),
     ):
         await connection.execute(text(f"ALTER TABLE items ADD COLUMN IF NOT EXISTS {name} {definition}"))
     for table in (SyncRun.__table__, SyncItemRun.__table__, SyncRuntimeState.__table__):
@@ -22,6 +24,8 @@ async def migrate_sync_runs(connection):
         ("requested_item_ids", "JSONB"),
         ("running_sequence", "INTEGER"),
         ("running_item_ids", "JSONB"),
+        ("last_backup_attempt_at", "TIMESTAMPTZ"),
+        ("last_backup_error", "VARCHAR"),
     ):
         await connection.execute(text(f"ALTER TABLE sync_runtime_state ADD COLUMN IF NOT EXISTS {name} {definition}"))
 

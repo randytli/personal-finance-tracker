@@ -1,4 +1,5 @@
 from cryptography.fernet import Fernet, InvalidToken
+from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 import json
@@ -411,6 +412,11 @@ async def get_accounts(item_id: str = Query(..., min_length=1)):
     try:
         accounts = client.accounts_get(request).to_dict()["accounts"]
     except plaid.ApiException as exc:
+        async with SessionLocal.begin() as db:
+            await db.execute(update(Item).where(Item.item_id == item.item_id,
+                                               Item.user_id == _user_id()).values(
+                metadata_warning="metadata_refresh_failed",
+                metadata_warning_at=datetime.now(timezone.utc)))
         raise _plaid_failure() from exc
 
     return await persist_account_metadata(item.item_id, accounts)
@@ -418,7 +424,10 @@ async def get_accounts(item_id: str = Query(..., min_length=1)):
 
 async def persist_account_metadata(item_id, accounts):
     async with SessionLocal.begin() as db:
-        return await persist_account_metadata_in_session(db, _user_id(), item_id, accounts)
+        result = await persist_account_metadata_in_session(db, _user_id(), item_id, accounts)
+        await db.execute(update(Item).where(Item.item_id == item_id, Item.user_id == _user_id())
+                         .values(metadata_warning=None, metadata_warning_at=None))
+        return result
 
 @router.post("/transactions/normalize")
 async def normalize_transactions(item_id: str = Query(..., min_length=1)):

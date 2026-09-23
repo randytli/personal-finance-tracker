@@ -50,6 +50,8 @@ class Item(Base):
     last_sync_change_at = Column(DateTime(timezone=True))
     next_sync_retry_at = Column(DateTime(timezone=True))
     sync_retry_count = Column(Integer, nullable=False, default=0, server_default="0")
+    metadata_warning = Column(String)
+    metadata_warning_at = Column(DateTime(timezone=True))
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
@@ -106,6 +108,8 @@ class SyncRuntimeState(Base):
     running_item_ids = Column(JSONB)
     jobs_heartbeat_at = Column(DateTime(timezone=True))
     last_backup_at = Column(DateTime(timezone=True))
+    last_backup_attempt_at = Column(DateTime(timezone=True))
+    last_backup_error = Column(String)
 
 class RawTransaction(Base):
     __tablename__ = "raw_transactions"
