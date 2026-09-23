@@ -1,0 +1,74 @@
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PFT_API_URL: http://api:8000
+    ports:
+      - "127.0.0.1:${PFT_WEB_PORT:-3000}:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    logging: &bounded_logs
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    restart: unless-stopped
+    env_file: ${PFT_RUNTIME_ENV_FILE:-.env.runtime.local}
+    command: ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/ready', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    logging: *bounded_logs
+  jobs:
+    build:
+      context: .
+      dockerfile: Dockerfile.jobs
+    restart: unless-stopped
+    user: "1000:1000"
+    env_file: ${PFT_BACKUP_ENV_FILE:-.env.runtime.backup.local}
+    environment:
+      PFT_BACKUP_DIR: /backups
+      PFT_APP_COMMIT: ${PFT_APP_COMMIT:?Set PFT_APP_COMMIT to the current Git commit}
+    command: ["python", "-m", "api.backup", "worker"]
+    volumes:
+      - ${PFT_BACKUP_HOST_DIR:?Set PFT_BACKUP_HOST_DIR to an encrypted Windows host directory}:/backups
+    depends_on:
+      db:
+        condition: service_healthy
+    logging: *bounded_logs
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    env_file: ${PFT_DB_ENV_FILE:-.env.runtime.db.local}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    logging: *bounded_logs
+volumes:
+  pgdata:

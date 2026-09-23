@@ -1,0 +1,11 @@
+.git
+.env*
+.venv
+.next
+node_modules
+__pycache__
+*.pyc
+tests
+docs
+statement_imports/*
+!statement_imports/*.py

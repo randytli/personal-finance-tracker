@@ -1,0 +1,11 @@
+FROM postgres:16
+WORKDIR /app
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+RUN apt-get update && apt-get install -y --no-install-recommends python3 python3-venv \
+    && rm -rf /var/lib/apt/lists/*
+RUN python3 -m venv /opt/pft-venv
+ENV PATH=/opt/pft-venv/bin:/usr/lib/postgresql/16/bin:$PATH
+COPY api/requirements.txt /app/api/requirements.txt
+RUN pip install --no-cache-dir -r /app/api/requirements.txt
+COPY api /app/api
+COPY statement_imports/*.py /app/statement_imports/

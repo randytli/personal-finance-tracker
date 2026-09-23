@@ -1,0 +1,17 @@
+# Use only after the M6 cutover approval and the preflight in docs/PFT_M3_RUNTIME.md.
+services:
+  db:
+    # Even an accidentally recreated, empty external volume must fail closed.
+    entrypoint:
+      - /bin/sh
+      - -ec
+      - |
+        test "$$(cat /var/lib/postgresql/data/PG_VERSION)" = 16
+        test -s /var/lib/postgresql/data/global/pg_control
+        exec /usr/local/bin/docker-entrypoint.sh postgres
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+volumes:
+  pgdata:
+    external: true
+    name: personal-finance-tracker_pgdata_production_backfill
