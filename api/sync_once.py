@@ -1,4 +1,4 @@
-"""Explicit one-shot sync entry point. Scheduling and status HTTP belong to later milestones."""
+"""Explicit one-shot sync entry point, separate from the M4 jobs scheduler."""
 
 import argparse
 import asyncio

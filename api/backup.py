@@ -1,4 +1,4 @@
-"""Manual M3 backup and isolated restore commands. Scheduling belongs to M4."""
+"""Backup and isolated restore commands; M4 jobs invokes daily backups."""
 import argparse
 import hashlib
 import json

@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from api.db import engine, verify_database_name, verify_runtime_schema
-from api.routes import analytics, plaid, review
+from api.routes import analytics, plaid, review, sync
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -32,6 +32,7 @@ async def local_request_boundary(request, call_next):
 app.include_router(plaid.router)
 app.include_router(analytics.router)
 app.include_router(review.router)
+app.include_router(sync.router)
 
 @app.get("/ping")
 async def ping(): return {"pong": True}

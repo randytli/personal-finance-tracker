@@ -49,6 +49,7 @@ class Item(Base):
     last_sync_success_at = Column(DateTime(timezone=True))
     last_sync_change_at = Column(DateTime(timezone=True))
     next_sync_retry_at = Column(DateTime(timezone=True))
+    sync_retry_count = Column(Integer, nullable=False, default=0, server_default="0")
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
@@ -58,6 +59,7 @@ class SyncRun(Base):
     run_id = Column(String, primary_key=True)
     user_id = Column(String, nullable=False, index=True)
     trigger_source = Column(String, nullable=False)
+    request_sequence = Column(Integer)
     started_at = Column(DateTime(timezone=True), nullable=False)
     finished_at = Column(DateTime(timezone=True))
     duration_ms = Column(Integer)
@@ -99,6 +101,9 @@ class SyncRuntimeState(Base):
     published_at = Column(DateTime(timezone=True))
     requested_sequence = Column(Integer, nullable=False, server_default="0")
     handled_sequence = Column(Integer, nullable=False, server_default="0")
+    requested_item_ids = Column(JSONB)
+    running_sequence = Column(Integer)
+    running_item_ids = Column(JSONB)
     jobs_heartbeat_at = Column(DateTime(timezone=True))
     last_backup_at = Column(DateTime(timezone=True))
 

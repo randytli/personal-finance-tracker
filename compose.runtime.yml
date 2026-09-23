@@ -46,11 +46,13 @@ services:
       dockerfile: Dockerfile.jobs
     restart: unless-stopped
     user: "1000:1000"
-    env_file: ${PFT_BACKUP_ENV_FILE:-.env.runtime.backup.local}
+    env_file:
+      - ${PFT_RUNTIME_ENV_FILE:-.env.runtime.local}
+      - ${PFT_BACKUP_ENV_FILE:-.env.runtime.backup.local}
     environment:
       PFT_BACKUP_DIR: /backups
       PFT_APP_COMMIT: ${PFT_APP_COMMIT:?Set PFT_APP_COMMIT to the current Git commit}
-    command: ["python", "-m", "api.backup", "worker"]
+    command: ["python", "-m", "api.jobs"]
     volumes:
       - ${PFT_BACKUP_HOST_DIR:?Set PFT_BACKUP_HOST_DIR to an encrypted Windows host directory}:/backups
     depends_on:

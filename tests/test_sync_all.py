@@ -5,7 +5,7 @@ import json
 import os
 import unittest
 import uuid
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from unittest.mock import patch
 
 import plaid
@@ -504,6 +504,28 @@ class SyncAllDatabaseTests(unittest.IsolatedAsyncioTestCase):
         _, runs, _, marker = await self.state()
         self.assertEqual(runs, [])
         self.assertIsNone(marker)
+
+    async def test_jobs_retry_backoff_and_action_blocker_are_persisted(self):
+        clock = datetime(2026, 9, 22, 12, tzinfo=timezone.utc)
+        for delay in (timedelta(minutes=15), timedelta(hours=1), timedelta(hours=6),
+                      timedelta(hours=6)):
+            with patch.object(service, "utcnow", return_value=clock):
+                result = await self.run_sync(Client({"token-a": [plaid_error("PRODUCT_NOT_READY")]}),
+                                             item_ids=["a"], trigger_source="jobs")
+            self.assertEqual(result["status"], "waiting")
+            async with self.sessions() as db:
+                item = await db.get(Item, "a")
+                self.assertEqual(item.next_sync_retry_at, clock + delay)
+                self.assertFalse(item.sync_paused)
+            clock += delay
+        with patch.object(service, "utcnow", return_value=clock):
+            result = await self.run_sync(Client({"token-a": [plaid_error("ITEM_LOGIN_REQUIRED")]}),
+                                         item_ids=["a"], trigger_source="jobs")
+        self.assertEqual(result["status"], "blocked")
+        async with self.sessions() as db:
+            item = await db.get(Item, "a")
+            self.assertTrue(item.sync_paused)
+            self.assertIsNone(item.next_sync_retry_at)
 
     async def test_migration_preserves_existing_cursor_and_is_idempotent(self):
         async with self.engine.begin() as connection:

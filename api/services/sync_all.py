@@ -1,8 +1,8 @@
 """One-shot, active-Item sync with atomic consumer publication.
 
 Plaid work is read-only with respect to PostgreSQL and finishes before the
-publication transaction. Jobs and a future manual trigger can call this module
-directly; neither needs to call the legacy split HTTP routes.
+publication transaction. Jobs calls this module directly after consuming a
+manual or scheduled request; it does not call the legacy split HTTP routes.
 """
 
 import asyncio
@@ -11,7 +11,7 @@ import os
 import time
 import uuid
 from dataclasses import dataclass, field
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 
 import plaid
@@ -27,6 +27,7 @@ from api.services.derivation import (
     NormalizationInputError, classify_active_transactions, normalize_item_transactions,
 )
 from api.services.persistence import persist_account_metadata, persist_consumer_transactions
+from api.services.sync_state import acquire_session_lock, acknowledge_request, due_items, locked_state
 from api.statement_semantics import lock_consumer_derivation
 
 
@@ -35,6 +36,8 @@ MAX_MUTATION_RETRIES = 2
 MAX_TRANSIENT_RETRIES = 2
 MAX_RUN_SECONDS = 300
 REQUEST_TIMEOUT = (5, 20)
+RETRY_DELAYS = (timedelta(minutes=15), timedelta(hours=1), timedelta(hours=6))
+RETRYABLE_BLOCKERS = {"stale_item", "stale_scope"}
 
 
 def utcnow():
@@ -297,11 +300,20 @@ async def _finalize_failure(session_factory, run_id, outcomes, category):
         run = await db.get(SyncRun, run_id, with_for_update=True)
         if run.status != "running":
             return
+        if run.trigger_source in {"jobs", "manual"}:
+            await lock_consumer_derivation(db, run.user_id)
         now = utcnow()
-        for item_id, outcome in outcomes.items():
+        selected_ids = (await db.execute(select(SyncItemRun.item_id).where(
+            SyncItemRun.run_id == run_id).order_by(SyncItemRun.item_id))).scalars().all()
+        for item_id in selected_ids:
+            outcome = outcomes.get(item_id, _outcome("failed", "rollback", "publication_rolled_back"))
             if outcome["status"] in {"ready", "success"}:
                 outcome = _outcome("failed", "rollback", "publication_rolled_back", outcome.get("buffer"))
             await _record_item(db, run_id, item_id, outcome, now)
+            if run.trigger_source in {"jobs", "manual"}:
+                item = await db.get(Item, item_id, with_for_update=True)
+                await db.execute(update(Item).where(Item.item_id == item_id)
+                                 .values(**_schedule_result(item, outcome, now)))
         await db.execute(update(SyncItemRun).where(SyncItemRun.run_id == run_id,
                           SyncItemRun.status == "running")
                          .values(status="failed", phase="rollback", finished_at=now,
@@ -310,10 +322,28 @@ async def _finalize_failure(session_factory, run_id, outcomes, category):
         run.error_category = category
         run.finished_at = now
         run.duration_ms = round((now - run.started_at).total_seconds() * 1000)
+        await acknowledge_request(db, run.user_id, run.request_sequence)
+
+
+def _schedule_result(item, outcome, now):
+    """Persist bounded retries only for scheduled/manual work."""
+    if outcome["status"] == "success":
+        return {"sync_retry_count": 0, "next_sync_retry_at": None}
+    if outcome["status"] == "blocked" and outcome.get("error_category") not in RETRYABLE_BLOCKERS:
+        return {"sync_paused": True, "next_sync_retry_at": None}
+    count = (item.sync_retry_count or 0) + 1
+    return {"sync_retry_count": count,
+            "next_sync_retry_at": now + RETRY_DELAYS[min(count - 1, len(RETRY_DELAYS) - 1)]}
+
+
+async def _assert_lock_owner(connection, backend_pid):
+    if await connection.scalar(text("SELECT pg_backend_pid()")) != backend_pid:
+        raise RuntimeError("Sync lock connection was lost")
 
 
 async def sync_all(user_id, *, trigger_source="one_shot", client=None, session_factory=None,
-                   engine=None, item_ids=None):
+                   engine=None, item_ids=None, request_sequence=None, scheduled_at=None,
+                   check_owner=None):
     """Synchronize selected active Items once and return sanitized run diagnostics.
 
     `item_ids` narrows an explicit one-shot run; it never widens active scope.
@@ -332,6 +362,11 @@ async def sync_all(user_id, *, trigger_source="one_shot", client=None, session_f
     if os.environ.get("PLAID_ENV", "").lower() == "production" and user_id != os.environ.get("PLAID_PILOT_USER_ID"):
         raise RuntimeError("Production sync scope does not match configured pilot user")
     deadline = time.monotonic() + MAX_RUN_SECONDS
+    async def check_jobs_owner():
+        if check_owner is not None:
+            await check_owner()
+
+    await check_jobs_owner()
     async with engine.connect() as lock_connection:
         if os.environ.get("PLAID_ENV", "").lower() == "production":
             actual = await lock_connection.scalar(text("SELECT current_database()"))
@@ -342,13 +377,11 @@ async def sync_all(user_id, *, trigger_source="one_shot", client=None, session_f
             "to_regclass('sync_runtime_state')"))).one()
         if any(table is None for table in tables):
             raise RuntimeError("M2 schema is missing; run the migration explicitly")
-        got_lock = await lock_connection.scalar(
-            text("SELECT pg_try_advisory_lock(hashtextextended(:key, 0))"),
-            {"key": "pft-sync:" + user_id})
-        await lock_connection.commit()  # Session-level advisory lock remains held.
+        got_lock, backend_pid = await acquire_session_lock(lock_connection, "pft-sync:" + user_id)
         if not got_lock:
             return {"status": "busy", "run_id": None, "items": {}}
         try:
+            await check_jobs_owner()
             async with session_factory.begin() as db:
                 # Only a new lock owner can reconcile a pre-commit crash.
                 interrupted_at = utcnow()
@@ -361,10 +394,16 @@ async def sync_all(user_id, *, trigger_source="one_shot", client=None, session_f
                 await db.execute(update(SyncRun).where(SyncRun.user_id == user_id,
                     SyncRun.status == "running").values(status="interrupted", finished_at=interrupted_at,
                                                           error_category="interrupted"))
+                if request_sequence is not None:
+                    state = await locked_state(db, user_id)
+                    if state.handled_sequence >= request_sequence or state.running_sequence != request_sequence:
+                        return {"status": "idle", "run_id": None, "items": {}}
                 query = select(Item).where(Item.user_id == user_id, Item.status == "active",
                                            Item.sync_paused.is_(False)).order_by(Item.item_id)
                 if item_ids is not None:
                     query = query.where(Item.item_id.in_(item_ids))
+                if scheduled_at is not None:
+                    query = query.where(due_items(scheduled_at))
                 items = (await db.execute(query)).scalars().all()
                 snapshots = {}
                 initial = {}
@@ -380,12 +419,14 @@ async def sync_all(user_id, *, trigger_source="one_shot", client=None, session_f
                             RawTransaction).where(RawTransaction.item_id == item.item_id)):
                         initial[item.item_id] = _outcome("blocked", "select", "missing_cursor")
             if not snapshots:
+                async with session_factory.begin() as db:
+                    await acknowledge_request(db, user_id, request_sequence)
                 return {"status": "idle", "run_id": None, "items": {}}
             run_id = str(uuid.uuid4())
             started = utcnow()
             async with session_factory.begin() as db:
                 db.add(SyncRun(run_id=run_id, user_id=user_id, trigger_source=trigger_source,
-                               started_at=started, status="running"))
+                               started_at=started, status="running", request_sequence=request_sequence))
                 await db.flush()
                 for item_id in snapshots:
                     db.add(SyncItemRun(run_id=run_id, item_id=item_id, started_at=started,
@@ -408,6 +449,8 @@ async def sync_all(user_id, *, trigger_source="one_shot", client=None, session_f
                                                      request_id=problem.request_id,
                                                      retries=problem.retries, pages=problem.pages)
             except Exception:
+                await _assert_lock_owner(lock_connection, backend_pid)
+                await check_jobs_owner()
                 await _finalize_failure(session_factory, run_id, outcomes, "fetch_failed")
                 raise
             accepted = 0
@@ -440,7 +483,8 @@ async def sync_all(user_id, *, trigger_source="one_shot", client=None, session_f
                             outcome.update(status="success", phase="published", result=result,
                                            normalized_count=normalized_count)
                             accepted += 1
-                    await lock_connection.scalar(text("SELECT 1"))  # Lost owner means no publication.
+                    await _assert_lock_owner(lock_connection, backend_pid)
+                    await check_jobs_owner()
                     if accepted:
                         classify_start = time.monotonic()
                         classification = await classify_active_transactions(db, user_id)
@@ -460,12 +504,20 @@ async def sync_all(user_id, *, trigger_source="one_shot", client=None, session_f
                     now = utcnow()
                     for item_id, outcome in outcomes.items():
                         await _record_item(db, run_id, item_id, outcome, now)
+                        scheduled_values = {}
+                        if trigger_source in {"jobs", "manual"}:
+                            item = await db.get(Item, item_id, with_for_update=True)
+                            scheduled_values = _schedule_result(item, outcome, now)
                         if outcome["status"] == "success":
                             changes = outcome["result"]["changed_transaction_count"]
-                            values = {"last_sync_success_at": now, "next_sync_retry_at": None}
+                            values = {"last_sync_success_at": now, "next_sync_retry_at": None,
+                                      **scheduled_values}
                             if changes:
                                 values["last_sync_change_at"] = now
                             await db.execute(update(Item).where(Item.item_id == item_id).values(**values))
+                        elif scheduled_values:
+                            await db.execute(update(Item).where(Item.item_id == item_id)
+                                             .values(**scheduled_values))
                     status = _run_status(outcomes)
                     await db.execute(update(SyncRun).where(SyncRun.run_id == run_id).values(
                         status=status, finished_at=now,
@@ -475,18 +527,18 @@ async def sync_all(user_id, *, trigger_source="one_shot", client=None, session_f
                         classification_duration_ms=classification_ms,
                         published_at=now if accepted else None))
                     if accepted:
-                        state = await db.get(SyncRuntimeState, user_id, with_for_update=True)
-                        if state is None:
-                            state = SyncRuntimeState(user_id=user_id)
-                            db.add(state)
+                        state = await locked_state(db, user_id)
                         state.last_published_run_id = run_id
                         state.published_at = now
+                    await acknowledge_request(db, user_id, request_sequence)
                     if time.monotonic() >= deadline:
                         raise TimeoutError("Sync run deadline exceeded")
-                    await lock_connection.scalar(text("SELECT 1"))
+                    await _assert_lock_owner(lock_connection, backend_pid)
+                    await check_jobs_owner()
             except Exception:
                 try:
-                    await lock_connection.scalar(text("SELECT 1"))
+                    await _assert_lock_owner(lock_connection, backend_pid)
+                    await check_jobs_owner()
                 except Exception:
                     # The next owner reconciles this running row under the sync lock.
                     raise
@@ -505,5 +557,8 @@ async def sync_all(user_id, *, trigger_source="one_shot", client=None, session_f
                     text("SELECT pg_advisory_unlock(hashtextextended(:key, 0))"),
                     {"key": "pft-sync:" + user_id})
                 await lock_connection.commit()
+            except asyncio.CancelledError:
+                await lock_connection.invalidate()
+                raise
             except Exception:
                 await lock_connection.invalidate()
