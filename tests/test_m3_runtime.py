@@ -132,9 +132,10 @@ class LocalOriginTests(unittest.IsolatedAsyncioTestCase):
         from api.main import local_request_boundary
         next_handler = AsyncMock()
         request = SimpleNamespace(method="POST", headers={"host": "api:8000"})
-        with patch.dict(os.environ, {"PFT_STRICT_LOCAL_HTTP": "true"}, clear=True):
+        with patch.dict(os.environ, {"PFT_STRICT_LOCAL_HTTP": "true",
+                                          "PFT_ALLOWED_HOSTS": "api:8000"}, clear=True):
             response = await local_request_boundary(request, next_handler)
-        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.status_code, 503)
         next_handler.assert_not_awaited()
 
 

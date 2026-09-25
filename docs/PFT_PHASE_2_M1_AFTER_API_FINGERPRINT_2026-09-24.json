@@ -1,0 +1,373 @@
+{
+  "database": "pft_production_backfill",
+  "institutions": [
+    {
+      "accounts": 2,
+      "cursor_present": true,
+      "disabled_accounts": 0,
+      "enabled_accounts": 2,
+      "institution_name": "American Express",
+      "status": "active"
+    },
+    {
+      "accounts": 1,
+      "cursor_present": true,
+      "disabled_accounts": 0,
+      "enabled_accounts": 1,
+      "institution_name": "Bank of America",
+      "status": "active"
+    },
+    {
+      "accounts": 2,
+      "cursor_present": true,
+      "disabled_accounts": 0,
+      "enabled_accounts": 2,
+      "institution_name": "Capital One",
+      "status": "active"
+    },
+    {
+      "accounts": 3,
+      "cursor_present": true,
+      "disabled_accounts": 0,
+      "enabled_accounts": 3,
+      "institution_name": "Chase",
+      "status": "active"
+    },
+    {
+      "accounts": 5,
+      "cursor_present": true,
+      "disabled_accounts": 4,
+      "enabled_accounts": 1,
+      "institution_name": "Robinhood",
+      "status": "active"
+    }
+  ],
+  "integrity": {
+    "normalized_account_mismatches": 0,
+    "plaid_statement_link_errors": 0,
+    "raw_item_mismatches": 0,
+    "statement_evidence_errors": 0
+  },
+  "raw_by_institution_source": [
+    {
+      "first_date": "2024-09-03",
+      "institution_name": "American Express",
+      "is_removed": false,
+      "last_date": "2026-09-23",
+      "rows": 1509,
+      "source": "plaid"
+    },
+    {
+      "first_date": "2026-09-01",
+      "institution_name": "American Express",
+      "is_removed": true,
+      "last_date": "2026-09-22",
+      "rows": 3,
+      "source": "plaid"
+    },
+    {
+      "first_date": "2025-04-15",
+      "institution_name": "Bank of America",
+      "is_removed": false,
+      "last_date": "2026-04-28",
+      "rows": 71,
+      "source": "plaid"
+    },
+    {
+      "first_date": "2026-06-25",
+      "institution_name": "Capital One",
+      "is_removed": false,
+      "last_date": "2026-09-11",
+      "rows": 41,
+      "source": "plaid"
+    },
+    {
+      "first_date": "2024-09-20",
+      "institution_name": "Chase",
+      "is_removed": false,
+      "last_date": "2026-09-22",
+      "rows": 700,
+      "source": "plaid"
+    },
+    {
+      "first_date": "2026-09-01",
+      "institution_name": "Chase",
+      "is_removed": true,
+      "last_date": "2026-09-22",
+      "rows": 4,
+      "source": "plaid"
+    },
+    {
+      "first_date": "2026-07-22",
+      "institution_name": "Robinhood",
+      "is_removed": false,
+      "last_date": "2026-09-22",
+      "rows": 112,
+      "source": "plaid"
+    },
+    {
+      "first_date": "2026-09-02",
+      "institution_name": "Robinhood",
+      "is_removed": true,
+      "last_date": "2026-09-22",
+      "rows": 4,
+      "source": "plaid"
+    },
+    {
+      "first_date": "2026-02-04",
+      "institution_name": "Robinhood",
+      "is_removed": false,
+      "last_date": "2026-07-21",
+      "rows": 171,
+      "source": "statement"
+    }
+  ],
+  "tables": {
+    "accounts": {
+      "columns": [
+        "account_id",
+        "item_id",
+        "name",
+        "official_name",
+        "type",
+        "subtype",
+        "mask",
+        "created_at",
+        "updated_at",
+        "consumer_transactions_enabled"
+      ],
+      "count": 13,
+      "sha256": "fcebeda37b66ea615b3514c2a7c88774fa3563f8805e3263c9d3fb9d24d79389"
+    },
+    "consumer_scope_migrations": {
+      "columns": [
+        "version"
+      ],
+      "count": 1,
+      "sha256": "2430f1a2ad2982d0067885488a4c89e21ad1d7c83b115ba8f1b20acc88dfaea8"
+    },
+    "items": {
+      "columns": [
+        "item_id",
+        "access_token",
+        "transactions_cursor",
+        "created_at",
+        "updated_at",
+        "user_id",
+        "institution_id",
+        "institution_name",
+        "status",
+        "sync_paused",
+        "last_sync_attempt_at",
+        "last_sync_success_at",
+        "last_sync_change_at",
+        "next_sync_retry_at",
+        "sync_retry_count",
+        "metadata_warning",
+        "metadata_warning_at"
+      ],
+      "count": 5,
+      "sha256": "42baa826fbde112b865fc3dd85b774999ee973019000e567f776749edeba3890"
+    },
+    "legacy_consumer_rows": {
+      "columns": [
+        "transaction_id",
+        "item_id",
+        "account_id",
+        "normalized_account_id"
+      ],
+      "count": 2246,
+      "sha256": "6e07aa96bc38af3e176876f6ef7845e0946516eea5611b2609f7b2d0f7e9517f"
+    },
+    "manual_benefit_category_overrides": {
+      "columns": [
+        "transaction_id",
+        "benefit_category",
+        "created_by",
+        "created_at",
+        "updated_by",
+        "updated_at",
+        "cleared_by",
+        "cleared_at"
+      ],
+      "count": 17,
+      "sha256": "7b5e6acdd69506d1cf38ebdc7418a790e6f25107e21110b20f54f77465949d37"
+    },
+    "manual_category_overrides": {
+      "columns": [
+        "transaction_id",
+        "category",
+        "created_by",
+        "created_at",
+        "updated_by",
+        "updated_at",
+        "cleared_by",
+        "cleared_at"
+      ],
+      "count": 177,
+      "sha256": "7adecfc501a8d5c59925c62fc7cf834cdc8e820b52692e35320f07d128cf5ac4"
+    },
+    "manual_classification_overrides": {
+      "columns": [
+        "transaction_id",
+        "transaction_type",
+        "created_by",
+        "created_at",
+        "updated_by",
+        "updated_at",
+        "cleared_by",
+        "cleared_at"
+      ],
+      "count": 83,
+      "sha256": "67e27ad0a98cd2b6dd5de45a99afb237e020e7cb446f463f3b0d5cd3e0249a2e"
+    },
+    "manual_transaction_label_overrides": {
+      "columns": [
+        "transaction_id",
+        "label",
+        "decision",
+        "created_by",
+        "created_at",
+        "updated_by",
+        "updated_at",
+        "cleared_by",
+        "cleared_at"
+      ],
+      "count": 28,
+      "sha256": "e8fbf2bc32890ca868e7a2639ad7a3d4fc08d654240055b19ebf68c27ac78a28"
+    },
+    "raw_transactions": {
+      "columns": [
+        "transaction_id",
+        "item_id",
+        "account_id",
+        "transaction_date",
+        "payload",
+        "is_removed",
+        "created_at",
+        "updated_at",
+        "source",
+        "statement_row_id"
+      ],
+      "count": 2615,
+      "sha256": "5bf5261a194b2404fb819bfbf949e5df3510f5a9315f11fc76f2bb9861437841"
+    },
+    "statement_import_batches": {
+      "columns": [
+        "batch_id",
+        "user_id",
+        "item_id",
+        "account_id",
+        "adapter",
+        "adapter_version",
+        "file_sha256",
+        "import_through",
+        "preview_digest",
+        "manifest",
+        "status",
+        "applied_by",
+        "applied_at",
+        "rolled_back_by",
+        "rolled_back_at",
+        "rollback_reason"
+      ],
+      "count": 1,
+      "sha256": "268dc66d45bbbf261c6fe5d96b6e1ee178481ba82e1fa275fe3cc8ec0ea53aa8"
+    },
+    "statement_import_rows": {
+      "columns": [
+        "row_id",
+        "batch_id",
+        "source_record",
+        "source_line_end",
+        "fingerprint",
+        "disposition",
+        "canonical",
+        "source_evidence"
+      ],
+      "count": 171,
+      "sha256": "128ea44439482b689bf24883af3d75777f687f5ee1dd9f17f652792cccfee313"
+    },
+    "sync_item_runs": {
+      "columns": [
+        "run_id",
+        "item_id",
+        "started_at",
+        "finished_at",
+        "status",
+        "phase",
+        "pages_fetched",
+        "received_added",
+        "received_modified",
+        "received_removed",
+        "added_count",
+        "modified_count",
+        "removed_count",
+        "skipped_disabled_count",
+        "normalized_count",
+        "classified_count",
+        "retry_count",
+        "error_category",
+        "request_id"
+      ],
+      "count": 10,
+      "sha256": "119fe4281dd1f90f680e4a789b6d9ab61a0c1e0c67010c615651b93e0c50dc70"
+    },
+    "sync_runs": {
+      "columns": [
+        "run_id",
+        "user_id",
+        "trigger_source",
+        "request_sequence",
+        "started_at",
+        "finished_at",
+        "duration_ms",
+        "status",
+        "classification_status",
+        "classified_count",
+        "classification_duration_ms",
+        "published_at",
+        "error_category"
+      ],
+      "count": 2,
+      "sha256": "f5dc490157ac88c993bdc04e24e8202c4580e482c5c52bcb243c9e0be5340f0e"
+    },
+    "sync_runtime_state": {
+      "columns": [
+        "user_id",
+        "last_published_run_id",
+        "published_at",
+        "requested_sequence",
+        "handled_sequence",
+        "requested_item_ids",
+        "running_sequence",
+        "running_item_ids",
+        "jobs_heartbeat_at",
+        "last_backup_at",
+        "last_backup_attempt_at",
+        "last_backup_error"
+      ],
+      "count": 1,
+      "sha256": "6dbc58b43254db2b216783607332206ea4c49e2cba5ca4abb7050b76b012b742"
+    },
+    "transactions": {
+      "columns": [
+        "transaction_id",
+        "account_id",
+        "transaction_date",
+        "amount",
+        "merchant_name",
+        "description",
+        "plaid_category",
+        "transaction_type",
+        "is_spending",
+        "is_internal_transfer",
+        "created_at",
+        "updated_at",
+        "statement_kind"
+      ],
+      "count": 2615,
+      "sha256": "81c321918787b3cbc8f0daa9ed699db7445e69b4acda2ff996c143c7ce45113b"
+    }
+  }
+}
