@@ -11,6 +11,12 @@ describe('bulk transaction editing helpers', () => {
     expect(bulkEditRequest(['b', 'a'], 'exclude_label', 'CHINA')).toEqual({
       transaction_ids: ['a', 'b'], operation: 'exclude_label', label: 'CHINA',
     })
+    expect(bulkEditRequest(['b', 'a'], 'set_benefit_category', 'SHOPPING_CREDIT')).toEqual({
+      transaction_ids: ['a', 'b'], operation: 'set_benefit_category', benefit_category: 'SHOPPING_CREDIT',
+    })
+    expect(bulkEditRequest(['b', 'a'], 'restore_category_auto')).toEqual({
+      transaction_ids: ['a', 'b'], operation: 'restore_category_auto',
+    })
   })
 
   test('surfaces atomic validation reasons and counts', () => {

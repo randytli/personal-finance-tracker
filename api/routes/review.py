@@ -136,31 +136,47 @@ async def mutate_benefit_category(transaction_id, category):
                 raise HTTPException(404, 'transaction not found')
             transaction, account, item, _ = row
             classification = await db.get(ManualClassificationOverride, transaction_id)
-            override_type = classification.transaction_type if classification and classification.cleared_at is None else None
-            kind, _, internal = effective_classification(transaction, override_type)
-            if kind != 'card_benefit' or transaction.amount <= 0 or internal is True:
-                raise HTTPException(422, 'benefit category editing requires a positive card benefit')
-            override = await db.get(ManualBenefitCategoryOverride, transaction_id)
-            automatic = effective_benefit_category(transaction, None,
-                institution_id=item.institution_id, account_name=account.name, account_type=account.type)
-            if category is not None and category == automatic and override is None:
-                return {'transaction_id': transaction_id, 'effective_benefit_category': automatic,
-                        'override_benefit_category': None, 'automatic_benefit_category': automatic}
-            if category is None and override is None:
-                return {'transaction_id': transaction_id, 'effective_benefit_category': automatic,
-                        'override_benefit_category': None, 'automatic_benefit_category': automatic}
-            from datetime import datetime, timezone
-            now = datetime.now(timezone.utc).replace(tzinfo=None)
-            if override is None:
-                override = ManualBenefitCategoryOverride(transaction_id=transaction_id, created_by=actor, created_at=now)
-                db.add(override)
-            override.benefit_category = category
-            override.updated_by = actor
-            override.updated_at = now
-            override.cleared_by = actor if category is None else None
-            override.cleared_at = now if category is None else None
-            return {'transaction_id': transaction_id, 'effective_benefit_category': category or automatic,
-                    'override_benefit_category': category, 'automatic_benefit_category': automatic}
+            result, _ = await _apply_benefit_category(
+                db, transaction, account, item, category, actor, classification)
+            return result
+
+
+def _active_classification_type(classification):
+    return (classification.transaction_type if classification is not None
+            and classification.cleared_at is None else None)
+
+
+def _benefit_category_editable(transaction, override_type):
+    kind, _, internal = effective_classification(transaction, override_type)
+    return kind == 'card_benefit' and transaction.amount > 0 and internal is not True
+
+
+async def _apply_benefit_category(db, transaction, account, item, category, actor, classification):
+    """An explicit Set pins even an auto-equal category; repeated Set/Restore keep audit timestamps."""
+    if category is not None and not _benefit_category_editable(transaction, _active_classification_type(classification)):
+        raise HTTPException(422, 'benefit category editing requires a positive card benefit')
+    override = await db.get(ManualBenefitCategoryOverride, transaction.transaction_id)
+    effective_type = effective_classification(transaction, _active_classification_type(classification))[0]
+    automatic = effective_benefit_category(
+        transaction, None, institution_id=item.institution_id,
+        account_name=account.name, account_type=account.type, transaction_type=effective_type)
+    active = active_benefit_category(override)
+    changed = (category != active) if category is not None else active is not None
+    if changed:
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        if override is None:
+            override = ManualBenefitCategoryOverride(
+                transaction_id=transaction.transaction_id, created_by=actor, created_at=now)
+            db.add(override)
+        override.benefit_category = category
+        override.updated_by = actor
+        override.updated_at = now
+        override.cleared_by = actor if category is None else None
+        override.cleared_at = now if category is None else None
+    return {'transaction_id': transaction.transaction_id,
+            'effective_benefit_category': active_benefit_category(override) or automatic,
+            'override_benefit_category': active_benefit_category(override),
+            'automatic_benefit_category': automatic}, changed
 
 
 @router.put('/transactions/{transaction_id}/benefit-category-override')
@@ -302,7 +318,12 @@ async def clear_label_override(transaction_id: str, label: str):
     return await mutate_label(transaction_id, label, None)
 
 
-BulkOperation = Literal["set_classification", "set_category", "include_label", "exclude_label", "restore_label_auto"]
+BulkOperation = Literal[
+    "set_classification", "restore_classification_auto",
+    "set_category", "restore_category_auto",
+    "set_benefit_category", "restore_benefit_category_auto",
+    "include_label", "exclude_label", "restore_label_auto",
+]
 BulkClassificationType = Literal["expense", "reimbursement"]
 
 
@@ -311,6 +332,7 @@ class BulkEditRequest(BaseModel):
     operation: BulkOperation
     transaction_type: BulkClassificationType | None = None
     category: str | None = None
+    benefit_category: str | None = None
     label: str | None = None
 
     @field_validator("transaction_ids")
@@ -323,20 +345,33 @@ class BulkEditRequest(BaseModel):
 
     @model_validator(mode="after")
     def valid_action(self):
-        if self.operation == "set_classification":
-            if self.transaction_type is None or self.category is not None or self.label is not None:
-                raise ValueError("set_classification requires an expense or reimbursement transaction type")
-        elif self.operation == "set_category":
-            if self.category not in MANUAL_CATEGORIES or self.label is not None or self.transaction_type is not None:
-                raise ValueError("set_category requires a supported category")
-        elif self.label not in ALLOWED_LABELS or self.category is not None or self.transaction_type is not None:
-            raise ValueError("label operation requires a supported label")
+        values = {"transaction_type": self.transaction_type, "category": self.category,
+                  "benefit_category": self.benefit_category, "label": self.label}
+        required = {
+            "set_classification": "transaction_type",
+            "set_category": "category",
+            "set_benefit_category": "benefit_category",
+            "include_label": "label",
+            "exclude_label": "label",
+            "restore_label_auto": "label",
+        }.get(self.operation)
+        if required is None:
+            if any(value is not None for value in values.values()):
+                raise ValueError("restore operation takes no value")
+        else:
+            field = required
+            if values[field] is None or any(value is not None for key, value in values.items() if key != field):
+                raise ValueError(f"{self.operation} requires only {field}")
+            allowed = {"category": MANUAL_CATEGORIES, "benefit_category": BENEFIT_CATEGORIES,
+                       "label": ALLOWED_LABELS}.get(field)
+            if allowed is not None and values[field] not in allowed:
+                raise ValueError(f"unsupported {field}")
         return self
 
 
 def _bulk_classification_errors(rows, transaction_type):
     errors = []
-    for transaction, _ in rows:
+    for transaction, *_ in rows:
         error = validate_manual_override(transaction, transaction_type)
         if error is not None:
             errors.append((transaction.transaction_id, error))
@@ -350,7 +385,7 @@ async def bulk_edit_transactions(request: BulkEditRequest):
         async with db.begin():
             await _lock_review_scope(db, ids)
             rows = (await db.execute(
-                select(Transaction, ManualClassificationOverride)
+                select(Transaction, ManualClassificationOverride, Account, Item)
                 .join(RawTransaction, RawTransaction.transaction_id == Transaction.transaction_id)
                 .join(Item, Item.item_id == RawTransaction.item_id)
                 .join(Account, (Account.account_id == Transaction.account_id)
@@ -371,9 +406,9 @@ async def bulk_edit_transactions(request: BulkEditRequest):
                 })
 
             if request.operation == "set_category":
-                ineligible = [transaction.transaction_id for transaction, classification in rows
+                ineligible = [transaction.transaction_id for transaction, classification, *_ in rows
                     if not category_editable(transaction,
-                        classification.transaction_type if classification and classification.cleared_at is None else None)]
+                        _active_classification_type(classification))]
                 if ineligible:
                     raise HTTPException(422, detail={
                         "message": "Category editing requires included expense, refund, or reimbursement transactions.",
@@ -386,14 +421,21 @@ async def bulk_edit_transactions(request: BulkEditRequest):
                         "message": "Every selected transaction must be eligible for the requested classification.",
                         "ineligible_count": len(ineligible),
                     })
+            elif request.operation == "set_benefit_category":
+                ineligible = [transaction.transaction_id for transaction, classification, *_ in rows
+                              if not _benefit_category_editable(transaction, _active_classification_type(classification))]
+                if ineligible:
+                    raise HTTPException(422, detail={
+                        "message": "Benefit category editing requires positive card benefits.",
+                        "ineligible_count": len(ineligible),
+                    })
 
             results = []
             changed_count = 0
             actor = _user_id()
-            for transaction, classification in rows:
+            for transaction, classification, account, item in rows:
                 if request.operation == "set_classification":
-                    active_type = (classification.transaction_type if classification is not None
-                                   and classification.cleared_at is None else None)
+                    active_type = _active_classification_type(classification)
                     changed = active_type != request.transaction_type
                     if changed:
                         await db.execute(
@@ -410,9 +452,25 @@ async def bulk_edit_transactions(request: BulkEditRequest):
                             )
                         )
                     result = _result(transaction, request.transaction_type)
-                elif request.operation == "set_category":
+                elif request.operation == "restore_classification_auto":
+                    changed = _active_classification_type(classification) is not None
+                    if changed:
+                        now = datetime.now(timezone.utc).replace(tzinfo=None)
+                        classification.transaction_type = None
+                        classification.updated_by = actor
+                        classification.updated_at = now
+                        classification.cleared_by = actor
+                        classification.cleared_at = now
+                    result = _result(transaction, None)
+                elif request.operation in ("set_category", "restore_category_auto"):
                     result, changed = await _apply_category(
-                        db, transaction, request.category, actor, classification)
+                        db, transaction, request.category if request.operation == "set_category" else None,
+                        actor, classification)
+                elif request.operation in ("set_benefit_category", "restore_benefit_category_auto"):
+                    result, changed = await _apply_benefit_category(
+                        db, transaction, account, item,
+                        request.benefit_category if request.operation == "set_benefit_category" else None,
+                        actor, classification)
                 else:
                     decision = {"include_label": "include", "exclude_label": "exclude",
                                 "restore_label_auto": None}[request.operation]
@@ -506,7 +564,7 @@ async def transactions_needing_review(
         total = await db.scalar(count_statement)
 
         statement = select(Transaction, Account, Item, ManualClassificationOverride.transaction_type,
-                           ManualCategoryOverride)
+                           ManualCategoryOverride, ManualBenefitCategoryOverride)
         for model, condition in joins:
             statement = statement.join(model, condition)
         statement = (
@@ -516,6 +574,8 @@ async def transactions_needing_review(
             )
             .outerjoin(ManualCategoryOverride,
                 ManualCategoryOverride.transaction_id == Transaction.transaction_id)
+            .outerjoin(ManualBenefitCategoryOverride,
+                ManualBenefitCategoryOverride.transaction_id == Transaction.transaction_id)
             .where(*filters)
             .order_by(*((
                 Transaction.transaction_date.desc(), Transaction.transaction_id,
@@ -546,12 +606,22 @@ async def transactions_needing_review(
                 "override_category": active_category(category_override),
                 "effective_category": effective_category(transaction, category_override, override_type),
                 "category_editable": category_editable(transaction, override_type),
+                "automatic_benefit_category": effective_benefit_category(transaction, None,
+                    institution_id=item.institution_id, account_name=account.name,
+                    account_type=account.type,
+                    transaction_type=effective_classification(transaction, override_type)[0]),
+                "override_benefit_category": active_benefit_category(benefit_override),
+                "effective_benefit_category": effective_benefit_category(transaction, benefit_override,
+                    institution_id=item.institution_id, account_name=account.name,
+                    account_type=account.type,
+                    transaction_type=effective_classification(transaction, override_type)[0]),
+                "benefit_category_editable": _benefit_category_editable(transaction, override_type),
                 **label_result(transaction, label_overrides.get(transaction.transaction_id, ()),
                                institution_id=item.institution_id,
                                account_type=account.type, account_name=account.name),
                 **_result(transaction, override_type),
             }
-            for transaction, account, item, override_type, category_override in rows
+            for transaction, account, item, override_type, category_override, benefit_override in rows
         ],
     }
 

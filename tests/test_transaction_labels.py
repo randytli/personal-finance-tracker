@@ -1,3 +1,4 @@
+import asyncio
 import os
 import unittest
 import uuid
@@ -16,9 +17,11 @@ from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 from api.labels import (ALLOWED_LABELS, automatic_labels, effective_labels,
                         label_result, normalize_label_text)
 from api.models import (Base, Account, Item, RawTransaction, Transaction,
-                        ManualCategoryOverride, ManualTransactionLabelOverride)
+                        ManualCategoryOverride, ManualBenefitCategoryOverride,
+                        ManualClassificationOverride, ManualTransactionLabelOverride)
 from api.migrations import migrate_transaction_labels
 from api.routes import analytics, plaid, review
+from api.statement_semantics import lock_consumer_derivation
 
 
 def transaction(merchant=None, description=None):
@@ -185,6 +188,18 @@ class LabelRuleTests(unittest.TestCase):
 @unittest.skipUnless(os.environ.get("PFT_LABEL_SYNTHETIC_TEST") == "1",
                      "isolated PostgreSQL opt-in")
 class LabelDatabaseTests(unittest.IsolatedAsyncioTestCase):
+    async def _add_bulk_row(self, ident, *, amount="13.81", kind="card_benefit",
+                            description="Walmart", item_id="item", account_id="card"):
+        async with self.sessions.begin() as db:
+            db.add(RawTransaction(transaction_id=ident, item_id=item_id, account_id=account_id,
+                transaction_date=date(2026, 9, 1), payload={"amount": amount}, source="plaid"))
+            await db.flush()
+            db.add(Transaction(transaction_id=ident, account_id=account_id,
+                transaction_date=date(2026, 9, 1), amount=Decimal(amount),
+                merchant_name=description, description=description,
+                plaid_category="GENERAL_MERCHANDISE", transaction_type=kind,
+                is_spending=kind == "expense", is_internal_transfer=False))
+
     async def asyncSetUp(self):
         from api.db import engine
         self.assertEqual(engine.url.port, 55439)
@@ -429,6 +444,129 @@ class LabelDatabaseTests(unittest.IsolatedAsyncioTestCase):
         restored_by_id = {result["transaction_id"]: result for result in restored["results"]}
         self.assertEqual(restored_by_id["china"]["effective_labels"], ["CHINA"])
         self.assertEqual(restored_by_id["generic"]["effective_labels"], [])
+
+    async def test_bulk_benefit_manual_type_restore_and_unavailable_selection(self):
+        async with self.sessions.begin() as db:
+            (await db.get(Item, "item")).status = "active"
+            (await db.get(Item, "item")).institution_id = "ins_10"
+            (await db.get(Account, "card")).name = "Platinum Card"
+        await self._add_bulk_row("benefit-a", kind="transfer")
+        await self._add_bulk_row("benefit-b")
+        async with self.sessions.begin() as db:
+            db.add(ManualClassificationOverride(transaction_id="benefit-a",
+                transaction_type="card_benefit", created_by="label-user", updated_by="label-user"))
+        review_rows = await review.transactions_needing_review(
+            mode="credits_transfers", transaction_type="card_benefit",
+            direction="incoming", limit=100, offset=0)
+        manual = next(row for row in review_rows["transactions"] if row["transaction_id"] == "benefit-a")
+        self.assertTrue(manual["benefit_category_editable"])
+        self.assertEqual(manual["automatic_benefit_category"], "SHOPPING_CREDIT")
+        self.assertEqual(manual["effective_benefit_category"], "SHOPPING_CREDIT")
+        request = lambda ids, operation, **values: review.BulkEditRequest(
+            transaction_ids=ids, operation=operation, **values)
+        with self.assertRaises(HTTPException) as invalid:
+            await review.bulk_edit_transactions(request(["benefit-a", "china"],
+                "set_benefit_category", benefit_category="SHOPPING_CREDIT"))
+        self.assertEqual(invalid.exception.detail["ineligible_count"], 1)
+        with self.assertRaises(HTTPException) as missing:
+            await review.bulk_edit_transactions(request(["benefit-a", "missing"],
+                "set_benefit_category", benefit_category="SHOPPING_CREDIT"))
+        self.assertEqual(missing.exception.detail["unavailable_count"], 1)
+        async with self.sessions() as db:
+            self.assertEqual(await db.scalar(select(func.count(ManualBenefitCategoryOverride.transaction_id))), 0)
+        set_result = await review.bulk_edit_transactions(request(["benefit-b", "benefit-a"],
+            "set_benefit_category", benefit_category="SHOPPING_CREDIT"))
+        self.assertEqual([row["transaction_id"] for row in set_result["results"]],
+                         ["benefit-a", "benefit-b"])
+        self.assertEqual(set_result["changed_count"], 2)
+        self.assertTrue(all(row["automatic_benefit_category"] == "SHOPPING_CREDIT"
+                            for row in set_result["results"]))
+        repeated = await review.bulk_edit_transactions(request(["benefit-a", "benefit-b"],
+            "set_benefit_category", benefit_category="SHOPPING_CREDIT"))
+        self.assertEqual(repeated["changed_count"], 0)
+        async with self.sessions() as db:
+            before = (await db.get(ManualBenefitCategoryOverride, "benefit-a")).updated_at
+        restored = await review.bulk_edit_transactions(request(["benefit-a", "benefit-b"],
+            "restore_benefit_category_auto"))
+        self.assertEqual(restored["changed_count"], 2)
+        again = await review.bulk_edit_transactions(request(["benefit-a", "benefit-b"],
+            "restore_benefit_category_auto"))
+        self.assertEqual(again["changed_count"], 0)
+        async with self.sessions() as db:
+            override = await db.get(ManualBenefitCategoryOverride, "benefit-a")
+            self.assertEqual(override.created_by, "label-user")
+            self.assertEqual(override.cleared_by, "label-user")
+            self.assertIsNotNone(override.cleared_at)
+            self.assertGreaterEqual(override.updated_at, before)
+
+    async def test_bulk_restore_dormant_decisions_and_mid_batch_rollback(self):
+        async with self.sessions.begin() as db:
+            (await db.get(Item, "item")).status = "active"
+        await self._add_bulk_row("restore-a", amount="-10", kind="expense")
+        await self._add_bulk_row("restore-b", amount="-11", kind="expense")
+        request = lambda ids, operation, **values: review.BulkEditRequest(
+            transaction_ids=ids, operation=operation, **values)
+        await review.bulk_edit_transactions(request(["restore-a", "restore-b"],
+            "set_category", category="GROCERIES"))
+        await review.bulk_edit_transactions(request(["restore-a", "restore-b"],
+            "set_classification", transaction_type="expense"))
+        original = review._apply_category
+        calls = 0
+
+        async def fail_second(*args):
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise RuntimeError("synthetic mid-batch failure")
+            return await original(*args)
+
+        with patch.object(review, "_apply_category", side_effect=fail_second):
+            with self.assertRaisesRegex(RuntimeError, "mid-batch"):
+                await review.bulk_edit_transactions(request(["restore-a", "restore-b"],
+                    "restore_category_auto"))
+        async with self.sessions() as db:
+            self.assertEqual((await db.get(ManualCategoryOverride, "restore-a")).category, "GROCERIES")
+            self.assertEqual((await db.get(ManualCategoryOverride, "restore-b")).category, "GROCERIES")
+        restored = await review.bulk_edit_transactions(request(["restore-a", "restore-b"],
+            "restore_classification_auto"))
+        self.assertEqual(restored["changed_count"], 2)
+        self.assertEqual((await review.bulk_edit_transactions(request(["restore-a", "restore-b"],
+            "restore_classification_auto")))["changed_count"], 0)
+        async with self.sessions.begin() as db:
+            (await db.get(Transaction, "restore-a")).transaction_type = "transfer"
+        # Category restore remains possible after its classification becomes ineligible.
+        cleared = await review.bulk_edit_transactions(request(["restore-a", "restore-b"],
+            "restore_category_auto"))
+        self.assertEqual(cleared["changed_count"], 2)
+
+    async def test_bulk_scope_and_derivation_lock(self):
+        await self._add_bulk_row("lock-row")
+        request = review.BulkEditRequest(transaction_ids=["lock-row"],
+            operation="set_benefit_category", benefit_category="DINING_CREDIT")
+        with self.assertRaises(HTTPException):
+            await review.bulk_edit_transactions(request)  # pending Item
+        async with self.sessions.begin() as db:
+            (await db.get(Item, "item")).status = "active"
+            (await db.get(Account, "card")).consumer_transactions_enabled = False
+        with self.assertRaises(HTTPException):
+            await review.bulk_edit_transactions(request)
+        async with self.sessions.begin() as db:
+            (await db.get(Account, "card")).consumer_transactions_enabled = True
+            (await db.get(RawTransaction, "lock-row")).is_removed = True
+        with self.assertRaises(HTTPException):
+            await review.bulk_edit_transactions(request)
+        async with self.sessions.begin() as db:
+            (await db.get(RawTransaction, "lock-row")).is_removed = False
+        async with self.sessions() as holder:
+            async with holder.begin():
+                await lock_consumer_derivation(holder, "label-user")
+                task = asyncio.create_task(review.bulk_edit_transactions(request))
+                await asyncio.sleep(0.1)
+                self.assertFalse(task.done())
+                async with self.sessions() as check:
+                    self.assertIsNone(await check.get(ManualBenefitCategoryOverride, "lock-row"))
+            result = await asyncio.wait_for(task, timeout=5)
+        self.assertEqual(result["changed_count"], 1)
 
     async def test_migration_idempotency_and_existing_row_preservation(self):
         await review.mutate_label("generic", "CHINA", "include")

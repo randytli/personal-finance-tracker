@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import AccountBadge from '@/components/account-badge'
 import BulkTransactionEditor, { bulkErrorMessage, type BulkEditRequest } from '@/components/bulk-transaction-editor'
 import CategoryEditor, { mergeCategoryDetail, mutateCategoryOverride, type CategoryDetail } from '@/components/category-editor'
+import BenefitCategoryEditor, { type BenefitCategoryDetail, type BenefitCategoryOption } from '@/components/benefit-category-editor'
 import { CategoryBadge } from '@/components/category-display'
 import LabelEditor, { mergeLabelDetail, type LabelDetail, useLabelOptions } from '@/components/label-editor'
 import { SyncHealth, consistentJson, useSyncRefresh } from '@/components/sync-health'
@@ -16,7 +17,7 @@ const OUTGOING_TYPES = ['expense', 'transfer', 'payment', 'adjustment'] as const
 const FILTERS = ['all', 'transfer', 'payment', 'income', 'refund', 'reimbursement', 'card_benefit', 'unclassified'] as const
 const PAGE_SIZE = 50
 
-type ReviewTransaction = CategoryDetail & LabelDetail & {
+type ReviewTransaction = CategoryDetail & BenefitCategoryDetail & LabelDetail & {
   transaction_id: string
   transaction_date: string
   institution_name: string
@@ -47,6 +48,7 @@ export default function ReviewPage() {
   const [typeFilter, setTypeFilter] = useState('all')
   const [direction, setDirection] = useState<'incoming' | 'outgoing' | 'all'>('incoming')
   const [categoryOptions, setCategoryOptions] = useState<Array<{ value: string; label: string }>>([])
+  const [benefitCategoryOptions, setBenefitCategoryOptions] = useState<BenefitCategoryOption[]>([])
   const [categoryBusy, setCategoryBusy] = useState(false)
   const [offset, setOffset] = useState(0)
   const [selected, setSelected] = useState<Set<string>>(new Set())
@@ -57,13 +59,20 @@ export default function ReviewPage() {
   const sync = useSyncRefresh()
 
   useEffect(() => {
-    if (mode !== 'credits_transfers') return
     let active = true
     fetch('/api/pft/review/categories').then(response => response.ok ? response.json() : Promise.reject())
       .then(data => { if (active) setCategoryOptions(data.categories || []) })
       .catch(() => { if (active) setError('Category options could not be loaded.') })
     return () => { active = false }
-  }, [mode])
+  }, [])
+
+  useEffect(() => {
+    let active = true
+    fetch('/api/pft/review/benefit-categories').then(response => response.ok ? response.json() : Promise.reject())
+      .then(data => { if (active) setBenefitCategoryOptions(data.categories || []) })
+      .catch(() => { if (active) setError('Benefit category options could not be loaded.') })
+    return () => { active = false }
+  }, [])
 
   const load = useCallback(async () => {
     const id = ++requestId.current
@@ -154,6 +163,12 @@ export default function ReviewPage() {
     invalidateAfterEdit()
   }
 
+  function updateBenefitCategory(changed: BenefitCategoryDetail) {
+    setTransactions(current => current.map(transaction => transaction.transaction_id === changed.transaction_id
+      ? { ...transaction, ...changed } : transaction))
+    invalidateAfterEdit()
+  }
+
   async function saveCategory(detail: CategoryDetail, category: string | null): Promise<boolean> {
     setCategoryBusy(true)
     setError('')
@@ -179,7 +194,7 @@ export default function ReviewPage() {
       const body = await response.json().catch(() => null)
       if (!response.ok) throw new Error(bulkErrorMessage(body))
       setSelected(new Set())
-      setBulkStatus(`${body.changed_count} ${request.operation === 'set_classification' ? 'classifications' : 'overrides'} changed · ${body.unchanged_count} already set.`)
+      setBulkStatus(`${body.changed_count} changed · ${body.unchanged_count} unchanged.`)
       invalidateAfterEdit()
       return true
     } catch (caught) {
@@ -337,21 +352,28 @@ export default function ReviewPage() {
                   onClick={() => clearOverride(transaction)}>Restore automatic</button>
               )}
             </div>
-            {mode === 'credits_transfers' && transaction.effective_transaction_type === 'reimbursement' &&
+            {transaction.category_editable &&
               <CategoryEditor detail={transaction} options={categoryOptions}
                 busy={categoryBusy || bulkBusy || busy !== null} save={saveCategory} />}
+            <BenefitCategoryEditor detail={transaction} options={benefitCategoryOptions}
+              disabled={bulkBusy || busy !== null} onChanged={updateBenefitCategory} />
             <LabelEditor detail={transaction} options={labelOptions.options}
               optionsLoading={labelOptions.loading} optionsError={labelOptions.error}
               disabled={bulkBusy} onRetryOptions={labelOptions.retry} onChanged={updateLabels} />
           </article>
         ))}
       </div>
-      {selected.size > 0 && <div className="mt-4">
+      {selected.size > 0 && <div className="h-64 sm:h-32">
         <BulkTransactionEditor
           transactionIds={Array.from(selected)}
-          categoryOptions={[]}
+          categoryOptions={categoryOptions}
+          benefitCategoryOptions={benefitCategoryOptions}
           labelOptions={labelOptions.options}
-          allowClassification={mode === 'credits_transfers'}
+          allowClassification
+          allowCategory
+          allowBenefitCategory
+          categoryIneligibleCount={selectedTransactions.filter(transaction => !transaction.category_editable).length}
+          benefitIneligibleCount={selectedTransactions.filter(transaction => !transaction.benefit_category_editable).length}
           classificationOptions={classificationOptions}
           busy={bulkBusy}
           onApply={applyBulk}

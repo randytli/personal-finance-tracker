@@ -1,7 +1,11 @@
 import inspect
+import asyncio
 import unittest
 from decimal import Decimal
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
+
+from pydantic import ValidationError
 
 from api.classification import (
     ALLOWED_TRANSACTION_TYPES,
@@ -12,7 +16,7 @@ from api.migrations import migrate_multi_institution
 from api.models import ManualClassificationOverride
 from api.routes.analytics import summarize_monthly_transactions
 from api.routes.review import (
-    BulkEditRequest, _bulk_classification_errors, _review_ordering,
+    BulkEditRequest, _apply_benefit_category, _bulk_classification_errors, _review_ordering,
     _review_filters, _user_id,
 )
 from sqlalchemy.dialects import postgresql
@@ -40,6 +44,68 @@ def transaction(
 
 
 class ManualReviewTests(unittest.TestCase):
+    def test_bulk_payloads_are_exclusive_and_bounded(self):
+        actions = [
+            ("restore_classification_auto", {}), ("restore_category_auto", {}),
+            ("restore_benefit_category_auto", {}),
+            ("set_benefit_category", {"benefit_category": "SHOPPING_CREDIT"}),
+            ("restore_label_auto", {"label": "CHINA"}),
+        ]
+        for operation, payload in actions:
+            self.assertEqual(BulkEditRequest(transaction_ids=["b", "a", "b"],
+                operation=operation, **payload).transaction_ids, ["b", "a"])
+        for operation, payload in [
+            ("restore_category_auto", {"category": "GROCERIES"}),
+            ("set_benefit_category", {"benefit_category": "INVALID"}),
+            ("set_benefit_category", {"benefit_category": "SHOPPING_CREDIT", "label": "CHINA"}),
+            ("restore_label_auto", {}),
+        ]:
+            with self.subTest(operation=operation, payload=payload), self.assertRaises(ValidationError):
+                BulkEditRequest(transaction_ids=["a"], operation=operation, **payload)
+        for ids in ([], [str(number) for number in range(101)]):
+            with self.assertRaises(ValidationError):
+                BulkEditRequest(transaction_ids=ids, operation="restore_category_auto")
+
+    def test_benefit_set_pins_auto_and_restore_preserves_audit_on_noop(self):
+        from api.models import ManualBenefitCategoryOverride
+        from api.routes.review import _benefit_category_editable
+        value = transaction("13.81", "expense")
+        value.description = "Walmart"
+        account = SimpleNamespace(name="Platinum Card", type="credit")
+        item = SimpleNamespace(institution_id="ins_10")
+        classification = SimpleNamespace(transaction_type="card_benefit", cleared_at=None)
+        self.assertTrue(_benefit_category_editable(value, "card_benefit"))
+        db = SimpleNamespace(get=AsyncMock(return_value=None), add=lambda override: None)
+
+        async def check():
+            # A fresh auto-equal Set still creates a durable manual decision.
+            result, changed = await _apply_benefit_category(
+                db, value, account, item, "SHOPPING_CREDIT", "actor", classification)
+            self.assertTrue(changed)
+            self.assertEqual(result["automatic_benefit_category"], "SHOPPING_CREDIT")
+            self.assertEqual(result["override_benefit_category"], "SHOPPING_CREDIT")
+            override = ManualBenefitCategoryOverride(transaction_id=value.transaction_id,
+                benefit_category="SHOPPING_CREDIT", created_by="actor", updated_by="actor")
+            db.get.return_value = override
+            _, changed = await _apply_benefit_category(
+                db, value, account, item, "SHOPPING_CREDIT", "actor", classification)
+            self.assertFalse(changed)
+            result, changed = await _apply_benefit_category(
+                db, value, account, item, None, "actor", classification)
+            self.assertTrue(changed)
+            self.assertIsNone(result["override_benefit_category"])
+            cleared_at = override.cleared_at
+            _, changed = await _apply_benefit_category(
+                db, value, account, item, None, "actor", classification)
+            self.assertFalse(changed)
+            self.assertEqual(override.cleared_at, cleared_at)
+            _, changed = await _apply_benefit_category(
+                db, value, account, item, "SHOPPING_CREDIT", "actor", classification)
+            self.assertTrue(changed)
+            self.assertIsNone(override.cleared_at)
+            self.assertIsNone(override.cleared_by)
+        asyncio.run(check())
+
     def test_bulk_classification_validates_full_selection_before_writes(self):
         positive = transaction("20", "transfer")
         positive.transaction_id = "positive"

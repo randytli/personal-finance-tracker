@@ -17,6 +17,8 @@ function row(id: string, amount: string, type: string, internal = false) {
     merchant_name: id, description: id, amount, plaid_category: 'TRANSFER_OUT',
     original_category: 'TRANSFER_OUT', override_category: null,
     effective_category: 'UNCATEGORIZED', category_editable: type === 'reimbursement',
+    automatic_benefit_category: null, override_benefit_category: null,
+    effective_benefit_category: null, benefit_category_editable: false,
     automatic_transaction_type: type, effective_transaction_type: type,
     override_transaction_type: null, effective_is_internal_transfer: internal,
   }
@@ -40,6 +42,9 @@ beforeEach(() => {
     else if (url.pathname.endsWith('/review/categories')) data = { categories: [
       { value: 'UNCATEGORIZED', label: 'Uncategorized' },
       { value: 'FOOD_AND_DRINK', label: 'Food and Drink' },
+    ] }
+    else if (url.pathname.endsWith('/review/benefit-categories')) data = { categories: [
+      { value: 'UNCATEGORIZED', label: 'Uncategorized' },
     ] }
     else if (url.pathname.endsWith('/review/transactions')) {
       const mode = url.searchParams.get('mode')
@@ -99,19 +104,19 @@ test('bulk classification shows eligibility, protects mixed selections, and refr
     { target: { value: 'set_classification' } })
   fireEvent.change(screen.getByRole('combobox', { name: 'Bulk classification' }),
     { target: { value: 'reimbursement' } })
-  expect(screen.getByText('1 of 2 selected transactions are eligible. 1 must be removed before applying.')).toBeTruthy()
+  expect(screen.getByText('1 of 2 selected transactions are ineligible. Remove them before applying.')).toBeTruthy()
   expect((screen.getByRole('button', { name: 'Review changes' }) as HTMLButtonElement).disabled).toBe(true)
 
   fireEvent.click(screen.getByLabelText('Select card-payment'))
-  expect(screen.getByText('1 of 1 selected transactions are eligible.')).toBeTruthy()
+  expect((screen.getByRole('button', { name: 'Review changes' }) as HTMLButtonElement).disabled).toBe(false)
   fireEvent.click(screen.getByRole('button', { name: 'Review changes' }))
-  expect(screen.getByText(/Reimbursement for 1 selected transactions/)).toBeTruthy()
+  expect(screen.getByText(/for 1 selected transactions/)).toBeTruthy()
   fireEvent.click(screen.getByRole('button', { name: 'Apply to selected' }))
   await waitFor(() => expect(screen.queryByRole('heading', { name: 'friend-credit' })).toBeNull())
   expect(screen.getByRole('heading', { name: 'card-payment' })).toBeTruthy()
   expect(rows.find(item => item.transaction_id === 'friend-credit')!.effective_transaction_type).toBe('reimbursement')
   expect(rows.find(item => item.transaction_id === 'card-payment')!.effective_transaction_type).toBe('transfer')
-  expect(screen.getByRole('status').textContent).toContain('1 classifications changed')
+  expect(screen.getByRole('status').textContent).toContain('1 changed · 0 unchanged')
 })
 afterEach(() => { cleanup(); global.fetch = originalFetch })
 

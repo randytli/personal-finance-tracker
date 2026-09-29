@@ -4,6 +4,7 @@ COPY package.json package-lock.json ./
 RUN npm ci
 COPY app ./app
 COPY components ./components
+COPY lib ./lib
 COPY next.config.js next-env.d.ts tsconfig.json tailwind.config.js postcss.config.js ./
 ENV PFT_API_URL=http://api:8000
 RUN npm run build

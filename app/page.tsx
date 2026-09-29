@@ -81,6 +81,7 @@ type Detail = CategoryDetail & LabelDetail & {
   description: string | null
   amount: string
   transaction_type: string
+  is_internal_transfer: boolean | null
   plaid_category: string
   automatic_benefit_category: string | null
   override_benefit_category: string | null
@@ -148,6 +149,7 @@ export default function HomePage() {
   const [categoryUndo, setCategoryUndo] = useState<{ detail: CategoryDetail; previous: string | null } | null>(null)
   const [selectedDetails, setSelectedDetails] = useState<Set<string>>(new Set())
   const [bulkBusy, setBulkBusy] = useState(false)
+  const [bulkStatus, setBulkStatus] = useState('')
   const [detailRevision, setDetailRevision] = useState(0)
   const detailSection = useRef<HTMLDivElement>(null)
   const labelOptions = useLabelOptions()
@@ -240,6 +242,7 @@ export default function HomePage() {
       .then(([data]) => {
         if (!active) return
         setDetails(data.transactions || [])
+        setSelectedDetails(new Set())
         setDetailTotal(data.total || 0)
         setDetailReimbursements(data.reimbursements || '0.00')
       })
@@ -261,6 +264,7 @@ export default function HomePage() {
   async function applyBulk(request: BulkEditRequest) {
     setBulkBusy(true)
     setError('')
+    setBulkStatus('')
     try {
       const response = await fetch('/api/pft/review/transactions/bulk-edit', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(request),
@@ -268,8 +272,9 @@ export default function HomePage() {
       const body = await response.json().catch(() => null)
       if (!response.ok) throw new Error(bulkErrorMessage(body))
       setSelectedDetails(new Set())
-      if (request.operation === 'set_category') setCategoryRevision(value => value + 1)
-      else setDetailRevision(value => value + 1)
+      setBulkStatus(`${body.changed_count} changed · ${body.unchanged_count} unchanged.`)
+      setCategoryRevision(value => value + 1)
+      setDetailRevision(value => value + 1)
       sync.invalidate()
       return true
     } catch (caught) {
@@ -286,6 +291,12 @@ export default function HomePage() {
       return next
     })
   }
+
+  const selectedDetailsRows = details.filter(detail => selectedDetails.has(detail.transaction_id))
+  const classificationOptions = [
+    { value: 'reimbursement' as const, label: 'Reimbursement', eligibleCount: selectedDetailsRows.filter(detail => Number(detail.amount) > 0 && detail.is_internal_transfer !== true).length },
+    { value: 'expense' as const, label: 'Expense', eligibleCount: selectedDetailsRows.filter(detail => Number(detail.amount) < 0 && detail.is_internal_transfer !== true).length },
+  ]
 
   const chartData = useMemo(() => trend.map((value) => ({
     month: value.month.slice(5),
@@ -362,6 +373,7 @@ export default function HomePage() {
       <div className="mt-4"><SyncHealth status={sync.status} error={sync.error} /></div>
 
       {error && <p role="alert" className="mt-6 rounded-md bg-red-50 p-3 text-sm text-red-800">{error}</p>}
+      {bulkStatus && <p role="status" className="mt-6 rounded-md border bg-slate-50 p-3 text-sm">{bulkStatus}</p>}
       {categoryUndo && <p role="status" className="mt-4 rounded border p-3 text-sm">
         Category saved.
         <button type="button" className="ml-2 text-blue-700 underline" disabled={categoryBusy} onClick={() => saveCategory(categoryUndo.detail, categoryUndo.previous, true)}>Undo category change</button>
@@ -569,13 +581,18 @@ export default function HomePage() {
                   </div>
                 ))}
               </div>
-              {selectedDetails.size > 0 && <div className="p-4">
+              {selectedDetails.size > 0 && <div className="h-64 sm:h-32">
                 <BulkTransactionEditor
                   transactionIds={Array.from(selectedDetails)}
                   categoryOptions={categoryOptions}
+                  benefitCategoryOptions={benefitCategoryOptions}
                   labelOptions={labelOptions.options}
+                  allowClassification
+                  classificationOptions={classificationOptions}
                   allowCategory
                   categoryIneligibleCount={details.filter(detail => selectedDetails.has(detail.transaction_id) && !detail.category_editable).length}
+                  allowBenefitCategory
+                  benefitIneligibleCount={selectedDetailsRows.filter(detail => !detail.benefit_category_editable).length}
                   busy={bulkBusy}
                   onApply={applyBulk}
                   onClear={() => setSelectedDetails(new Set())}

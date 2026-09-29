@@ -6,6 +6,7 @@ import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, X
 import AccountBadge from '@/components/account-badge'
 import BulkTransactionEditor, { bulkErrorMessage, type BulkEditRequest } from '@/components/bulk-transaction-editor'
 import CategoryEditor, { mergeCategoryDetail, mutateCategoryOverride, type CategoryDetail, type CategoryOption } from '@/components/category-editor'
+import BenefitCategoryEditor, { type BenefitCategoryDetail, type BenefitCategoryOption } from '@/components/benefit-category-editor'
 import LabelEditor, { mergeLabelDetail, type LabelDetail, useLabelOptions } from '@/components/label-editor'
 import { SyncHealth, consistentJson, useSyncRefresh } from '@/components/sync-health'
 import { membershipPeriods, membershipRangeText, membershipSummaryMatches,
@@ -43,7 +44,7 @@ type MembershipSummary = {
   accounts: MembershipAccount[]
   type_counts: { charges: number; refunds: number; reimbursements: number; card_benefits: number; excluded: number }
 }
-type Detail = CategoryDetail & LabelDetail & {
+type Detail = CategoryDetail & BenefitCategoryDetail & LabelDetail & {
   transaction_id: string
   transaction_date: string
   institution_name: string | null
@@ -107,6 +108,7 @@ export default function MembershipsPage() {
   const [error, setError] = useState('')
   const [status, setStatus] = useState('')
   const [categoryOptions, setCategoryOptions] = useState<CategoryOption[]>([])
+  const [benefitCategoryOptions, setBenefitCategoryOptions] = useState<BenefitCategoryOption[]>([])
   const labelOptions = useLabelOptions()
   const sync = useSyncRefresh()
 
@@ -116,6 +118,10 @@ export default function MembershipsPage() {
       .then(response => response.ok ? response.json() : Promise.reject())
       .then(data => { if (active) setCategoryOptions(data.categories || []) })
       .catch(() => { if (active) setError('Category options could not be loaded.') })
+    fetch('/api/pft/review/benefit-categories')
+      .then(response => response.ok ? response.json() : Promise.reject())
+      .then(data => { if (active) setBenefitCategoryOptions(data.categories || []) })
+      .catch(() => { if (active) setError('Benefit category options could not be loaded.') })
     return () => { active = false }
   }, [])
 
@@ -143,6 +149,7 @@ export default function MembershipsPage() {
           return
         }
         setDetails(data.transactions || [])
+        setSelected(new Set())
         setTotal(data.total || 0)
         setDetailUnallocatedAmount(data.unallocated_reimbursements || '0.00')
         setDetailUnallocatedCount(data.unallocated_reimbursement_transaction_count || 0)
@@ -229,6 +236,12 @@ export default function MembershipsPage() {
     refresh()
   }
 
+  function updateBenefitCategory(changed: BenefitCategoryDetail) {
+    setDetails(current => current.map(value => value.transaction_id === changed.transaction_id
+      ? { ...value, ...changed } : value))
+    refresh()
+  }
+
   async function applyBulk(request: BulkEditRequest) {
     setBusy(true)
     setError('')
@@ -247,6 +260,12 @@ export default function MembershipsPage() {
       return false
     } finally { setBusy(false) }
   }
+
+  const selectedDetails = details.filter(detail => selected.has(detail.transaction_id))
+  const classificationOptions = [
+    { value: 'reimbursement' as const, label: 'Reimbursement', eligibleCount: selectedDetails.filter(detail => Number(detail.amount) > 0 && detail.is_internal_transfer !== true).length },
+    { value: 'expense' as const, label: 'Expense', eligibleCount: selectedDetails.filter(detail => Number(detail.amount) < 0 && detail.is_internal_transfer !== true).length },
+  ]
 
   return <main className="container mx-auto max-w-7xl px-4 py-8">
     <Link href="/" className="text-sm font-medium text-blue-700 underline">Back to overview</Link>
@@ -439,15 +458,19 @@ export default function MembershipsPage() {
             </div>
             <div className="grid w-full gap-x-5 md:grid-cols-2">
               <CategoryEditor detail={detail} options={categoryOptions} busy={busy} save={saveCategory} />
+              <BenefitCategoryEditor detail={detail} options={benefitCategoryOptions} disabled={busy} onChanged={updateBenefitCategory} />
               <LabelEditor detail={detail} options={labelOptions.options} optionsLoading={labelOptions.loading}
                 optionsError={labelOptions.error} onRetryOptions={labelOptions.retry} disabled={busy} onChanged={updateLabels} />
             </div>
           </article>)}
         </div>
-        {selected.size > 0 && <div className="p-4"><BulkTransactionEditor
+        {selected.size > 0 && <div className="h-64 sm:h-32"><BulkTransactionEditor
           transactionIds={Array.from(selected)} categoryOptions={categoryOptions} labelOptions={labelOptions.options}
+          benefitCategoryOptions={benefitCategoryOptions}
           categoryIneligibleCount={details.filter(detail => selected.has(detail.transaction_id) && !detail.category_editable).length}
-          allowCategory busy={busy} onApply={applyBulk} onClear={() => setSelected(new Set())} />
+          benefitIneligibleCount={selectedDetails.filter(detail => !detail.benefit_category_editable).length}
+          allowClassification classificationOptions={classificationOptions}
+          allowCategory allowBenefitCategory busy={busy} onApply={applyBulk} onClear={() => setSelected(new Set())} />
         </div>}
         <div className="flex items-center gap-4 border-t p-5 text-sm">
           <button type="button" disabled={busy || detailLoading || offset === 0} className="text-blue-700 underline disabled:opacity-40"
