@@ -1,10 +1,9 @@
 'use client'
 
 import Link from 'next/link'
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import {
   CartesianGrid,
-  Legend,
   Line,
   LineChart,
   ResponsiveContainer,
@@ -21,6 +20,9 @@ import LabelEditor, { mergeLabelDetail, type LabelDetail, useLabelOptions } from
 import PlaidLinkButton from '@/components/plaid-link-button'
 import { SyncHealth, consistentJson, useSyncRefresh } from '@/components/sync-health'
 import BenefitCategoryEditor, { type BenefitCategoryOption, type BenefitCategoryDetail } from '@/components/benefit-category-editor'
+import { Button } from '@/components/ui/button'
+import { Card as SummaryCard, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { cn } from '@/lib/utils'
 
 type Category = {
   category: string
@@ -94,19 +96,32 @@ function money(value: string) {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(Number(value))
 }
 
+function compactMoney(value: number) {
+  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', notation: 'compact', maximumFractionDigits: 1 }).format(value)
+}
+
 function currentMonth() {
   const now = new Date()
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
 }
 
-function MetricCard({ label, value, onClick, selected }: { label: string; value: string; onClick?: () => void; selected?: boolean }) {
+function MetricCard({ label, value, onClick, selected, primary = false }: {
+  label: string; value: string; onClick?: () => void; selected?: boolean; primary?: boolean
+}) {
+  const content = <>
+    <CardHeader className={cn('p-4 pb-1', primary && 'sm:p-5 sm:pb-1')}>
+      <CardTitle className="text-sm font-medium text-muted-foreground">{label}</CardTitle>
+    </CardHeader>
+    <CardContent className={cn('p-4 pt-0', primary && 'sm:p-5 sm:pt-0')}>
+      <p className={cn('font-semibold tabular-nums tracking-tight', primary ? 'text-2xl sm:text-3xl' : 'text-xl')}>{value}</p>
+    </CardContent>
+  </>
   return (
-    <Card className={`${onClick ? 'cursor-pointer transition hover:border-slate-400' : ''} ${selected ? 'border-blue-600 ring-2 ring-blue-200' : ''}`}>
-      <button type="button" onClick={onClick} aria-pressed={selected} className="w-full p-5 text-left" disabled={!onClick}>
-        <p className="text-sm text-muted-foreground">{label}</p>
-        <p className="mt-1 text-2xl font-bold">{value}</p>
-      </button>
-    </Card>
+    <SummaryCard className={cn('h-full shadow-sm', selected && 'border-primary ring-2 ring-ring/20')}>
+      {onClick
+        ? <button type="button" onClick={onClick} aria-pressed={selected} className="h-full w-full rounded-xl text-left transition-colors hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">{content}</button>
+        : content}
+    </SummaryCard>
   )
 }
 
@@ -134,6 +149,7 @@ export default function HomePage() {
   const [selectedDetails, setSelectedDetails] = useState<Set<string>>(new Set())
   const [bulkBusy, setBulkBusy] = useState(false)
   const [detailRevision, setDetailRevision] = useState(0)
+  const detailSection = useRef<HTMLDivElement>(null)
   const labelOptions = useLabelOptions()
   const sync = useSyncRefresh()
 
@@ -233,6 +249,10 @@ export default function HomePage() {
 
   useEffect(() => { setSelectedDetails(new Set()); setDetailOffset(0) }, [detailFilter])
 
+  useEffect(() => {
+    if (detailFilter) detailSection.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' })
+  }, [detailFilter])
+
   function updateLabels(changed: LabelDetail) {
     setDetails(current => current.map(detail => mergeLabelDetail(detail, changed)))
     sync.invalidate()
@@ -309,30 +329,37 @@ export default function HomePage() {
   }
 
   return (
-    <main className="container mx-auto max-w-7xl px-4 py-8">
-      <header className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <h1 className="text-4xl font-bold tracking-tight">Personal Finance Tracker</h1>
-          <p className="mt-2 text-muted-foreground">Effective spending and savings across active institutions.</p>
-          <Link className="mt-2 inline-block text-sm font-medium text-blue-700 underline" href="/review">
-            Review ambiguous transactions{monthly ? ` (${monthly.unclassified_count})` : ''}
-          </Link>
-          <Link className="mt-2 ml-4 inline-block text-sm font-medium text-blue-700 underline" href="/memberships">
-            Membership costs
-          </Link>
+    <main className="mx-auto max-w-7xl px-4 pb-10 pt-4 sm:px-6 sm:pt-6">
+      <nav aria-label="Main navigation" className="flex flex-wrap items-center gap-2 border-b pb-3 sm:gap-4">
+        <Link href="/" className="mr-auto text-base font-semibold tracking-tight">PFT</Link>
+        <div className="flex items-center gap-1">
+          <Button asChild variant="secondary" size="sm"><Link href="/" aria-current="page">Overview</Link></Button>
+          <Button asChild variant="ghost" size="sm"><Link href="/review">Review</Link></Button>
+          <Button asChild variant="ghost" size="sm"><Link href="/memberships">Memberships</Link></Button>
         </div>
-        <label className="text-sm font-medium">
-          Month
-          <input
-            className="ml-3 rounded-md border bg-white px-3 py-2"
-            type="month"
-            value={month}
-            onChange={(event) => setMonth(event.target.value)}
-          />
-        </label>
+      </nav>
+      <header className="mt-6 flex flex-wrap items-end justify-between gap-4">
+        <div className="min-w-0">
+          <h1 className="text-3xl font-semibold tracking-tight">Overview</h1>
+          <p className="mt-1 text-sm text-muted-foreground">Effective spending and savings across active institutions.</p>
+        </div>
+        <div className="flex w-full flex-wrap items-end gap-3 sm:w-auto">
+          {monthly && !loading && <Button variant="outline" size="sm" type="button" onClick={() => setDetailFilter({ transactionType: 'unclassified' })}>
+            Needs Review ({monthly.unclassified_count})
+          </Button>}
+          <label className="flex items-center gap-2 text-sm font-medium">
+            Month
+            <input
+              className="min-h-9 rounded-md border bg-background px-2 py-1.5"
+              type="month"
+              value={month}
+              onChange={(event) => setMonth(event.target.value)}
+            />
+          </label>
+        </div>
       </header>
 
-      <div className="mt-5"><SyncHealth status={sync.status} error={sync.error} /></div>
+      <div className="mt-4"><SyncHealth status={sync.status} error={sync.error} /></div>
 
       {error && <p role="alert" className="mt-6 rounded-md bg-red-50 p-3 text-sm text-red-800">{error}</p>}
       {categoryUndo && <p role="status" className="mt-4 rounded border p-3 text-sm">
@@ -343,39 +370,47 @@ export default function HomePage() {
 
       {monthly && !loading && (
         <>
-          <section className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <MetricCard label="Net Spending" value={money(monthly.net_spending)} />
+          <section aria-label="Monthly financial summary" className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4">
+            <div className="col-span-2 sm:col-span-1"><MetricCard label="Net Spending" value={money(monthly.net_spending)} primary /></div>
+            <MetricCard label="Income" value={money(monthly.income)} onClick={() => setDetailFilter({ transactionType: 'income' })} primary />
+            <MetricCard label="Net Savings" value={money(monthly.net_savings)} primary />
+          </section>
+          <section aria-label="Spending components" className="mt-3 grid grid-cols-2 gap-3 sm:mt-4 sm:gap-4 lg:grid-cols-4">
             <MetricCard label="Gross Spending" value={money(monthly.gross_spending)} selected={categoryMode === 'gross'} onClick={() => selectCategoryMode('gross')} />
-            <MetricCard label="Income" value={money(monthly.income)} onClick={() => setDetailFilter({ transactionType: 'income' })} />
-            <MetricCard label="Net Savings" value={money(monthly.net_savings)} />
             <MetricCard label="Refunds" value={money(monthly.refunds)} selected={categoryMode === 'refunds'} onClick={() => selectCategoryMode('refunds')} />
             <MetricCard label="Reimbursements" value={money(monthly.reimbursements)} selected={categoryMode === 'reimbursements'} onClick={() => selectCategoryMode('reimbursements')} />
             <MetricCard label="Card Benefits" value={money(monthly.card_benefits)} selected={categoryMode === 'benefits'} onClick={() => selectCategoryMode('benefits')} />
-            <MetricCard label="Needs Review" value={String(monthly.unclassified_count)} onClick={() => setDetailFilter({ transactionType: 'unclassified' })} />
           </section>
           <p className="mt-3 text-sm text-muted-foreground">Net Spending = Gross Spending − Refunds − Reimbursements − Card Benefits.</p>
 
           <section className="mt-8 grid gap-6 lg:grid-cols-2">
-            <Card className="p-5">
-              <h2 className="text-lg font-semibold">12-Month Trend</h2>
-              <div className="mt-4 h-80">
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={chartData} margin={{ left: 12, right: 12 }}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="month" />
-                    <YAxis tickFormatter={(value) => `$${value}`} />
-                    <Tooltip formatter={(value) => money(String(value))} />
-                    <Legend />
-                    <Line type="monotone" dataKey="netSpending" name="Net Spending" stroke="#dc2626" />
-                    <Line type="monotone" dataKey="income" name="Income" stroke="#16a34a" />
-                    <Line type="monotone" dataKey="netSavings" name="Net Savings" stroke="#2563eb" />
+            <Card className="min-w-0 p-4 sm:p-5">
+              <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+                <h2 className="text-lg font-semibold">12-Month Trend</h2>
+                <p className="text-xs text-muted-foreground">Monthly totals · USD</p>
+              </div>
+              <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground" aria-label="Trend series">
+                <span><span className="mr-1.5 inline-block size-2 rounded-full bg-destructive" />Net Spending</span>
+                <span><span className="mr-1.5 inline-block size-2 rounded-full bg-primary" />Income</span>
+                <span><span className="mr-1.5 inline-block size-2 rounded-full bg-foreground" />Net Savings</span>
+              </div>
+              <div className="mt-4 h-64 min-w-0 sm:h-72">
+                {chartData.length > 0 ? <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={chartData} margin={{ top: 8, right: 4, bottom: 0, left: 0 }}>
+                    <CartesianGrid vertical={false} stroke="hsl(var(--border))" strokeDasharray="3 3" />
+                    <XAxis dataKey="month" tickLine={false} axisLine={false} tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} minTickGap={18} />
+                    <YAxis width={48} tickLine={false} axisLine={false} tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} tickFormatter={compactMoney} />
+                    <Tooltip formatter={(value) => money(String(value))} contentStyle={{ borderRadius: 8, borderColor: 'hsl(var(--border))' }} />
+                    <Line type="monotone" dataKey="netSpending" name="Net Spending" stroke="hsl(var(--destructive))" strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
+                    <Line type="monotone" dataKey="income" name="Income" stroke="hsl(var(--primary))" strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
+                    <Line type="monotone" dataKey="netSavings" name="Net Savings" stroke="hsl(var(--foreground))" strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
                   </LineChart>
-                </ResponsiveContainer>
+                </ResponsiveContainer> : <p className="flex h-full items-center justify-center text-sm text-muted-foreground">No trend data for this period.</p>}
               </div>
             </Card>
 
-            <Card className="overflow-hidden">
-              <div className="p-5">
+            <Card className="min-w-0 overflow-hidden">
+              <div className="p-4 sm:p-5">
                 <h2 className="text-lg font-semibold">
                   {categoryMode === 'benefits' ? 'Card Benefits by Category'
                     : categoryMode === 'gross' ? 'Gross Spending by Category'
@@ -385,37 +420,40 @@ export default function HomePage() {
                 {categoryMode === 'reimbursements' && <p className="text-xs text-muted-foreground">Reimbursements reduce spending in the month received.</p>}
               </div>
               <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead className="bg-slate-50 text-left">
+                <table className="w-full table-fixed text-sm">
+                  <thead className="bg-muted/50 text-left text-xs text-muted-foreground">
                     <tr>
-                      <th className="p-3">{categoryMode === 'benefits' ? 'Benefit Category' : 'Category'}</th>
-                      <th>{categoryMode === 'benefits' ? 'Credits' : categoryMode === 'gross' ? 'Gross'
+                      <th className="w-[42%] px-3 py-2 font-medium sm:w-[46%] sm:px-5">{categoryMode === 'benefits' ? 'Benefit Category' : 'Category'}</th>
+                      <th className="w-[30%] px-2 py-2 text-right font-medium sm:w-[32%]">{categoryMode === 'benefits' ? 'Credits' : categoryMode === 'gross' ? 'Gross'
                         : categoryMode === 'refunds' ? 'Refunds' : 'Reimbursements'}</th>
-                      <th>Transactions</th>
+                      <th className="w-[28%] px-2 py-2 text-right font-medium sm:w-[22%] sm:px-5">Transactions</th>
                     </tr>
                   </thead>
                   <tbody>
                     {categoryMode === 'benefits' ? benefitCategories.map((benefit) => (
-                      <tr key={benefit.benefit_category} className="border-t hover:bg-slate-50">
-                        <td className="p-3 font-medium"><BenefitCategoryBadge category={benefit.benefit_category}
+                      <tr key={benefit.benefit_category} className={cn('border-t hover:bg-accent/50', detailFilter?.benefitCategory === benefit.benefit_category && 'bg-accent/70')}>
+                        <td className="min-w-0 px-3 py-3 font-medium sm:px-5"><BenefitCategoryBadge category={benefit.benefit_category}
                           onClick={() => setDetailFilter({ benefitCategory: benefit.benefit_category, transactionType: 'card_benefit' })} /></td>
-                        <td>{money(benefit.benefit_amount)}</td>
-                        <td>{benefit.benefit_transaction_count}</td>
+                        <td className="px-2 py-3 text-right font-semibold tabular-nums">{money(benefit.benefit_amount)}</td>
+                        <td className="px-2 py-3 text-right tabular-nums text-muted-foreground sm:px-5">{benefit.benefit_transaction_count}</td>
                       </tr>
                     )) : categories.map((category) => (
                       <tr
                         key={category.category}
-                        className="cursor-pointer border-t hover:bg-slate-50"
+                        tabIndex={0}
+                        aria-selected={detailFilter?.category === category.category}
+                        className={cn('cursor-pointer border-t hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring', detailFilter?.category === category.category && 'bg-accent/70')}
                         onClick={() => setDetailFilter({
                           category: category.category,
                           transactionType: categoryMode === 'gross' ? 'expense'
                             : categoryMode === 'refunds' ? 'refund' : 'reimbursement',
                         })}
+                        onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); event.currentTarget.click() } }}
                       >
-                        <td className="p-3 font-medium"><CategoryBadge category={category.category} /></td>
-                        <td>{money(categoryMode === 'gross' ? category.gross_spending
+                        <td className="min-w-0 px-3 py-3 font-medium sm:px-5"><CategoryBadge category={category.category} /></td>
+                        <td className="px-2 py-3 text-right font-semibold tabular-nums">{money(categoryMode === 'gross' ? category.gross_spending
                           : categoryMode === 'refunds' ? category.refunds : category.reimbursements)}</td>
-                        <td>{categoryMode === 'gross' ? category.expense_transaction_count
+                        <td className="px-2 py-3 text-right tabular-nums text-muted-foreground sm:px-5">{categoryMode === 'gross' ? category.expense_transaction_count
                           : categoryMode === 'refunds' ? category.refund_transaction_count : category.reimbursement_transaction_count}</td>
                       </tr>
                     ))}
@@ -426,14 +464,15 @@ export default function HomePage() {
           </section>
 
           <Card className="mt-6 overflow-hidden">
-            <div className="flex items-center justify-between p-5">
+            <div className="flex flex-wrap items-center justify-between gap-3 p-4 sm:p-5">
               <h2 className="text-lg font-semibold">{categoryMode === 'benefits' ? `Card Benefits by ${groupBy}`
                 : categoryMode === 'reimbursements' ? `Reimbursements by ${groupBy}` : `Spending by ${groupBy}`}</h2>
-              <select className="rounded-md border px-3 py-2 text-sm" value={groupBy} onChange={(event) => setGroupBy(event.target.value as 'institution' | 'account')}>
+              <select aria-label="Group summary by" className="min-h-9 rounded-md border bg-background px-3 py-2 text-sm" value={groupBy} onChange={(event) => setGroupBy(event.target.value as 'institution' | 'account')}>
                 <option value="institution">Institution</option><option value="account">Account</option>
               </select>
             </div>
-            <div className="grid gap-3 border-t p-5 md:grid-cols-2 lg:grid-cols-4">
+            <p className="px-4 pb-3 text-xs text-muted-foreground sm:px-5">Select a category above to filter these summaries by {groupBy}.</p>
+            <div className="grid border-t sm:grid-cols-2">
               {breakdown.map((group) => (
                 <button
                   type="button"
@@ -443,50 +482,55 @@ export default function HomePage() {
                   aria-pressed={Boolean(detailFilter?.secondary && (group.account_id
                     ? detailFilter.secondary.account_id === group.account_id
                     : detailFilter.secondary.institution_id === group.institution_id))}
-                  className={`rounded-md border p-4 text-left ${detailFilter?.category || detailFilter?.benefitCategory ? 'hover:border-blue-500' : ''} ${
+                  className={cn('flex min-w-0 items-center justify-between gap-3 border-b p-4 text-left transition-colors last:border-b-0 sm:border-r sm:even:border-r-0 enabled:hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
                     detailFilter?.secondary && (group.account_id
                       ? detailFilter.secondary.account_id === group.account_id
-                      : detailFilter.secondary.institution_id === group.institution_id)
-                      ? 'border-blue-600 ring-2 ring-blue-200' : ''
-                  }`}
+                      : detailFilter.secondary.institution_id === group.institution_id) && 'bg-accent/70 ring-2 ring-inset ring-ring')}
                 >
-                  {group.account_name ? (
-                    <AccountBadge institutionName={group.institution_name} accountName={group.account_name} accountMask={group.account_mask || null} accountType={group.account_type || ''} accountSubtype={group.account_subtype} />
-                  ) : <InstitutionBadge institutionName={group.institution_name} />}
-                  <p className="mt-3 text-xl font-bold">{money(categoryMode === 'benefits' ? group.benefit_amount || group.card_benefits
-                    : categoryMode === 'reimbursements' ? group.reimbursements : group.net_spending)}</p>
-                  <p className="text-xs text-muted-foreground">{categoryMode === 'benefits' ? 'card benefits'
-                    : categoryMode === 'reimbursements' ? 'reimbursements' : 'net spending'}</p>
+                  <span className="min-w-0">
+                    {group.account_name ? (
+                      <AccountBadge institutionName={group.institution_name} accountName={group.account_name} accountMask={group.account_mask || null} accountType={group.account_type || ''} accountSubtype={group.account_subtype} />
+                    ) : <InstitutionBadge institutionName={group.institution_name} />}
+                    {group.account_name && <span className="mt-1 block truncate text-xs text-muted-foreground">{group.institution_name}</span>}
+                  </span>
+                  <span className="shrink-0 text-right">
+                    <span className="block font-semibold tabular-nums">{money(categoryMode === 'benefits' ? group.benefit_amount || group.card_benefits
+                      : categoryMode === 'reimbursements' ? group.reimbursements : group.net_spending)}</span>
+                    <span className="block text-xs text-muted-foreground">{categoryMode === 'benefits' ? 'card benefits'
+                      : categoryMode === 'reimbursements' ? 'reimbursements' : 'net spending'}</span>
+                  </span>
                 </button>
               ))}
             </div>
           </Card>
 
           {detailFilter && (
-            <Card className="mt-6 overflow-hidden">
-              <div className="flex items-start justify-between p-5">
-                <div>
+            <div ref={detailSection} className="mt-6 scroll-mt-4">
+            <Card className="overflow-hidden ring-1 ring-ring/30">
+              <div className="flex items-start justify-between gap-4 p-4 sm:p-5">
+                <div className="min-w-0">
                   <h2 className="text-lg font-semibold">Transaction Details</h2>
-                  <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-                    <span>{month}</span><span>·</span>
+                  <div aria-label="Active detail filters" className="mt-2 flex flex-wrap items-center gap-2 text-sm">
+                    <span className="rounded-full bg-secondary px-2.5 py-1 text-xs font-medium text-secondary-foreground">{month}</span>
+                    {detailFilter.transactionType && <span className="rounded-full bg-secondary px-2.5 py-1 text-xs font-medium capitalize text-secondary-foreground">{detailFilter.transactionType.replace(/_/g, ' ')}</span>}
                     {detailFilter.category
                       ? <CategoryBadge category={detailFilter.category} />
                       : detailFilter.benefitCategory
                         ? <BenefitCategoryBadge category={detailFilter.benefitCategory} />
-                        : <span>{detailFilter.transactionType?.replace(/_/g, ' ')}</span>}
+                        : null}
+                    {detailFilter.secondary && (
+                      <button type="button" className="rounded-full border border-primary px-2.5 py-1 text-xs font-medium text-primary hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={() => setDetailFilter({ ...detailFilter, secondary: undefined })}>
+                        {detailFilter.secondary.institution_name}
+                        {detailFilter.secondary.account_name ? ` · ${detailFilter.secondary.account_name} · ${detailFilter.secondary.account_mask || ''}` : ''}
+                        {' · Clear ×'}
+                      </button>
+                    )}
                   </div>
-                  {detailFilter.secondary && (
-                    <button type="button" className="my-2 rounded-full border border-blue-300 bg-blue-50 px-3 py-1 text-sm" onClick={() => setDetailFilter({ ...detailFilter, secondary: undefined })}>
-                      {detailFilter.secondary.institution_name}
-                      {detailFilter.secondary.account_name ? ` · ${detailFilter.secondary.account_name} · ${detailFilter.secondary.account_mask || ''}` : ''}
-                      {' · Clear ×'}
-                    </button>
-                  )}
-                  <p className="text-sm text-muted-foreground">{detailTotal} matching transactions</p>
+                  <p className="mt-2 text-sm text-muted-foreground">{detailTotal} matching transactions</p>
                   {detailFilter.transactionType === 'reimbursement' &&
                     <p className="text-sm font-medium text-slate-700">Total reimbursements: {money(detailReimbursements)}</p>}
                 </div>
-                <button type="button" className="text-sm text-blue-700 underline" onClick={() => { setDetailFilter(null); setSelectedDetails(new Set()) }}>Close</button>
+                <Button type="button" variant="ghost" size="sm" onClick={() => { setDetailFilter(null); setSelectedDetails(new Set()) }}>Close</Button>
               </div>
               {details.length > 0 && <div className="border-t bg-slate-50 px-4 py-3">
                 <label className="inline-flex items-center gap-2 text-sm font-medium">
@@ -545,6 +589,7 @@ export default function HomePage() {
                   className="disabled:opacity-40" onClick={() => setDetailOffset(detailOffset + 100)}>Next</button>
               </div>}
             </Card>
+            </div>
           )}
         </>
       )}

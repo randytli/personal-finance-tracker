@@ -33,9 +33,11 @@ const summary = {
 }
 const requests: URL[] = []
 const originalFetch = global.fetch
+const originalScrollIntoView = Element.prototype.scrollIntoView
 
 beforeEach(() => {
   requests.length = 0
+  Element.prototype.scrollIntoView = jest.fn()
   global.fetch = jest.fn(async (input) => {
     const url = new URL(String(input), 'http://synthetic.test')
     requests.push(url)
@@ -84,10 +86,35 @@ beforeEach(() => {
     return { ok: true, json: async () => data } as Response
   }) as typeof fetch
 })
-afterEach(() => { cleanup(); global.fetch = originalFetch })
+afterEach(() => { cleanup(); global.fetch = originalFetch; Element.prototype.scrollIntoView = originalScrollIntoView })
 
 function metric(name: string) { return screen.getByRole('button', { name: new RegExp(`^${name} \\$`) }) }
 function latestDetailRequest() { return requests.filter(url => url.pathname.endsWith('/transactions')).at(-1)! }
+
+test('Overview leads with primary totals and keeps review access in the header', async () => {
+  render(createElement(HomePage))
+  await screen.findByRole('heading', { name: 'Gross Spending by Category' })
+  expect(screen.getByRole('link', { name: 'Overview' }).getAttribute('aria-current')).toBe('page')
+  expect(screen.getByRole('link', { name: 'Review' }).getAttribute('href')).toBe('/review')
+  expect(screen.getByRole('link', { name: 'Memberships' }).getAttribute('href')).toBe('/memberships')
+  expect(within(screen.getByRole('region', { name: 'Monthly financial summary' })).getAllByText(/^(Net Spending|Income|Net Savings)$/)
+    .map(element => element.textContent)).toEqual(['Net Spending', 'Income', 'Net Savings'])
+  fireEvent.click(screen.getByRole('button', { name: 'Needs Review (0)' }))
+  await waitFor(() => expect(latestDetailRequest().searchParams.get('transaction_type')).toBe('unclassified'))
+})
+
+test('category drill-down marks the selected row and scrolls the active filters into view', async () => {
+  render(createElement(HomePage))
+  await screen.findByRole('heading', { name: 'Gross Spending by Category' })
+  const row = within(screen.getByRole('table')).getByRole('row', { name: /General Merchandise/i })
+  row.focus()
+  fireEvent.keyDown(row, { key: 'Enter' })
+  await screen.findByText('Synthetic expense')
+  expect(row.getAttribute('aria-selected')).toBe('true')
+  expect(within(screen.getByLabelText('Active detail filters')).getByText('expense')).toBeTruthy()
+  expect(within(screen.getByLabelText('Active detail filters')).getByText('General Merchandise')).toBeTruthy()
+  expect(Element.prototype.scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'start' })
+})
 
 test('Card Benefits switches the single shared table, reconciles, and opens typed details; existing modes still work', async () => {
   render(createElement(HomePage))

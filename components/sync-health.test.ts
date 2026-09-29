@@ -1,6 +1,7 @@
 /** @jest-environment jsdom */
-import { act, cleanup, renderHook, waitFor } from '@testing-library/react'
-import { consistentJson, useSyncRefresh } from './sync-health'
+import { createElement } from 'react'
+import { act, cleanup, render, renderHook, screen, waitFor, within } from '@testing-library/react'
+import { consistentJson, SyncHealth, useSyncRefresh, type SyncStatus } from './sync-health'
 
 const originalFetch = global.fetch
 const status = (id: string | null) => ({ last_published_run_id: id, published_at: null,
@@ -10,6 +11,27 @@ const status = (id: string | null) => ({ last_published_run_id: id, published_at
 const response = (value: unknown) => ({ ok: true, json: async () => value } as Response)
 
 afterEach(() => { cleanup(); global.fetch = originalFetch; jest.useRealTimers() })
+
+test('health details start collapsed while warnings remain visible', () => {
+  const healthy: SyncStatus = {
+    last_published_run_id: 'test', published_at: '2026-09-28T12:00:00Z', current_run: null,
+    jobs: { status: 'running', heartbeat_at: null },
+    backup: { status: 'healthy', last_success_at: null, last_attempt_at: null, error_category: null },
+    institutions: [],
+  }
+  const view = render(createElement(SyncHealth, { status: healthy, error: false }))
+  const summary = screen.getByText('Sync and backup health')
+  expect(summary.closest('details')?.open).toBe(false)
+  expect(screen.getByText('· All clear')).toBeTruthy()
+  view.rerender(createElement(SyncHealth, { status: {
+    ...healthy, jobs: { status: 'stopped', heartbeat_at: null },
+    backup: { ...healthy.backup, status: 'failed', error_category: 'backup-error' },
+  }, error: false }))
+  expect(summary.closest('details')?.open).toBe(false)
+  const warnings = screen.getByRole('list', { name: 'Sync and backup warnings' })
+  expect(within(warnings).getByText('Jobs stopped')).toBeTruthy()
+  expect(within(warnings).getByText('Backup: failed (backup-error)')).toBeTruthy()
+})
 
 test('45-second polling and focus refresh, including unchanged publication', async () => {
   jest.useFakeTimers()
