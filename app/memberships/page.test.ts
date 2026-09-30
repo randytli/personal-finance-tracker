@@ -155,7 +155,7 @@ test('shows backend overall/account costs, unallocated reconciliation, and reimb
   const summary = await screen.findByRole('region', { name: 'Overall membership costs' })
   expect(within(summary).getByText('$34.00')).toBeTruthy()
   expect(within(summary).getByRole('button', { name: /Reimbursements \$51.00/ })).toBeTruthy()
-  const reconciliation = screen.getByRole('region', { name: 'Membership reconciliation' })
+  const reconciliation = screen.getByLabelText('Membership reconciliation')
   expect(within(reconciliation).getByText(/Unallocated reimbursements: \$51.00 · 51 transactions/)).toBeTruthy()
   expect(within(reconciliation).getByText('Sum of per-account net costs − unallocated reimbursements = overall net cost.')).toBeTruthy()
   expect(screen.getByText('$85.00 net cost')).toBeTruthy()
@@ -180,7 +180,7 @@ test('each summary card opens its matching existing transaction view', async () 
     await waitFor(() => expect(latestDetails().searchParams.get('membership_view')).toBe(view))
     expect(latestDetails().searchParams.has('account_id')).toBe(false)
   }
-  expect(within(summary).getByRole('button', { name: /Net cost.*View all transactions/ })).toBeTruthy()
+  expect(within(summary).getByRole('button', { name: /Net cost/ })).toBeTruthy()
 })
 
 test('reimbursement drill-down retains full-filter totals across pages, source-account filters, and periods', async () => {

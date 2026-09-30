@@ -149,7 +149,7 @@ test('Credits & Transfers defaults incoming, supports outgoing expense, and prot
     { target: { value: 'reimbursement' } })
   fireEvent.click(within(incoming).getByRole('button', { name: 'Save' }))
   await waitFor(() => expect(rows.find(item => item.transaction_id === 'friend-credit')!.effective_transaction_type).toBe('reimbursement'))
-  await screen.findByText(/Effective type: reimbursement/)
+  await screen.findByText(/reimbursement · Manual/i)
   const reimbursed = screen.getByRole('heading', { name: 'friend-credit' }).closest('article')!
   fireEvent.click(within(reimbursed).getAllByRole('button').find(button => button.textContent === 'Uncategorized')!)
   expect(screen.getByText('Spending category')).toBeTruthy()

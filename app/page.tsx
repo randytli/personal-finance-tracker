@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import { MetricCard } from '@/components/page-presentation'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import {
   CartesianGrid,
@@ -21,7 +22,6 @@ import PlaidLinkButton from '@/components/plaid-link-button'
 import { SyncHealth, consistentJson, useSyncRefresh } from '@/components/sync-health'
 import BenefitCategoryEditor, { type BenefitCategoryOption, type BenefitCategoryDetail } from '@/components/benefit-category-editor'
 import { Button } from '@/components/ui/button'
-import { Card as SummaryCard, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { cn } from '@/lib/utils'
 import SpendingCategoryView, { netColumns, type NetCategory, type SpendingComponent } from '@/components/spending-category-view'
 
@@ -110,26 +110,6 @@ function compactMoney(value: number) {
 function currentMonth() {
   const now = new Date()
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
-}
-
-function MetricCard({ label, value, onClick, selected, primary = false }: {
-  label: string; value: string; onClick?: () => void; selected?: boolean; primary?: boolean
-}) {
-  const content = <>
-    <CardHeader className={cn('p-4 pb-1', primary && 'sm:p-5 sm:pb-1')}>
-      <CardTitle className="text-sm font-medium text-muted-foreground">{label}</CardTitle>
-    </CardHeader>
-    <CardContent className={cn('p-4 pt-0', primary && 'sm:p-5 sm:pt-0')}>
-      <p className={cn('font-semibold tabular-nums tracking-tight', primary ? 'text-2xl sm:text-3xl' : 'text-xl')}>{value}</p>
-    </CardContent>
-  </>
-  return (
-    <SummaryCard className={cn('h-full shadow-sm', selected && 'border-primary ring-2 ring-ring/20')}>
-      {onClick
-        ? <button type="button" onClick={onClick} aria-pressed={selected} className="h-full w-full rounded-xl text-left transition-colors hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">{content}</button>
-        : content}
-    </SummaryCard>
-  )
 }
 
 export default function HomePage() {

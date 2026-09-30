@@ -1,5 +1,7 @@
 'use client'
 
+import { cn } from '@/lib/utils'
+import { buttonVariants } from '@/components/ui/button'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { categoryMetadata } from './category-display'
 import { sortedCategoryOptions, type CategoryOption } from './category-editor'
@@ -52,6 +54,7 @@ export function bulkErrorMessage(body: unknown, fallback = 'Bulk change could no
 
 export default function BulkTransactionEditor({
   transactionIds,
+  overviewStyle = false,
   categoryOptions,
   benefitCategoryOptions = [],
   labelOptions,
@@ -66,6 +69,7 @@ export default function BulkTransactionEditor({
   onClear,
 }: {
   transactionIds: string[]
+  overviewStyle?: boolean
   categoryOptions: CategoryOption[]
   benefitCategoryOptions?: BenefitCategoryOption[]
   labelOptions: LabelOption[]
@@ -125,14 +129,14 @@ export default function BulkTransactionEditor({
     } finally { applying.current = false }
   }
 
-  return <div data-bulk-toolbar className="fixed bottom-[max(12px,env(safe-area-inset-bottom))] left-1/2 z-30 w-[calc(100%-2rem)] max-w-5xl -translate-x-1/2 rounded-lg border border-slate-300 bg-white p-3 shadow-lg">
+  return <div data-bulk-toolbar className={cn("fixed bottom-[max(12px,env(safe-area-inset-bottom))] left-1/2 z-30 w-[calc(100%-2rem)] max-w-5xl -translate-x-1/2 rounded-lg border border-slate-300 bg-white p-3 shadow-lg", overviewStyle && "max-h-[70dvh] max-w-7xl overflow-y-auto border-border bg-card p-4 shadow-lg")}>
     <div className="grid gap-3 sm:flex sm:flex-wrap sm:items-center">
       <div className="flex items-center justify-between gap-3">
       <p className="text-sm font-semibold">{transactionIds.length} selected <span className="font-normal text-muted-foreground">· this page only</span></p>
       <button type="button" disabled={busy} className="text-sm text-blue-700 underline sm:hidden" onClick={onClear}>Clear</button>
       </div>
       <select aria-label="Bulk action" value={operation} disabled={busy}
-        className="rounded-md border bg-white px-3 py-2 text-sm"
+        className={overviewStyle ? "min-h-9 min-w-0 max-w-full rounded-md border bg-background px-3 py-2 text-sm" : "rounded-md border bg-white px-3 py-2 text-sm"}
         onChange={event => chooseOperation(event.target.value as BulkOperation | '')}>
         <option value="">Choose bulk action</option>
         {allowClassification && <option value="set_classification">Set Classification</option>}
@@ -149,7 +153,7 @@ export default function BulkTransactionEditor({
         : operation === 'set_category' ? 'Bulk category'
           : operation === 'set_benefit_category' ? 'Bulk benefit category' : 'Bulk label'}
         value={value} disabled={busy || options.length === 0}
-        className="rounded-md border bg-white px-3 py-2 text-sm"
+        className={overviewStyle ? "min-h-9 min-w-0 max-w-full rounded-md border bg-background px-3 py-2 text-sm" : "rounded-md border bg-white px-3 py-2 text-sm"}
         onChange={event => { setValue(event.target.value); setReviewing(false) }}>
         <option value="">Choose {operation === 'set_classification' ? 'classification'
           : operation === 'set_category' ? 'category'
@@ -160,7 +164,7 @@ export default function BulkTransactionEditor({
         </option>)}
       </select>}
       {!reviewing && <button type="button" disabled={busy || !valid}
-        className="rounded-md bg-black px-4 py-2 text-sm font-medium text-white disabled:opacity-40"
+        className={overviewStyle ? buttonVariants({ size: 'sm' }) : "rounded-md bg-black px-4 py-2 text-sm font-medium text-white disabled:opacity-40"}
         onClick={() => setReviewing(true)}>Review changes</button>}
       <button type="button" disabled={busy} className="hidden text-sm text-blue-700 underline sm:inline" onClick={onClear}>Clear selection</button>
     </div>
@@ -172,7 +176,7 @@ export default function BulkTransactionEditor({
       {operation === 'set_category' && <p className="mt-1 text-muted-foreground">Existing manual categories will be replaced. Transactions may leave the current category view.</p>}
       {(operation === 'restore_category_auto' || operation === 'restore_benefit_category_auto') && <p className="mt-1 text-muted-foreground">A saved decision may be cleared even when a new value is unavailable. Classification is unchanged.</p>}
       <div className="mt-3 flex gap-3">
-        <button type="button" disabled={busy} className="rounded-md bg-black px-4 py-2 font-medium text-white disabled:opacity-50"
+        <button type="button" disabled={busy} className={overviewStyle ? buttonVariants({ size: 'sm' }) : "rounded-md bg-black px-4 py-2 font-medium text-white disabled:opacity-50"}
           onClick={() => void apply()}>{busy ? 'Applying…' : 'Apply to selected'}</button>
         <button type="button" disabled={busy} className="text-blue-700 underline" onClick={() => setReviewing(false)}>Cancel</button>
       </div>
