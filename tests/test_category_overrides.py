@@ -24,7 +24,7 @@ class CategoryTests(unittest.TestCase):
                 'AMAP TAXI', 'ALIPAY AMAP TAXI', 'NANJING METRO',
                 'ALIPAY NANJING METRO', 'UBER', 'TFL',
             ),
-            'FOOD_AND_DRINK': (
+            'DINING': (
                 'UBER EATS', 'WEIXIN ZHEJIANG GUMING', 'WEIXIN A RICE NOODLE S',
             ),
             'GENERAL_SERVICES': ('OPENAI', 'ANTHROPIC', 'CLAUDE AI SUBSCRIPTION', 'UPS'),
@@ -57,14 +57,14 @@ class CategoryTests(unittest.TestCase):
         automatic_rows = [(transaction, False)]
         automatic = summarize_monthly_transactions(automatic_rows)
         self.assertEqual(automatic['category_breakdown'][0]['category'], 'TRANSPORTATION')
-        override = SimpleNamespace(category='FOOD_AND_DRINK', cleared_at=None)
+        override = SimpleNamespace(category='DINING', cleared_at=None)
         manual_rows = [(transaction, False, None, None, None, override)]
         manual = summarize_monthly_transactions(manual_rows)
-        self.assertEqual(manual['category_breakdown'][0]['category'], 'FOOD_AND_DRINK')
+        self.assertEqual(manual['category_breakdown'][0]['category'], 'DINING')
         override.cleared_at = datetime.now()
         self.assertEqual(effective_category(transaction, override), 'TRANSPORTATION')
         for key in automatic:
-            if key != 'category_breakdown':
+            if key not in {'category_breakdown', 'category_net_breakdown'}:
                 self.assertEqual(automatic[key], manual[key])
         self.assertEqual(transaction.transaction_type, 'expense')
         self.assertTrue(transaction.is_spending)
@@ -91,7 +91,7 @@ class CategoryTests(unittest.TestCase):
         self.assertEqual(effective_category(transaction), 'UNCATEGORIZED')
 
     def test_weee_analytics_and_drilldown_preserve_totals(self):
-        for original in ('GENERAL_MERCHANDISE', 'FOOD_AND_DRINK'):
+        for original in ('GENERAL_MERCHANDISE', 'DINING'):
             for kind, amount in (('expense', '-12.34'), ('refund', '12.34')):
                 transaction = SimpleNamespace(transaction_id='weee', transaction_date=date(2026, 8, 1),
                     amount=Decimal(amount), plaid_category=original, transaction_type=kind,
@@ -103,7 +103,7 @@ class CategoryTests(unittest.TestCase):
                 after = summarize_monthly_transactions(rows)
                 self.assertEqual(after['category_breakdown'][0]['category'], 'GROCERIES')
                 for key in before:
-                    if key != 'category_breakdown':
+                    if key not in {'category_breakdown', 'category_net_breakdown'}:
                         self.assertEqual(before[key], after[key])
                 self.assertEqual(len(transaction_details(rows, 'GROCERIES', kind)), 1)
                 self.assertEqual(transaction_details(rows, original, kind), [])
@@ -145,7 +145,7 @@ class CategoryTests(unittest.TestCase):
         after = summarize_monthly_transactions(rows)
         self.assertEqual(after['category_breakdown'][0]['category'], 'GROCERIES')
         for key in before:
-            if key != 'category_breakdown':
+            if key not in {'category_breakdown', 'category_net_breakdown'}:
                 self.assertEqual(before[key], after[key])
         self.assertEqual(len(transaction_details(rows, 'GROCERIES', 'expense')), 1)
         self.assertEqual(transaction.plaid_category, 'GENERAL_MERCHANDISE')
@@ -174,7 +174,7 @@ class CategoryTests(unittest.TestCase):
             rows = [(transaction, False, None, None, None, override)]
             after = summarize_monthly_transactions(rows)
             for key in before:
-                if key != 'category_breakdown':
+                if key not in {'category_breakdown', 'category_net_breakdown'}:
                     self.assertEqual(before[key], after[key])
             self.assertEqual(after['category_breakdown'][0]['category'], 'GENERAL_MERCHANDISE')
             self.assertEqual(transaction_details(rows, 'ENTERTAINMENT', kind), [])

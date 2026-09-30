@@ -348,7 +348,7 @@ class MembershipTests(unittest.TestCase):
         bank = SimpleNamespace(institution_id='ins_test', institution_name='Test Bank')
         card = account('card')
         charge = transaction('charge', date(2026, 4, 3), '-10.65', 'expense',
-                             spending=True, category='FOOD_AND_DRINK')
+                             spending=True, category='DINING')
         refund = transaction('refund', date(2026, 4, 7), '10.65', 'refund',
                              category='GENERAL_SERVICES')
         for tx in (charge, refund):

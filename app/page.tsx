@@ -23,6 +23,7 @@ import BenefitCategoryEditor, { type BenefitCategoryOption, type BenefitCategory
 import { Button } from '@/components/ui/button'
 import { Card as SummaryCard, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { cn } from '@/lib/utils'
+import SpendingCategoryView, { netColumns, type NetCategory, type SpendingComponent } from '@/components/spending-category-view'
 
 type Category = {
   category: string
@@ -49,6 +50,8 @@ type Monthly = {
   unclassified_count: number
   category_breakdown: Category[]
   benefit_category_breakdown: BenefitCategory[]
+  category_attribution_version?: number
+  category_net_breakdown?: NetCategory[]
 }
 
 type TrendMonth = { month: string; net_spending: string; income: string; net_savings: string }
@@ -87,6 +90,9 @@ type Detail = CategoryDetail & LabelDetail & {
   override_benefit_category: string | null
   effective_benefit_category: string | null
   benefit_category_editable: boolean
+  canonical_category?: string | null
+  attribution_source?: string | null
+  net_contribution?: string | null
 }
 
 function Card({ children, className = '' }: { children: ReactNode; className?: string }) {
@@ -132,13 +138,15 @@ export default function HomePage() {
   const [trend, setTrend] = useState<TrendMonth[]>([])
   const [groupBy, setGroupBy] = useState<'institution' | 'account'>('institution')
   const [breakdown, setBreakdown] = useState<BreakdownGroup[]>([])
-  const [categoryMode, setCategoryMode] = useState<'gross' | 'refunds' | 'reimbursements' | 'benefits'>('gross')
+  const [categoryMode, setCategoryMode] = useState<SpendingComponent>('net')
   const [detailFilter, setDetailFilter] = useState<{
     category?: string; benefitCategory?: string; transactionType?: string; secondary?: BreakdownGroup
+    canonicalCategory?: string; spendingComponent?: SpendingComponent
   } | null>(null)
   const [details, setDetails] = useState<Detail[]>([])
   const [detailTotal, setDetailTotal] = useState(0)
   const [detailReimbursements, setDetailReimbursements] = useState('0.00')
+  const [detailComponentTotals, setDetailComponentTotals] = useState<Record<string, string>>({})
   const [detailOffset, setDetailOffset] = useState(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -217,7 +225,7 @@ export default function HomePage() {
   useEffect(() => {
     let active = true
     setBreakdown([])
-    const breakdownMode = categoryMode === 'benefits' ? 'benefits'
+    const breakdownMode = categoryMode === 'card_benefits' ? 'benefits'
       : categoryMode === 'reimbursements' ? 'reimbursements' : 'spending'
     consistentJson([`/api/pft/analytics/breakdown?month=${month}&group_by=${groupBy}&mode=${breakdownMode}`], sync.check)
       .then(([data]) => { if (active) setBreakdown(data.groups || []) })
@@ -232,9 +240,11 @@ export default function HomePage() {
     setDetailTotal(0)
     const parameters = new URLSearchParams({ month, limit: '100', offset: String(detailOffset) })
     if (detailFilter.category) parameters.set('category', detailFilter.category)
+    if (detailFilter.canonicalCategory) parameters.set('canonical_category', detailFilter.canonicalCategory)
+    if (detailFilter.spendingComponent) parameters.set('spending_component', detailFilter.spendingComponent)
     if (detailFilter.benefitCategory) parameters.set('benefit_category', detailFilter.benefitCategory)
     if (detailFilter.transactionType) parameters.set('transaction_type', detailFilter.transactionType)
-    if ((detailFilter.category || detailFilter.benefitCategory) && detailFilter.secondary) {
+    if ((detailFilter.category || detailFilter.benefitCategory || detailFilter.canonicalCategory) && detailFilter.secondary) {
       parameters.set('institution_id', detailFilter.secondary.institution_id)
       if (detailFilter.secondary.account_id) parameters.set('account_id', detailFilter.secondary.account_id)
     }
@@ -245,6 +255,7 @@ export default function HomePage() {
         setSelectedDetails(new Set())
         setDetailTotal(data.total || 0)
         setDetailReimbursements(data.reimbursements || '0.00')
+        setDetailComponentTotals(data.component_totals || {})
       })
       .catch(() => { if (active) setError('Transaction details could not be loaded.') })
     return () => { active = false }
@@ -304,23 +315,7 @@ export default function HomePage() {
     income: Number(value.income),
     netSavings: Number(value.net_savings),
   })), [trend])
-  const categories = useMemo(() => {
-    const included = (monthly?.category_breakdown || []).filter((category) => (
-      categoryMode === 'gross' ? category.expense_transaction_count > 0
-        : categoryMode === 'refunds' ? category.refund_transaction_count > 0
-          : category.reimbursement_transaction_count > 0
-    ))
-    return [...included].sort((a, b) => (
-      categoryMode === 'gross' ? Number(b.gross_spending) - Number(a.gross_spending)
-        : categoryMode === 'refunds' ? Number(b.refunds) - Number(a.refunds)
-          : Number(b.reimbursements) - Number(a.reimbursements)
-    ))
-  }, [monthly, categoryMode])
-
-  const benefitCategories = useMemo(() => [...(monthly?.benefit_category_breakdown || [])]
-    .sort((a, b) => Number(b.benefit_amount) - Number(a.benefit_amount)), [monthly])
-
-  function selectCategoryMode(mode: 'gross' | 'refunds' | 'reimbursements' | 'benefits') {
+  function selectCategoryMode(mode: SpendingComponent) {
     setCategoryMode(mode)
     setDetailFilter(null)
     setDetails([])
@@ -330,7 +325,7 @@ export default function HomePage() {
 
   function selectSecondary(group: BreakdownGroup) {
     setDetailFilter((current) => {
-      if (!current?.category && !current?.benefitCategory) return current
+      if (!current?.category && !current?.benefitCategory && !current?.canonicalCategory) return current
       const selected = current.secondary
       const same = group.account_id
         ? selected?.account_id === group.account_id
@@ -383,7 +378,7 @@ export default function HomePage() {
       {monthly && !loading && (
         <>
           <section aria-label="Monthly financial summary" className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4">
-            <div className="col-span-2 sm:col-span-1"><MetricCard label="Net Spending" value={money(monthly.net_spending)} primary /></div>
+            <div className="col-span-2 sm:col-span-1"><MetricCard label="Net Spending" value={money(monthly.net_spending)} selected={categoryMode === 'net'} onClick={() => selectCategoryMode('net')} primary /></div>
             <MetricCard label="Income" value={money(monthly.income)} onClick={() => setDetailFilter({ transactionType: 'income' })} primary />
             <MetricCard label="Net Savings" value={money(monthly.net_savings)} primary />
           </section>
@@ -391,7 +386,7 @@ export default function HomePage() {
             <MetricCard label="Gross Spending" value={money(monthly.gross_spending)} selected={categoryMode === 'gross'} onClick={() => selectCategoryMode('gross')} />
             <MetricCard label="Refunds" value={money(monthly.refunds)} selected={categoryMode === 'refunds'} onClick={() => selectCategoryMode('refunds')} />
             <MetricCard label="Reimbursements" value={money(monthly.reimbursements)} selected={categoryMode === 'reimbursements'} onClick={() => selectCategoryMode('reimbursements')} />
-            <MetricCard label="Card Benefits" value={money(monthly.card_benefits)} selected={categoryMode === 'benefits'} onClick={() => selectCategoryMode('benefits')} />
+            <MetricCard label="Card Benefits" value={money(monthly.card_benefits)} selected={categoryMode === 'card_benefits'} onClick={() => selectCategoryMode('card_benefits')} />
           </section>
           <p className="mt-3 text-sm text-muted-foreground">Net Spending = Gross Spending − Refunds − Reimbursements − Card Benefits.</p>
 
@@ -421,63 +416,15 @@ export default function HomePage() {
               </div>
             </Card>
 
-            <Card className="min-w-0 overflow-hidden">
-              <div className="p-4 sm:p-5">
-                <h2 className="text-lg font-semibold">
-                  {categoryMode === 'benefits' ? 'Card Benefits by Category'
-                    : categoryMode === 'gross' ? 'Gross Spending by Category'
-                      : categoryMode === 'refunds' ? 'Refunds by Category' : 'Reimbursements by Category'}
-                </h2>
-                {categoryMode === 'benefits' && <p className="text-xs text-muted-foreground">Card benefits use separate benefit categories, independent of spending categories and labels.</p>}
-                {categoryMode === 'reimbursements' && <p className="text-xs text-muted-foreground">Reimbursements reduce spending in the month received.</p>}
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full table-fixed text-sm">
-                  <thead className="bg-muted/50 text-left text-xs text-muted-foreground">
-                    <tr>
-                      <th className="w-[42%] px-3 py-2 font-medium sm:w-[46%] sm:px-5">{categoryMode === 'benefits' ? 'Benefit Category' : 'Category'}</th>
-                      <th className="w-[30%] px-2 py-2 text-right font-medium sm:w-[32%]">{categoryMode === 'benefits' ? 'Credits' : categoryMode === 'gross' ? 'Gross'
-                        : categoryMode === 'refunds' ? 'Refunds' : 'Reimbursements'}</th>
-                      <th className="w-[28%] px-2 py-2 text-right font-medium sm:w-[22%] sm:px-5">Transactions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {categoryMode === 'benefits' ? benefitCategories.map((benefit) => (
-                      <tr key={benefit.benefit_category} className={cn('border-t hover:bg-accent/50', detailFilter?.benefitCategory === benefit.benefit_category && 'bg-accent/70')}>
-                        <td className="min-w-0 px-3 py-3 font-medium sm:px-5"><BenefitCategoryBadge category={benefit.benefit_category}
-                          onClick={() => setDetailFilter({ benefitCategory: benefit.benefit_category, transactionType: 'card_benefit' })} /></td>
-                        <td className="px-2 py-3 text-right font-semibold tabular-nums">{money(benefit.benefit_amount)}</td>
-                        <td className="px-2 py-3 text-right tabular-nums text-muted-foreground sm:px-5">{benefit.benefit_transaction_count}</td>
-                      </tr>
-                    )) : categories.map((category) => (
-                      <tr
-                        key={category.category}
-                        tabIndex={0}
-                        aria-selected={detailFilter?.category === category.category}
-                        className={cn('cursor-pointer border-t hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring', detailFilter?.category === category.category && 'bg-accent/70')}
-                        onClick={() => setDetailFilter({
-                          category: category.category,
-                          transactionType: categoryMode === 'gross' ? 'expense'
-                            : categoryMode === 'refunds' ? 'refund' : 'reimbursement',
-                        })}
-                        onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); event.currentTarget.click() } }}
-                      >
-                        <td className="min-w-0 px-3 py-3 font-medium sm:px-5"><CategoryBadge category={category.category} /></td>
-                        <td className="px-2 py-3 text-right font-semibold tabular-nums">{money(categoryMode === 'gross' ? category.gross_spending
-                          : categoryMode === 'refunds' ? category.refunds : category.reimbursements)}</td>
-                        <td className="px-2 py-3 text-right tabular-nums text-muted-foreground sm:px-5">{categoryMode === 'gross' ? category.expense_transaction_count
-                          : categoryMode === 'refunds' ? category.refund_transaction_count : category.reimbursement_transaction_count}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </Card>
+            <SpendingCategoryView categories={monthly.category_net_breakdown || []} metric={categoryMode}
+              selectedCategory={detailFilter?.canonicalCategory} selectedComponent={detailFilter?.spendingComponent}
+              onSelect={(category, component) => setDetailFilter({ canonicalCategory: category, spendingComponent: component })}
+              money={money} detailsId="overview-transaction-details" />
           </section>
 
           <Card className="mt-6 overflow-hidden">
             <div className="flex flex-wrap items-center justify-between gap-3 p-4 sm:p-5">
-              <h2 className="text-lg font-semibold">{categoryMode === 'benefits' ? `Card Benefits by ${groupBy}`
+              <h2 className="text-lg font-semibold">{categoryMode === 'card_benefits' ? `Card Benefits by ${groupBy}`
                 : categoryMode === 'reimbursements' ? `Reimbursements by ${groupBy}` : `Spending by ${groupBy}`}</h2>
               <select aria-label="Group summary by" className="min-h-9 rounded-md border bg-background px-3 py-2 text-sm" value={groupBy} onChange={(event) => setGroupBy(event.target.value as 'institution' | 'account')}>
                 <option value="institution">Institution</option><option value="account">Account</option>
@@ -489,7 +436,7 @@ export default function HomePage() {
                 <button
                   type="button"
                   key={group.account_id || group.institution_id}
-                  disabled={!detailFilter?.category && !detailFilter?.benefitCategory}
+                  disabled={!detailFilter?.category && !detailFilter?.benefitCategory && !detailFilter?.canonicalCategory}
                   onClick={() => selectSecondary(group)}
                   aria-pressed={Boolean(detailFilter?.secondary && (group.account_id
                     ? detailFilter.secondary.account_id === group.account_id
@@ -506,9 +453,9 @@ export default function HomePage() {
                     {group.account_name && <span className="mt-1 block truncate text-xs text-muted-foreground">{group.institution_name}</span>}
                   </span>
                   <span className="shrink-0 text-right">
-                    <span className="block font-semibold tabular-nums">{money(categoryMode === 'benefits' ? group.benefit_amount || group.card_benefits
+                    <span className="block font-semibold tabular-nums">{money(categoryMode === 'card_benefits' ? group.benefit_amount || group.card_benefits
                       : categoryMode === 'reimbursements' ? group.reimbursements : group.net_spending)}</span>
-                    <span className="block text-xs text-muted-foreground">{categoryMode === 'benefits' ? 'card benefits'
+                    <span className="block text-xs text-muted-foreground">{categoryMode === 'card_benefits' ? 'card benefits'
                       : categoryMode === 'reimbursements' ? 'reimbursements' : 'net spending'}</span>
                   </span>
                 </button>
@@ -517,7 +464,7 @@ export default function HomePage() {
           </Card>
 
           {detailFilter && (
-            <div ref={detailSection} className="mt-6 scroll-mt-4">
+            <div id="overview-transaction-details" ref={detailSection} tabIndex={-1} className="mt-6 scroll-mt-4 focus:outline-none">
             <Card className="overflow-hidden ring-1 ring-ring/30">
               <div className="flex items-start justify-between gap-4 p-4 sm:p-5">
                 <div className="min-w-0">
@@ -525,7 +472,10 @@ export default function HomePage() {
                   <div aria-label="Active detail filters" className="mt-2 flex flex-wrap items-center gap-2 text-sm">
                     <span className="rounded-full bg-secondary px-2.5 py-1 text-xs font-medium text-secondary-foreground">{month}</span>
                     {detailFilter.transactionType && <span className="rounded-full bg-secondary px-2.5 py-1 text-xs font-medium capitalize text-secondary-foreground">{detailFilter.transactionType.replace(/_/g, ' ')}</span>}
-                    {detailFilter.category
+                    {detailFilter.spendingComponent && <span className="rounded-full bg-secondary px-2.5 py-1 text-xs font-medium capitalize text-secondary-foreground">{detailFilter.spendingComponent.replace(/_/g, ' ')}</span>}
+                    {detailFilter.canonicalCategory
+                      ? <CategoryBadge category={detailFilter.canonicalCategory} />
+                      : detailFilter.category
                       ? <CategoryBadge category={detailFilter.category} />
                       : detailFilter.benefitCategory
                         ? <BenefitCategoryBadge category={detailFilter.benefitCategory} />
@@ -541,6 +491,10 @@ export default function HomePage() {
                   <p className="mt-2 text-sm text-muted-foreground">{detailTotal} matching transactions</p>
                   {detailFilter.transactionType === 'reimbursement' &&
                     <p className="text-sm font-medium text-slate-700">Total reimbursements: {money(detailReimbursements)}</p>}
+                  {detailFilter.spendingComponent && <p className="text-sm font-medium text-slate-700">
+                    {detailFilter.spendingComponent === 'net' ? 'Net contribution' : netColumns.find(column => column.key === detailFilter.spendingComponent)?.label}: {' '}
+                    {money(detailComponentTotals[detailFilter.spendingComponent === 'gross' ? 'gross_spending' : detailFilter.spendingComponent === 'net' ? 'net_spending' : detailFilter.spendingComponent] || '0.00')}
+                  </p>}
                 </div>
                 <Button type="button" variant="ghost" size="sm" onClick={() => { setDetailFilter(null); setSelectedDetails(new Set()) }}>Close</Button>
               </div>
@@ -571,6 +525,7 @@ export default function HomePage() {
                       )}
                     </div>
                     <p className="font-semibold">{money(detail.amount)}</p>
+                    {detailFilter.spendingComponent === 'net' && detail.net_contribution && <p className="w-full text-right text-sm font-medium tabular-nums">Net contribution {money(detail.net_contribution)}</p>}
                     <div className="grid w-full gap-x-5 md:grid-cols-2">
                       <CategoryEditor detail={detail} options={categoryOptions} busy={categoryBusy || bulkBusy} save={saveCategory} />
                       <BenefitCategoryEditor detail={detail} options={benefitCategoryOptions} disabled={bulkBusy} onChanged={changed => updateBenefitCategory(detail, changed)} />

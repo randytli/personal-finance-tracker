@@ -41,7 +41,7 @@ beforeEach(() => {
     else if (url.pathname.endsWith('/review/labels')) data = { labels: [] }
     else if (url.pathname.endsWith('/review/categories')) data = { categories: [
       { value: 'UNCATEGORIZED', label: 'Uncategorized' },
-      { value: 'FOOD_AND_DRINK', label: 'Food and Drink' },
+      { value: 'DINING', label: 'Dining' },
     ] }
     else if (url.pathname.endsWith('/review/benefit-categories')) data = { categories: [
       { value: 'UNCATEGORIZED', label: 'Uncategorized' },

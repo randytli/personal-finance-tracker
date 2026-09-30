@@ -34,7 +34,7 @@ describe('reusable label state', () => {
   })
 
   test('merges label responses without replacing unrelated transaction fields', () => {
-    const transaction = { ...detail, amount: '-12.34', effective_category: 'FOOD_AND_DRINK' }
+    const transaction = { ...detail, amount: '-12.34', effective_category: 'DINING' }
     const changed: LabelDetail = {
       transaction_id: 'transaction-1',
       automatic_labels: ['CHINA'],

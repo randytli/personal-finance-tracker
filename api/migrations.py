@@ -113,6 +113,10 @@ async def migrate_manual_categories(connection):
     await connection.run_sync(
         lambda sync: ManualCategoryOverride.__table__.create(sync, checkfirst=True)
     )
+    legacy = await connection.scalar(text(
+        "SELECT count(*) FROM manual_category_overrides WHERE category='FOOD_AND_DRINK'"))
+    if legacy:
+        raise RuntimeError("Explicit reviewed Dining migration required before schema migration")
     # init_db runs this in one transaction: replace only the constraint, never rows.
     # create(checkfirst=True) alone does not update an existing table's vocabulary.
     await connection.execute(text(

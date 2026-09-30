@@ -352,7 +352,7 @@ For benefits, ordinary spending-category overrides are not an alternative attrib
 
 | Benefit code | Canonical code | Display label |
 | --- | --- | --- |
-| `DINING_CREDIT` | `FOOD_AND_DRINK` | Food & Drink |
+| `DINING_CREDIT` | `DINING` | Dining |
 | `TRAVEL_CREDIT` | `TRAVEL` | Travel |
 | `SHOPPING_CREDIT` | `GENERAL_MERCHANDISE` | Shopping |
 | `TRANSPORTATION_CREDIT` | `TRANSPORTATION` | Transportation |

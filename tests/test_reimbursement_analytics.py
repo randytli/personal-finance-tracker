@@ -14,7 +14,7 @@ from api.routes.analytics import (
 from api.routes.review import _apply_category
 
 
-def transaction(identifier, month, amount, kind, *, category="FOOD_AND_DRINK",
+def transaction(identifier, month, amount, kind, *, category="DINING",
                 merchant="Ordinary Merchant", internal=None):
     return SimpleNamespace(
         transaction_id=identifier, transaction_date=date(2026, month, 10),
@@ -47,10 +47,10 @@ class ReimbursementAnalyticsTests(unittest.TestCase):
         self.assertEqual(summary["net_spending"], "50.00")
         self.assertEqual(sum(Decimal(group["net_spending"]) for group in summary["category_breakdown"]), Decimal("50"))
         by_category = {group["category"]: group for group in summary["category_breakdown"]}
-        self.assertEqual(by_category["FOOD_AND_DRINK"]["spending_transaction_count"], 2)
-        self.assertEqual(by_category["FOOD_AND_DRINK"]["expense_transaction_count"], 1)
-        self.assertEqual(by_category["FOOD_AND_DRINK"]["refund_transaction_count"], 1)
-        self.assertEqual(by_category["FOOD_AND_DRINK"]["reimbursement_transaction_count"], 0)
+        self.assertEqual(by_category["DINING"]["spending_transaction_count"], 2)
+        self.assertEqual(by_category["DINING"]["expense_transaction_count"], 1)
+        self.assertEqual(by_category["DINING"]["refund_transaction_count"], 1)
+        self.assertEqual(by_category["DINING"]["reimbursement_transaction_count"], 0)
         self.assertEqual(by_category["UNCATEGORIZED"]["spending_transaction_count"], 0)
         self.assertEqual(by_category["UNCATEGORIZED"]["reimbursement_transaction_count"], 1)
         self.assertEqual(by_category["UNCATEGORIZED"]["reimbursements"], "40.00")

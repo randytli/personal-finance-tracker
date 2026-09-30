@@ -4,7 +4,7 @@ import re
 from api.classification import effective_classification
 
 MANUAL_CATEGORIES = (
-    'BANK_FEES', 'ENTERTAINMENT', 'FOOD_AND_DRINK', 'GENERAL_MERCHANDISE',
+    'BANK_FEES', 'ENTERTAINMENT', 'DINING', 'GENERAL_MERCHANDISE',
     'GENERAL_SERVICES', 'GOVERNMENT_AND_NON_PROFIT', 'GROCERIES', 'HOME_IMPROVEMENT',
     'MEDICAL', 'PERSONAL_CARE', 'RENT_AND_UTILITIES', 'TRANSPORTATION', 'TRAVEL',
     'UNCATEGORIZED',
@@ -23,9 +23,9 @@ MERCHANT_CATEGORY_RULES = {
     'ALIPAY NANJING METRO': 'TRANSPORTATION',
     'UBER': 'TRANSPORTATION',
     'TFL': 'TRANSPORTATION',
-    'UBER EATS': 'FOOD_AND_DRINK',
-    'WEIXIN ZHEJIANG GUMING': 'FOOD_AND_DRINK',
-    'WEIXIN A RICE NOODLE S': 'FOOD_AND_DRINK',
+    'UBER EATS': 'DINING',
+    'WEIXIN ZHEJIANG GUMING': 'DINING',
+    'WEIXIN A RICE NOODLE S': 'DINING',
     'OPENAI': 'GENERAL_SERVICES',
     'ANTHROPIC': 'GENERAL_SERVICES',
     'CLAUDE AI SUBSCRIPTION': 'GENERAL_SERVICES',
@@ -55,11 +55,16 @@ def active_category(override):
     return override.category if override is not None and override.cleared_at is None else None
 
 
+def source_spending_category(category):
+    # Preserve Plaid's original code; translate only the derived vocabulary.
+    return 'DINING' if category == 'FOOD_AND_DRINK' else category
+
+
 def effective_category(transaction, override=None, classification_override=None):
     if (classification_override or getattr(transaction, 'transaction_type', None)) == 'reimbursement':
         return active_category(override) or 'UNCATEGORIZED'
     return (active_category(override) or automatic_category(transaction)
-            or transaction.plaid_category or 'UNCATEGORIZED')
+            or source_spending_category(transaction.plaid_category) or 'UNCATEGORIZED')
 
 
 def category_editable(transaction, classification_override=None):

@@ -78,9 +78,9 @@ class AnalyticsPhaseOneTests(unittest.TestCase):
 
     def test_category_totals_expose_separate_expense_and_refund_counts(self):
         rows = [
-            (transaction("expense", date(2026, 8, 1), "-40", "expense", "FOOD_AND_DRINK"), False),
-            (transaction("refund", date(2026, 8, 2), "10", "refund", "FOOD_AND_DRINK"), False),
-            (transaction("benefit", date(2026, 8, 3), "5", "card_benefit", "FOOD_AND_DRINK"), False),
+            (transaction("expense", date(2026, 8, 1), "-40", "expense", "DINING"), False),
+            (transaction("refund", date(2026, 8, 2), "10", "refund", "DINING"), False),
+            (transaction("benefit", date(2026, 8, 3), "5", "card_benefit", "DINING"), False),
         ]
         result = summarize_monthly_transactions(rows)
         category = result["category_breakdown"][0]

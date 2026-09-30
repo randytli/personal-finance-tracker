@@ -12,7 +12,7 @@ def transaction(
     amount,
     transaction_type,
     *,
-    category="FOOD_AND_DRINK",
+    category="DINING",
     is_spending=False,
 ):
     return SimpleNamespace(
@@ -52,7 +52,7 @@ class MonthlyAnalyticsTests(unittest.TestCase):
             result["category_breakdown"],
             [
                 {
-                    "category": "FOOD_AND_DRINK",
+                    "category": "DINING",
                     "gross_spending": "100.00",
                     "refunds": "25.00",
                     "reimbursements": "0.00",
@@ -90,6 +90,8 @@ class MonthlyAnalyticsTests(unittest.TestCase):
                 "net_savings": "0.00",
                 "category_breakdown": [],
                 "benefit_category_breakdown": [],
+                "category_attribution_version": 1,
+                "category_net_breakdown": [],
                 "unclassified_count": 0,
             },
         )

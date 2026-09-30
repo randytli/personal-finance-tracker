@@ -18,7 +18,7 @@ def transaction(
     amount,
     transaction_type,
     *,
-    category="FOOD_AND_DRINK",
+    category="DINING",
     is_spending=False,
 ):
     return SimpleNamespace(
@@ -56,7 +56,7 @@ class CategoryAnalyticsTests(unittest.TestCase):
         ]
 
     def test_category_summary_counts_only_active_expenses_and_refunds(self):
-        result = summarize_category_transactions(self.rows, "FOOD_AND_DRINK")
+        result = summarize_category_transactions(self.rows, "DINING")
 
         self.assertEqual(
             result,
@@ -88,7 +88,7 @@ class CategoryAnalyticsTests(unittest.TestCase):
         )
 
     def test_transaction_details_are_relevant_and_newest_first(self):
-        details = category_transaction_details(self.rows, "FOOD_AND_DRINK")
+        details = category_transaction_details(self.rows, "DINING")
 
         self.assertEqual(
             [item["transaction_id"] for item in details],
@@ -98,7 +98,7 @@ class CategoryAnalyticsTests(unittest.TestCase):
         self.assertEqual(details[1]["transaction_type"], "refund")
 
     def test_empty_details(self):
-        self.assertEqual(category_transaction_details([], "FOOD_AND_DRINK"), [])
+        self.assertEqual(category_transaction_details([], "DINING"), [])
 
     def test_invalid_month(self):
         for month in ("2026-13", "2026-8", "August"):

@@ -28,7 +28,7 @@ export type CategoryMetadata = { label: string; icon: LucideIcon }
 const CATEGORY_METADATA: Record<string, CategoryMetadata> = {
   BANK_FEES: { label: 'Bank Fees', icon: ReceiptText },
   ENTERTAINMENT: { label: 'Entertainment', icon: Ticket },
-  FOOD_AND_DRINK: { label: 'Food & Drink', icon: Utensils },
+  DINING: { label: 'Dining', icon: Utensils },
   GENERAL_MERCHANDISE: { label: 'General Merchandise', icon: ShoppingBag },
   GENERAL_SERVICES: { label: 'General Services', icon: Wrench },
   GOVERNMENT_AND_NON_PROFIT: { label: 'Government & Nonprofit', icon: Landmark },
@@ -128,7 +128,7 @@ export function BenefitCategoryBadge({ category, onClick }: {
 }
 
 export const MANUAL_CATEGORY_VALUES = Object.freeze([
-  'BANK_FEES', 'ENTERTAINMENT', 'FOOD_AND_DRINK', 'GENERAL_MERCHANDISE',
+  'BANK_FEES', 'ENTERTAINMENT', 'DINING', 'GENERAL_MERCHANDISE',
   'GENERAL_SERVICES', 'GOVERNMENT_AND_NON_PROFIT', 'GROCERIES', 'HOME_IMPROVEMENT',
   'MEDICAL', 'PERSONAL_CARE', 'RENT_AND_UTILITIES', 'TRANSPORTATION', 'TRAVEL',
   'UNCATEGORIZED',

@@ -6,3 +6,6 @@ RUN pip install --no-cache-dir -r /app/api/requirements.txt
 COPY api /app/api
 COPY statement_imports/*.py /app/statement_imports/
 EXPOSE 8000
+
+# Explicit operator command; never invoked by service startup.
+COPY scripts/pft_dining_migration.py /app/scripts/pft_dining_migration.py

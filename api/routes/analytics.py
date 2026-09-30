@@ -15,6 +15,9 @@ from api.labels import ALLOWED_LABELS, label_result, load_label_overrides
 from api.models import ManualCategoryOverride, ManualBenefitCategoryOverride
 from api.db import SessionLocal
 from api.models import Account, Item, ManualClassificationOverride, RawTransaction, Transaction
+from api.categories import MANUAL_CATEGORIES
+from api.benefit_categories import BENEFIT_CATEGORIES
+from api.services.category_attribution import contribution
 
 
 router = APIRouter(prefix="/analytics")
@@ -93,6 +96,8 @@ async def _active_analytics_rows(start_date, end_date, db=None):
 
 async def _active_month_rows(month, category=None, db=None):
     start_date, end_date = _month_bounds(month)
+    if category == "FOOD_AND_DRINK":
+        raise HTTPException(status_code=422, detail="use DINING for spending category filters")
     rows = await _active_analytics_rows(start_date, end_date, db)
     if category is None:
         return rows
@@ -112,6 +117,43 @@ def _analytics_row(row):
 
 def _category(transaction, override=None, classification_override=None):
     return effective_category(transaction, override, classification_override)
+
+
+COMPONENT_FIELDS = {"gross": ("gross_spending", "expense_transaction_count"),
+                    "refunds": ("refunds", "refund_transaction_count"),
+                    "reimbursements": ("reimbursements", "reimbursement_transaction_count"),
+                    "card_benefits": ("card_benefits", "benefit_transaction_count")}
+
+
+def _contribution(row):
+    transaction, removed, classification, item, account, category, benefit = _analytics_row(row)
+    if removed:
+        return None
+    return contribution(transaction, classification, category, benefit, item=item, account=account)
+
+
+def summarize_category_net(rows):
+    groups = {}
+    for row in rows:
+        entry = _contribution(row)
+        if entry is None:
+            continue
+        values = groups.setdefault(entry["canonical_category"], {
+            "gross_spending": ZERO, "refunds": ZERO, "reimbursements": ZERO,
+            "card_benefits": ZERO, "expense_transaction_count": 0,
+            "refund_transaction_count": 0, "reimbursement_transaction_count": 0,
+            "benefit_transaction_count": 0, "contributing_transaction_count": 0})
+        amount_field, count_field = COMPONENT_FIELDS[entry["component"]]
+        values[amount_field] += entry["magnitude"]
+        values[count_field] += 1
+        values["contributing_transaction_count"] += 1
+    result = []
+    for category, values in sorted(groups.items()):
+        net = values["gross_spending"] - values["refunds"] - values["reimbursements"] - values["card_benefits"]
+        result.append({"category": category, **{
+            key: _money(value) if isinstance(value, Decimal) else value
+            for key, value in values.items()}, "net_spending": _money(net)})
+    return result
 
 
 def _empty_metrics():
@@ -340,7 +382,9 @@ def summarize_monthly_transactions(rows):
         if values[2] or values[6]
     ]
     return {**_finalize_metrics(metrics), "category_breakdown": category_breakdown,
-            "benefit_category_breakdown": summarize_benefit_categories(rows)}
+            "benefit_category_breakdown": summarize_benefit_categories(rows),
+            "category_attribution_version": 1,
+            "category_net_breakdown": summarize_category_net(rows)}
 
 
 def summarize_benefit_categories(rows):
@@ -539,8 +583,24 @@ async def monthly_spending(month: str = Query(..., pattern=r"^\d{4}-\d{2}$")):
 
 @router.get("/category")
 async def category_spending(month: str = Query(..., pattern=r"^\d{4}-\d{2}$"), category: str = Query(..., min_length=1)):
+    if category == "FOOD_AND_DRINK":
+        raise HTTPException(status_code=422, detail="use DINING for spending category filters")
     rows = await _active_month_rows(month)
     return {"month": month, "category": category, **summarize_category_transactions(rows, category)}
+
+
+@router.get("/category-net")
+async def category_net(month: str = Query(..., pattern=r"^\d{4}-\d{2}$"), category: str = Query(..., min_length=1)):
+    if category not in MANUAL_CATEGORIES:
+        raise HTTPException(status_code=422, detail="unsupported canonical category")
+    rows = await _active_month_rows(month)
+    found = next((entry for entry in summarize_category_net(rows) if entry["category"] == category), None)
+    return {"month": month, **(found or {"category": category,
+        "gross_spending": _money(ZERO), "refunds": _money(ZERO),
+        "reimbursements": _money(ZERO), "card_benefits": _money(ZERO),
+        "net_spending": _money(ZERO), "expense_transaction_count": 0,
+        "refund_transaction_count": 0, "reimbursement_transaction_count": 0,
+        "benefit_transaction_count": 0, "contributing_transaction_count": 0})}
 
 
 @router.get("/trend")
@@ -605,7 +665,23 @@ async def analytics_transactions(
     start_month: str | None = None,
     end_month: str | None = None,
     membership_view: MembershipView | None = None,
+    canonical_category: str | None = None,
+    spending_component: str | None = None,
 ):
+    if category == "FOOD_AND_DRINK":
+        raise HTTPException(status_code=422, detail="use DINING for spending category filters")
+    if category is not None and canonical_category is not None:
+        raise HTTPException(status_code=422, detail="choose category or canonical_category")
+    if transaction_type is not None and spending_component is not None:
+        raise HTTPException(status_code=422, detail="choose transaction_type or spending_component")
+    if membership_view is not None and spending_component is not None:
+        raise HTTPException(status_code=422, detail="choose membership_view or spending_component")
+    if canonical_category is not None and canonical_category not in MANUAL_CATEGORIES:
+        raise HTTPException(status_code=422, detail="unsupported canonical category")
+    if spending_component is not None and spending_component not in {*COMPONENT_FIELDS, "net"}:
+        raise HTTPException(status_code=422, detail="unsupported spending component")
+    if benefit_category is not None and spending_component is not None and spending_component != "card_benefits":
+        raise HTTPException(status_code=422, detail="benefit_category requires card_benefits component")
     if membership_view is not None and (label != "MEMBERSHIP"):
         raise HTTPException(status_code=422, detail="membership_view requires label=MEMBERSHIP")
     if membership_view is not None and transaction_type is not None:
@@ -614,18 +690,20 @@ async def analytics_transactions(
         raise HTTPException(status_code=422, detail="unsupported transaction type")
     if label is not None and label not in ALLOWED_LABELS:
         raise HTTPException(status_code=422, detail="unsupported transaction label")
-    if benefit_category is not None and benefit_category not in {"DINING_CREDIT", "TRAVEL_CREDIT", "SHOPPING_CREDIT", "TRANSPORTATION_CREDIT", "DIGITAL_ENTERTAINMENT_CREDIT", "ENTERTAINMENT_CREDIT", "GENERAL_SERVICES_CREDIT", "UNCATEGORIZED"}:
+    if benefit_category is not None and benefit_category not in BENEFIT_CATEGORIES:
         raise HTTPException(status_code=422, detail="unsupported benefit category")
     async with SessionLocal() as db:
         await db.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY"))
         return await _analytics_transactions_in_snapshot(
             db, month, category, transaction_type, limit, offset, institution_id,
-            account_id, benefit_category, label, start_month, end_month, membership_view)
+            account_id, benefit_category, label, start_month, end_month, membership_view,
+            canonical_category, spending_component)
 
 
 async def _analytics_transactions_in_snapshot(
     db, month, category, transaction_type, limit, offset, institution_id,
     account_id, benefit_category, label, start_month, end_month, membership_view,
+    canonical_category=None, spending_component=None,
 ):
     if month is not None:
         if start_month is not None or end_month is not None:
@@ -658,8 +736,33 @@ async def _analytics_transactions_in_snapshot(
                                  **contexts.get(detail["transaction_id"], {}))}
         for detail in details
     ]
+    contributions = {
+        _analytics_row(row)[0].transaction_id: _contribution(row)
+        for row in rows
+    }
+    details = [{**detail, "canonical_category": entry["canonical_category"] if entry else None,
+                "attribution_source": entry["attribution_source"] if entry else None,
+                "spending_component": entry["component"] if entry else None,
+                "net_contribution": _money(entry["net_contribution"]) if entry else None}
+               for detail in details
+               for entry in [contributions.get(detail["transaction_id"])]]
+    if canonical_category is not None:
+        details = [detail for detail in details if detail["canonical_category"] == canonical_category]
+    if spending_component is not None:
+        details = [detail for detail in details if detail["spending_component"] is not None
+                   and (spending_component == "net" or detail["spending_component"] == spending_component)]
     if label is not None:
         details = [detail for detail in details if label in detail["effective_labels"]]
+    component_totals = {field: ZERO for field, _ in COMPONENT_FIELDS.values()}
+    net_total = ZERO
+    contributing_count = 0
+    for detail in details:
+        entry = contributions.get(detail["transaction_id"])
+        if entry is None:
+            continue
+        component_totals[COMPONENT_FIELDS[entry["component"]][0]] += entry["magnitude"]
+        net_total += entry["net_contribution"]
+        contributing_count += 1
     membership_counts = None
     if label == "MEMBERSHIP":
         buckets = {"charges": 0, "refunds": 0, "reimbursements": 0,
@@ -693,6 +796,9 @@ async def _analytics_transactions_in_snapshot(
         "transaction_type": transaction_type,
         "label": label,
         "total": len(details),
+        "component_totals": {**{key: _money(value) for key, value in component_totals.items()},
+                             "net_spending": _money(net_total)},
+        "contributing_transaction_count": contributing_count,
         "reimbursements": reimbursement_total,
         "reimbursement_transaction_count": len(reimbursement_details),
         "unallocated_reimbursements": reimbursement_total if label == "MEMBERSHIP" else _money(ZERO),
