@@ -33,7 +33,7 @@ let width = 1440
 beforeEach(() => {
   width = 1440
   requests.length = 0
-  window.matchMedia = jest.fn().mockImplementation(query => ({ matches: width >= 768, media: query,
+  window.matchMedia = jest.fn().mockImplementation(query => ({ matches: query.includes('max-width') ? width < 768 : width >= 768, media: query,
     addEventListener: jest.fn(), removeEventListener: jest.fn() }))
   Element.prototype.scrollIntoView = jest.fn()
   global.fetch = jest.fn(async input => {
@@ -184,7 +184,9 @@ test('crossing to desktop closes the mobile sheet and removes its entry point', 
   await screen.findByRole('heading', { name: 'Net Spending by Category' })
   await click(screen.getByRole('button', { name: 'View full breakdown' }))
   expect(screen.getByRole('dialog')).toBeTruthy()
-  const media = (window.matchMedia as jest.Mock).mock.results[0].value
+  const mockMedia = window.matchMedia as jest.Mock
+  const index = mockMedia.mock.calls.findIndex(([query]) => query === '(min-width: 768px)')
+  const media = mockMedia.mock.results[index].value
   media.matches = true
   await act(async () => { media.addEventListener.mock.calls[0][1]() })
   expect(screen.queryByRole('dialog')).toBeNull()

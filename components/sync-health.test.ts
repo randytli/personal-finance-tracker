@@ -4,7 +4,7 @@ import { act, cleanup, render, renderHook, screen, waitFor, within } from '@test
 import { consistentJson, SyncHealth, useSyncRefresh, type SyncStatus } from './sync-health'
 
 const originalFetch = global.fetch
-const status = (id: string | null) => ({ last_published_run_id: id, published_at: null,
+const status = (id: string | null): SyncStatus => ({ last_published_run_id: id, published_at: null,
   current_run: null, jobs: { status: 'stopped', heartbeat_at: null },
   backup: { status: 'never', last_success_at: null, last_attempt_at: null, error_category: null },
   institutions: [] })
@@ -98,4 +98,34 @@ test('late status response cannot restore an older marker', async () => {
   expect(result.current.status?.last_published_run_id).toBe('new')
   await act(async () => { release(response(status('old'))); await Promise.resolve() })
   expect(result.current.status?.last_published_run_id).toBe('new')
+})
+
+test('API failure keeps last reported bank freshness, suppresses all-clear, and permits retry', () => {
+  const onRetry = jest.fn()
+  const last: SyncStatus = { ...status('old'), published_at: '2026-09-01T12:00:00Z',
+    jobs: { status: 'running', heartbeat_at: null },
+    backup: { status: 'healthy', last_success_at: null, last_attempt_at: null, error_category: null } }
+  render(createElement(SyncHealth, { status: last, error: true, onRetry }))
+  expect(screen.queryByText('· All clear')).toBeNull()
+  expect(screen.getByRole('alert').textContent).toContain('Last reported values are shown')
+  expect(screen.getByText(/Last reported status/)).toBeTruthy()
+  screen.getByRole('button', { name: 'Retry status' }).click()
+  expect(onRetry).toHaveBeenCalledTimes(1)
+})
+
+test('never-published, partial, paused, failed-bank, and metadata warnings stay visible when details collapse', () => {
+  const value: SyncStatus = { ...status(null),
+    current_run: { status: 'partial', started_at: '2026-09-01T12:00:00Z', error_category: null },
+    institutions: [{ item_id: 'synthetic', institution_name: 'Synthetic Bank', status: 'active', sync_paused: true,
+      last_attempt_at: '2026-09-01T12:00:00Z', last_success_at: null, last_change_at: null, next_retry_at: null,
+      metadata_warning: 'account-metadata-stale', latest_outcome: { status: 'failed', phase: 'fetch',
+        error_category: 'connection-error', counts: { added_count: 0, modified_count: 0, removed_count: 0, classified_count: 0 } } }] }
+  render(createElement(SyncHealth, { status: value, error: false }))
+  const warnings = screen.getByRole('list', { name: 'Sync and backup warnings' })
+  for (const text of ['No published sync yet', 'Latest run: partial', 'Synthetic Bank: no successful bank check',
+    'Synthetic Bank: active, paused', 'Synthetic Bank: account-metadata-stale', 'Synthetic Bank: connection-error']) {
+    expect(within(warnings).getByText(text)).toBeTruthy()
+  }
+  expect(screen.queryByText('· All clear')).toBeNull()
+  expect(screen.getByText(/Last bank check: Never/)).toBeTruthy()
 })

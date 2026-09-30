@@ -1,6 +1,6 @@
 'use client'
 
-import { PageNavigation, MetricCard, TransactionTools, TransactionTypeBadge } from '@/components/page-presentation'
+import { PageNavigation, MetricCard, TransactionTools, TransactionTypeBadge, ChartMonthlyTotals, compactMoney, useNarrowViewport, useTransactionPageSize } from '@/components/page-presentation'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { useCallback, useEffect, useMemo, useState } from 'react'
@@ -62,7 +62,6 @@ type Detail = CategoryDetail & BenefitCategoryDetail & LabelDetail & {
   is_internal_transfer: boolean | null
 }
 
-const PAGE_SIZE = 50
 
 function currentMonth() {
   const now = new Date()
@@ -101,6 +100,7 @@ export default function MembershipsPage() {
   const [viewCounts, setViewCounts] = useState({ charges: 0, refunds: 0, reimbursements: 0, card_benefits: 0, all: 0 })
   const [detailUnallocatedAmount, setDetailUnallocatedAmount] = useState('0.00')
   const [detailUnallocatedCount, setDetailUnallocatedCount] = useState(0)
+  const pageSize = useTransactionPageSize()
   const [offset, setOffset] = useState(0)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [revision, setRevision] = useState(0)
@@ -108,9 +108,11 @@ export default function MembershipsPage() {
   const [detailLoading, setDetailLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [optionsRetry, setOptionsRetry] = useState(0)
   const [status, setStatus] = useState('')
   const [categoryOptions, setCategoryOptions] = useState<CategoryOption[]>([])
   const [benefitCategoryOptions, setBenefitCategoryOptions] = useState<BenefitCategoryOption[]>([])
+  const narrowViewport = useNarrowViewport()
   const labelOptions = useLabelOptions()
   const sync = useSyncRefresh()
 
@@ -125,7 +127,7 @@ export default function MembershipsPage() {
       .then(data => { if (active) setBenefitCategoryOptions(data.categories || []) })
       .catch(() => { if (active) setError('Benefit category options could not be loaded.') })
     return () => { active = false }
-  }, [])
+  }, [optionsRetry])
 
   useEffect(() => {
     let active = true
@@ -137,17 +139,19 @@ export default function MembershipsPage() {
     return () => { active = false }
   }, [endMonth, period, revision, sync.revision, sync.check])
 
+  useEffect(() => { setSelected(new Set()) }, [pageSize])
+
   const startMonth = summary && membershipSummaryMatches(summary, endMonth, period)
     ? summary.start_month : null
   useEffect(() => {
     if (!startMonth) return
     let active = true
     setDetailLoading(true)
-    consistentJson([membershipTransactionsPath(startMonth, endMonth, accountId, offset, PAGE_SIZE, view)], sync.check)
+    consistentJson([membershipTransactionsPath(startMonth, endMonth, accountId, offset, pageSize, view)], sync.check)
       .then(([data]) => {
         if (!active) return
         if (offset > 0 && offset >= data.total) {
-          setOffset(Math.max(0, Math.floor((data.total - 1) / PAGE_SIZE) * PAGE_SIZE))
+          setOffset(Math.max(0, Math.floor((data.total - 1) / pageSize) * pageSize))
           return
         }
         setDetails(data.transactions || [])
@@ -160,7 +164,7 @@ export default function MembershipsPage() {
       .catch(() => { if (active) setError('Membership transactions could not be loaded.') })
       .finally(() => { if (active) setDetailLoading(false) })
     return () => { active = false }
-  }, [startMonth, endMonth, accountId, offset, view, revision, sync.revision, sync.check])
+  }, [startMonth, endMonth, accountId, offset, pageSize, view, revision, sync.revision, sync.check])
 
   const selectedAccount = summary?.accounts.find(account => account.account_id === accountId)
   const chartData = useMemo(() => (summary?.months || []).map(month => ({
@@ -301,8 +305,8 @@ export default function MembershipsPage() {
         </label>
       </div>
     </header>
-    <div className="mt-5"><SyncHealth status={sync.status} error={sync.error} /></div>
-    {error && <p role="alert" className="mt-5 rounded-md bg-red-50 p-3 text-sm text-red-800">{error}</p>}
+    <div className="mt-5"><SyncHealth status={sync.status} error={sync.error} onRetry={() => { void sync.check().catch(() => undefined) }} /></div>
+    {error && <p role="alert" className="mt-5 rounded-md bg-red-50 p-3 text-sm text-red-800">{error} <Button type="button" variant="ghost" size="sm" onClick={() => { setError(''); setOptionsRetry(value => value + 1); sync.invalidate() }}>Retry loading</Button></p>}
     {status && <p role="status" className="mt-5 rounded-md border bg-slate-50 p-3 text-sm">{status}</p>}
     {loading && <p className="mt-6 text-sm text-muted-foreground">Loading membership costs…</p>}
     {summary && <>
@@ -336,14 +340,14 @@ export default function MembershipsPage() {
         <h2 className="text-lg font-semibold">Monthly membership cost</h2>
         <div className="mt-4 h-64 min-w-0 sm:h-72">
           <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={chartData} margin={{ left: 10, right: 12 }}>
+            <LineChart accessibilityLayer data={chartData} margin={{ left: 10, right: 12 }}>
               <CartesianGrid vertical={false} stroke="hsl(var(--border))" strokeDasharray="3 3" />
-              <XAxis dataKey="month" tickLine={false} axisLine={false} tick={{ fontSize: 11 }} minTickGap={18} tickFormatter={value => value.slice(5)} />
-              <YAxis width={48} tickLine={false} axisLine={false} tick={{ fontSize: 11 }} tickFormatter={value => `$${value}`} />
+              <XAxis dataKey="month" tickLine={false} axisLine={false} tick={{ fontSize: 11 }} minTickGap={narrowViewport ? 40 : 18} tickFormatter={value => value.slice(5)} />
+              <YAxis tickCount={narrowViewport ? 4 : 5} width={56} tickLine={false} axisLine={false} tick={{ fontSize: 11 }} tickFormatter={compactMoney} />
               <Legend wrapperStyle={{ fontSize: 12 }} />
-              <Tooltip content={({ active, payload }) => {
+              <Tooltip trigger={narrowViewport ? 'click' : 'hover'} position={narrowViewport ? { x: 4, y: 4 } : undefined} wrapperStyle={{ maxWidth: 'calc(100% - 8px)' }} content={({ active, payload }) => {
                 const month = payload?.[0]?.payload as typeof chartData[number] | undefined
-                return active && month ? <div className="rounded-md border bg-white p-3 text-xs shadow">
+                return active && month ? <div className="max-w-full rounded-md border bg-white p-3 text-sm shadow [overflow-wrap:anywhere]">
                   <p className="font-semibold">{month.month}</p>
                   <p>Gross charges: {money(String(month.grossCharges))}</p>
                   <p>Refunds: {money(String(month.refunds))}</p>
@@ -360,6 +364,7 @@ export default function MembershipsPage() {
             </LineChart>
           </ResponsiveContainer>
         </div>
+        <ChartMonthlyTotals rows={chartData} columns={[{ key: 'netCost', label: 'Net cost' }, { key: 'grossCharges', label: 'Gross charges' }, { key: 'refunds', label: 'Refunds' }, { key: 'reimbursements', label: 'Reimbursements' }, { key: 'cardBenefits', label: 'Card benefits' }]} money={money} />
       </section>
 
       <section className="mt-8">
@@ -439,7 +444,7 @@ export default function MembershipsPage() {
             <label className="pt-1"><input type="checkbox" checked={selected.has(detail.transaction_id)} disabled={busy}
               aria-label={`Select ${detail.merchant_name || detail.description || 'transaction'}`}
               onChange={() => toggleSelected(detail.transaction_id)} /></label>
-            <div className="min-w-0 flex-1">
+            <div className="min-w-0 flex-1 basis-40">
               <p className="font-medium break-words">{detail.merchant_name || detail.description || 'Unknown transaction'}</p>
               <p className="mt-1 break-words text-xs text-muted-foreground">{detail.transaction_date} · {detail.description}</p>
               <div className="mt-2"><TransactionTypeBadge type={detail.transaction_type} /></div>
@@ -449,7 +454,7 @@ export default function MembershipsPage() {
               </div>}
             </div>
             <div className="max-w-full shrink-0 text-right">
-              <p className="font-semibold tabular-nums">{signedMoney(detail.amount)}</p>
+              <p className="max-w-full font-semibold tabular-nums [overflow-wrap:anywhere]">{signedMoney(detail.amount)}</p>
             </div>
             {isMembershipReimbursement(detail) && <p className="w-full text-xs text-muted-foreground">Reduces overall cost only · receiving account shown as context</p>}
             {!contributesToCost(detail) && <p className="w-full text-xs text-amber-800">Excluded from cost</p>}
@@ -463,20 +468,20 @@ export default function MembershipsPage() {
             </div>
           </article>)}
         </div>
-        {selected.size > 0 && <div className="h-64 sm:h-32"><BulkTransactionEditor overviewStyle
+        {selected.size > 0 && <div className="min-w-0"><BulkTransactionEditor overviewStyle
           transactionIds={Array.from(selected)} categoryOptions={categoryOptions} labelOptions={labelOptions.options}
           benefitCategoryOptions={benefitCategoryOptions}
           categoryIneligibleCount={details.filter(detail => selected.has(detail.transaction_id) && !detail.category_editable).length}
           benefitIneligibleCount={selectedDetails.filter(detail => !detail.benefit_category_editable).length}
           allowClassification classificationOptions={classificationOptions}
-          allowCategory allowBenefitCategory busy={busy} onApply={applyBulk} onClear={() => setSelected(new Set())} />
+          allowCategory allowBenefitCategory busy={busy} errorMessage={error} onApply={applyBulk} onClear={() => setSelected(new Set())} />
         </div>}
-        <div className="flex items-center gap-4 border-t p-5 text-sm">
+        <div className="flex flex-wrap items-center gap-3 border-t p-5 text-sm">
           <button type="button" disabled={busy || detailLoading || offset === 0} className="text-blue-700 underline disabled:opacity-40"
-            onClick={() => { setOffset(Math.max(0, offset - PAGE_SIZE)); setSelected(new Set()) }}>Previous</button>
-          <span>{total === 0 ? 0 : offset + 1}–{Math.min(offset + PAGE_SIZE, total)} of {total}</span>
-          <button type="button" disabled={busy || detailLoading || offset + PAGE_SIZE >= total} className="text-blue-700 underline disabled:opacity-40"
-            onClick={() => { setOffset(offset + PAGE_SIZE); setSelected(new Set()) }}>Next</button>
+            onClick={() => { setOffset(Math.max(0, offset - pageSize)); setSelected(new Set()) }}>Previous</button>
+          <span>{total === 0 ? 0 : offset + 1}–{Math.min(offset + pageSize, total)} of {total}</span>
+          <button type="button" disabled={busy || detailLoading || offset + pageSize >= total} className="text-blue-700 underline disabled:opacity-40"
+            onClick={() => { setOffset(offset + pageSize); setSelected(new Set()) }}>Next</button>
         </div>
       </section>
     </>}

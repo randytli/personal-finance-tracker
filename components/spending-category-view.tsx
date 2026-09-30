@@ -100,11 +100,11 @@ export default function SpendingCategoryView({ categories, metric, selectedCateg
             </td></tr>}</Fragment>)}</tbody>
           </table> : <div className="border-t" aria-label={`${column.title} category list`}>
             {included.map(category => <button type="button" key={category.category} aria-pressed={selected(category.category)}
-              className={cn('flex min-h-16 w-full items-center justify-between gap-3 border-b px-4 py-3 text-left last:border-b-0 hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring', selected(category.category) && 'bg-accent/70')}
+              className={cn('flex min-h-16 w-full flex-wrap items-center justify-between gap-3 border-b px-4 py-3 text-left last:border-b-0 hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring', selected(category.category) && 'bg-accent/70')}
               onClick={() => onSelect(category.category, metric)}>
               <span className="flex min-w-0 flex-col items-start gap-1"><CategoryBadge category={category.category} />
                 <span className="text-xs text-muted-foreground">{category[column.count]} {category[column.count] === 1 ? 'transaction' : 'transactions'}</span></span>
-              <span className="flex shrink-0 items-center gap-2"><span className="text-sm font-semibold tabular-nums">{money(category[column.field])}</span><ChevronRight className="size-4 text-muted-foreground" aria-hidden="true" /></span>
+              <span className="flex max-w-full shrink-0 items-center gap-2 [overflow-wrap:anywhere]"><span className="text-sm font-semibold tabular-nums">{money(category[column.field])}</span><ChevronRight className="size-4 text-muted-foreground" aria-hidden="true" /></span>
             </button>)}
           </div>}
           {included.length === 0 && <p className="p-4 text-sm text-muted-foreground">No {column.title.toLowerCase()} transactions this month.</p>}
@@ -142,9 +142,9 @@ function FullCategoryBreakdown({ categories, money, detailsId, onSelect }: {
       </SheetHeader>
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
         {full.map(category => <details key={category.category} className="group border-b last:border-b-0">
-          <summary className="flex min-h-16 cursor-pointer list-none items-center justify-between gap-3 py-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
+          <summary className="flex min-h-16 flex-wrap cursor-pointer list-none items-center justify-between gap-3 py-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
             <span className="min-w-0"><CategoryBadge category={category.category} /></span>
-            <span className="flex shrink-0 items-center gap-2"><span className="text-sm font-semibold tabular-nums">{money(category.net_spending)}</span>
+            <span className="flex max-w-full shrink-0 items-center gap-2 [overflow-wrap:anywhere]"><span className="text-sm font-semibold tabular-nums">{money(category.net_spending)}</span>
               <ChevronDown className="size-4 text-muted-foreground transition-transform group-open:rotate-180" aria-hidden="true" /></span>
           </summary>
           <CategoryBreakdownContent category={category} money={money} onSelect={selectFromSheet} />
@@ -162,7 +162,7 @@ function CategoryBreakdownContent({ category, money, onSelect }: {
   return <div className="flex flex-col gap-1 pb-4">
             {netColumns.map(value => <button type="button" key={value.key}
               aria-label={`${value.title} transactions for ${categoryMetadata(category.category).label}: ${money(category[value.field])}`}
-              className="flex min-h-11 items-center justify-between gap-3 rounded-md px-3 py-2 text-left text-sm hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="flex min-h-11 flex-wrap items-center justify-between gap-3 rounded-md px-3 py-2 text-left text-sm hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               onClick={() => onSelect(category.category, value.key)}>
               <span className="flex flex-col gap-0.5"><span>{value.label}</span><span className="text-xs text-muted-foreground">{category[value.count]} {category[value.count] === 1 ? 'transaction' : 'transactions'}</span></span>
               <span className="flex items-center gap-2"><span className="tabular-nums">{money(category[value.field])}</span><ChevronRight className="size-4 text-muted-foreground" aria-hidden="true" /></span>

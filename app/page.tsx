@@ -1,7 +1,6 @@
 'use client'
 
-import Link from 'next/link'
-import { MetricCard } from '@/components/page-presentation'
+import { MetricCard, PageNavigation, ChartMonthlyTotals, compactMoney, useNarrowViewport } from '@/components/page-presentation'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import {
   CartesianGrid,
@@ -103,10 +102,6 @@ function money(value: string) {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(Number(value))
 }
 
-function compactMoney(value: number) {
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', notation: 'compact', maximumFractionDigits: 1 }).format(value)
-}
-
 function currentMonth() {
   const now = new Date()
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
@@ -128,8 +123,10 @@ export default function HomePage() {
   const [detailReimbursements, setDetailReimbursements] = useState('0.00')
   const [detailComponentTotals, setDetailComponentTotals] = useState<Record<string, string>>({})
   const [detailOffset, setDetailOffset] = useState(0)
+  const [detailLoading, setDetailLoading] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [optionsRetry, setOptionsRetry] = useState(0)
   const [categoryOptions, setCategoryOptions] = useState<Array<{ value: string; label: string }>>([])
   const [benefitCategoryOptions, setBenefitCategoryOptions] = useState<BenefitCategoryOption[]>([])
   const [categoryBusy, setCategoryBusy] = useState(false)
@@ -140,6 +137,7 @@ export default function HomePage() {
   const [bulkStatus, setBulkStatus] = useState('')
   const [detailRevision, setDetailRevision] = useState(0)
   const detailSection = useRef<HTMLDivElement>(null)
+  const narrowViewport = useNarrowViewport()
   const labelOptions = useLabelOptions()
   const sync = useSyncRefresh()
 
@@ -150,8 +148,9 @@ export default function HomePage() {
       .catch(() => { if (active) setError('Category options could not be loaded.') })
     fetch('/api/pft/review/benefit-categories').then(response => response.ok ? response.json() : Promise.reject())
       .then(data => { if (active) setBenefitCategoryOptions(data.categories) })
+      .catch(() => { if (active) setError('Benefit category options could not be loaded.') })
     return () => { active = false }
-  }, [])
+  }, [optionsRetry])
 
   function updateBenefitCategory(detail: Detail, changed: BenefitCategoryDetail) {
     setDetails(current => current.map(value => value.transaction_id === detail.transaction_id ? { ...value, ...changed } : value))
@@ -218,6 +217,7 @@ export default function HomePage() {
     let active = true
     setDetails([])
     setDetailTotal(0)
+    setDetailLoading(true)
     const parameters = new URLSearchParams({ month, limit: '100', offset: String(detailOffset) })
     if (detailFilter.category) parameters.set('category', detailFilter.category)
     if (detailFilter.canonicalCategory) parameters.set('canonical_category', detailFilter.canonicalCategory)
@@ -238,6 +238,7 @@ export default function HomePage() {
         setDetailComponentTotals(data.component_totals || {})
       })
       .catch(() => { if (active) setError('Transaction details could not be loaded.') })
+      .finally(() => { if (active) setDetailLoading(false) })
     return () => { active = false }
   }, [detailFilter, detailOffset, month, categoryRevision, detailRevision, sync.revision, sync.check])
 
@@ -290,7 +291,7 @@ export default function HomePage() {
   ]
 
   const chartData = useMemo(() => trend.map((value) => ({
-    month: value.month.slice(5),
+    month: value.month,
     netSpending: Number(value.net_spending),
     income: Number(value.income),
     netSavings: Number(value.net_savings),
@@ -316,14 +317,7 @@ export default function HomePage() {
 
   return (
     <main className="mx-auto max-w-7xl px-4 pb-10 pt-4 sm:px-6 sm:pt-6">
-      <nav aria-label="Main navigation" className="flex flex-wrap items-center gap-2 border-b pb-3 sm:gap-4">
-        <Link href="/" className="mr-auto text-base font-semibold tracking-tight">PFT</Link>
-        <div className="flex items-center gap-1">
-          <Button asChild variant="secondary" size="sm"><Link href="/" aria-current="page">Overview</Link></Button>
-          <Button asChild variant="ghost" size="sm"><Link href="/review">Review</Link></Button>
-          <Button asChild variant="ghost" size="sm"><Link href="/memberships">Memberships</Link></Button>
-        </div>
-      </nav>
+      <PageNavigation current="Overview" />
       <header className="mt-6 flex flex-wrap items-end justify-between gap-4">
         <div className="min-w-0">
           <h1 className="text-3xl font-semibold tracking-tight">Overview</h1>
@@ -336,7 +330,7 @@ export default function HomePage() {
           <label className="flex items-center gap-2 text-sm font-medium">
             Month
             <input
-              className="min-h-9 rounded-md border bg-background px-2 py-1.5"
+              className="min-h-9 min-w-0 max-w-full rounded-md border bg-background px-2 py-1.5"
               type="month"
               value={month}
               onChange={(event) => setMonth(event.target.value)}
@@ -345,9 +339,9 @@ export default function HomePage() {
         </div>
       </header>
 
-      <div className="mt-4"><SyncHealth status={sync.status} error={sync.error} /></div>
+      <div className="mt-4"><SyncHealth status={sync.status} error={sync.error} onRetry={() => { void sync.check().catch(() => undefined) }} /></div>
 
-      {error && <p role="alert" className="mt-6 rounded-md bg-red-50 p-3 text-sm text-red-800">{error}</p>}
+      {error && <p role="alert" className="mt-6 rounded-md bg-red-50 p-3 text-sm text-red-800">{error} <Button type="button" variant="ghost" size="sm" onClick={() => { setError(''); setOptionsRetry(value => value + 1); sync.invalidate() }}>Retry loading</Button></p>}
       {bulkStatus && <p role="status" className="mt-6 rounded-md border bg-slate-50 p-3 text-sm">{bulkStatus}</p>}
       {categoryUndo && <p role="status" className="mt-4 rounded border p-3 text-sm">
         Category saved.
@@ -383,17 +377,18 @@ export default function HomePage() {
               </div>
               <div className="mt-4 h-64 min-w-0 sm:h-72">
                 {chartData.length > 0 ? <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={chartData} margin={{ top: 8, right: 4, bottom: 0, left: 0 }}>
+                  <LineChart accessibilityLayer data={chartData} margin={{ top: 8, right: 4, bottom: 0, left: 0 }}>
                     <CartesianGrid vertical={false} stroke="hsl(var(--border))" strokeDasharray="3 3" />
-                    <XAxis dataKey="month" tickLine={false} axisLine={false} tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} minTickGap={18} />
-                    <YAxis width={48} tickLine={false} axisLine={false} tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} tickFormatter={compactMoney} />
-                    <Tooltip formatter={(value) => money(String(value))} contentStyle={{ borderRadius: 8, borderColor: 'hsl(var(--border))' }} />
+                    <XAxis dataKey="month" tickLine={false} axisLine={false} tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} minTickGap={narrowViewport ? 40 : 18} tickFormatter={value => value.slice(5)} />
+                    <YAxis tickCount={narrowViewport ? 4 : 5} width={56} tickLine={false} axisLine={false} tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} tickFormatter={compactMoney} />
+                    <Tooltip trigger={narrowViewport ? 'click' : 'hover'} position={narrowViewport ? { x: 4, y: 4 } : undefined} wrapperStyle={{ maxWidth: 'calc(100% - 8px)' }} formatter={(value) => money(String(value))} contentStyle={{ borderRadius: 8, borderColor: 'hsl(var(--border))', fontSize: 14, overflowWrap: 'anywhere' }} />
                     <Line type="monotone" dataKey="netSpending" name="Net Spending" stroke="hsl(var(--destructive))" strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
                     <Line type="monotone" dataKey="income" name="Income" stroke="hsl(var(--primary))" strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
                     <Line type="monotone" dataKey="netSavings" name="Net Savings" stroke="hsl(var(--foreground))" strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
                   </LineChart>
                 </ResponsiveContainer> : <p className="flex h-full items-center justify-center text-sm text-muted-foreground">No trend data for this period.</p>}
               </div>
+              <ChartMonthlyTotals rows={chartData} columns={[{ key: 'netSpending', label: 'Net Spending' }, { key: 'income', label: 'Income' }, { key: 'netSavings', label: 'Net Savings' }]} money={money} />
             </Card>
 
             <SpendingCategoryView categories={monthly.category_net_breakdown || []} metric={categoryMode}
@@ -406,7 +401,7 @@ export default function HomePage() {
             <div className="flex flex-wrap items-center justify-between gap-3 p-4 sm:p-5">
               <h2 className="text-lg font-semibold">{categoryMode === 'card_benefits' ? `Card Benefits by ${groupBy}`
                 : categoryMode === 'reimbursements' ? `Reimbursements by ${groupBy}` : `Spending by ${groupBy}`}</h2>
-              <select aria-label="Group summary by" className="min-h-9 rounded-md border bg-background px-3 py-2 text-sm" value={groupBy} onChange={(event) => setGroupBy(event.target.value as 'institution' | 'account')}>
+              <select aria-label="Group summary by" className="min-h-9 min-w-0 max-w-full rounded-md border bg-background px-3 py-2 text-sm" value={groupBy} onChange={(event) => setGroupBy(event.target.value as 'institution' | 'account')}>
                 <option value="institution">Institution</option><option value="account">Account</option>
               </select>
             </div>
@@ -421,7 +416,7 @@ export default function HomePage() {
                   aria-pressed={Boolean(detailFilter?.secondary && (group.account_id
                     ? detailFilter.secondary.account_id === group.account_id
                     : detailFilter.secondary.institution_id === group.institution_id))}
-                  className={cn('flex min-w-0 items-center justify-between gap-3 border-b p-4 text-left transition-colors last:border-b-0 sm:border-r sm:even:border-r-0 enabled:hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
+                  className={cn('flex min-w-0 flex-wrap items-center justify-between gap-3 border-b p-4 text-left transition-colors last:border-b-0 sm:border-r sm:even:border-r-0 enabled:hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
                     detailFilter?.secondary && (group.account_id
                       ? detailFilter.secondary.account_id === group.account_id
                       : detailFilter.secondary.institution_id === group.institution_id) && 'bg-accent/70 ring-2 ring-inset ring-ring')}
@@ -489,6 +484,8 @@ export default function HomePage() {
                   Select all displayed ({details.length})
                 </label>
               </div>}
+              {detailLoading && <p role="status" className="border-t p-4 text-sm text-muted-foreground">Loading transaction details…</p>}
+              {!detailLoading && details.length === 0 && !error && <p className="border-t p-4 text-sm text-muted-foreground">No matching transactions.</p>}
               <div className="divide-y">
                 {details.map((detail) => (
                   <div key={detail.transaction_id} className="flex flex-wrap items-start justify-between gap-3 p-4">
@@ -497,14 +494,14 @@ export default function HomePage() {
                         disabled={bulkBusy} onChange={() => toggleDetail(detail.transaction_id)}
                         aria-label={`Select ${detail.merchant_name || detail.description || 'transaction'}`} />
                     </label>
-                    <div className="min-w-0 flex-1">
-                      <p className="font-medium">{detail.merchant_name || detail.description || 'Unknown transaction'}</p>
-                      <p className="text-sm text-muted-foreground">{detail.transaction_date} · {detail.description} · {detail.transaction_type.replace(/_/g, ' ')}</p>
+                    <div className="min-w-0 flex-1 basis-40">
+                      <p className="break-words font-medium">{detail.merchant_name || detail.description || 'Unknown transaction'}</p>
+                      <p className="break-words text-sm text-muted-foreground">{detail.transaction_date} · {detail.description} · {detail.transaction_type.replace(/_/g, ' ')}</p>
                       {detail.institution_name && detail.account_name && (
                         <div className="mt-2"><AccountBadge institutionName={detail.institution_name} accountName={detail.account_name} accountMask={detail.account_mask} accountType={detail.account_type || ''} accountSubtype={detail.account_subtype} /></div>
                       )}
                     </div>
-                    <p className="font-semibold">{money(detail.amount)}</p>
+                    <p className="max-w-full font-semibold tabular-nums [overflow-wrap:anywhere]">{money(detail.amount)}</p>
                     {detailFilter.spendingComponent === 'net' && detail.net_contribution && <p className="w-full text-right text-sm font-medium tabular-nums">Net contribution {money(detail.net_contribution)}</p>}
                     <div className="grid w-full gap-x-5 md:grid-cols-2">
                       <CategoryEditor detail={detail} options={categoryOptions} busy={categoryBusy || bulkBusy} save={saveCategory} />
@@ -516,7 +513,7 @@ export default function HomePage() {
                   </div>
                 ))}
               </div>
-              {selectedDetails.size > 0 && <div className="h-64 sm:h-32">
+              {selectedDetails.size > 0 && <div className="min-w-0">
                 <BulkTransactionEditor
                   transactionIds={Array.from(selectedDetails)}
                   categoryOptions={categoryOptions}
@@ -529,11 +526,11 @@ export default function HomePage() {
                   allowBenefitCategory
                   benefitIneligibleCount={selectedDetailsRows.filter(detail => !detail.benefit_category_editable).length}
                   busy={bulkBusy}
-                  onApply={applyBulk}
+                  errorMessage={error} onApply={applyBulk}
                   onClear={() => setSelectedDetails(new Set())}
                 />
               </div>}
-              {detailTotal > 100 && <div className="flex items-center gap-4 border-t p-4 text-sm">
+              {detailTotal > 100 && <div className="flex flex-wrap items-center gap-3 border-t p-4 text-sm">
                 <button type="button" disabled={detailOffset === 0}
                   className="disabled:opacity-40" onClick={() => setDetailOffset(Math.max(0, detailOffset - 100))}>Previous</button>
                 <span>{detailOffset + 1}–{Math.min(detailOffset + 100, detailTotal)} of {detailTotal}</span>

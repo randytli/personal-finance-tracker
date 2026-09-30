@@ -57,3 +57,44 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* Respect device cutouts without restricting browser zoom. */
+@layer base {
+  body {
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  }
+}
+
+@media (max-width: 767px), (pointer: coarse) {
+  /* Shared mobile hit areas preserve the accepted compact desktop controls. */
+  .pft-app :is(button, a[href], summary),
+  [data-bulk-toolbar] button {
+    min-height: 44px;
+    min-width: 44px;
+  }
+  .pft-app a[href] {
+    display: inline-flex;
+    align-items: center;
+  }
+  .pft-app :is(select, input[type="month"]),
+  [data-bulk-toolbar] select {
+    min-height: 44px;
+    min-width: 0;
+    max-width: 100%;
+    font-size: 16px;
+  }
+  .pft-app label:has(> input[type="checkbox"]) {
+    display: inline-flex;
+    min-height: 44px;
+    min-width: 44px;
+    align-items: center;
+    flex-shrink: 0;
+  }
+  .pft-app input[type="checkbox"] {
+    width: 20px;
+    height: 20px;
+  }
+  .pft-app label:has(> input[type="radio"]) {
+    min-height: 44px;
+  }
+}

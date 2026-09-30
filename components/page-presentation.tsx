@@ -7,7 +7,54 @@ import { Button } from '@/components/ui/button'
 import { Card as SummaryCard, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { cn } from '@/lib/utils'
 
-export function PageNavigation({ current }: { current: 'Review' | 'Memberships' }) {
+function useMediaQuery(queryString: string) {
+  const [narrow, setNarrow] = useState(false)
+  useEffect(() => {
+    if (!window.matchMedia) return
+    const query = window.matchMedia(queryString)
+    const update = () => setNarrow(query.matches)
+    update()
+    query.addEventListener('change', update)
+    return () => query.removeEventListener('change', update)
+  }, [queryString])
+  return narrow
+}
+
+export function useNarrowViewport() {
+  return useMediaQuery('(max-width: 767px)')
+}
+
+export function useTransactionPageSize() {
+  return useMediaQuery('(max-width: 767px), (pointer: coarse)') ? 10 : 50
+}
+
+export function compactMoney(value: number) {
+  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', notation: 'compact', maximumFractionDigits: 1 }).format(value)
+}
+
+export function ChartMonthlyTotals({ rows, columns, money }: {
+  rows: Array<{ month: string } & Record<string, string | number>>
+  columns: Array<{ key: string; label: string }>
+  money: (value: string) => string
+}) {
+  return <details className="mt-4 border-t pt-3">
+    <summary className="cursor-pointer rounded-md text-sm text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">View monthly totals</summary>
+    <ol aria-label="Monthly chart totals" className="mt-3 flex max-h-72 flex-col gap-3 overflow-y-auto overscroll-contain">
+      {rows.map(row => <li key={row.month} className="rounded-md border p-3 text-sm">
+        <p className="font-medium">{row.month}</p>
+        <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1">
+          {columns.map(column => <div key={column.key} className="min-w-0">
+            <dt className="text-xs text-muted-foreground">{column.label}</dt>
+            <dd className="tabular-nums [overflow-wrap:anywhere]">{money(String(row[column.key]))}</dd>
+          </div>)}
+        </dl>
+      </li>)}
+      {rows.length === 0 && <li className="text-sm text-muted-foreground">No monthly totals in this period.</li>}
+    </ol>
+  </details>
+}
+
+export function PageNavigation({ current }: { current: 'Overview' | 'Review' | 'Memberships' }) {
   return <nav aria-label="Main navigation" className="flex flex-wrap items-center gap-2 border-b pb-3 sm:gap-4">
     <Link href="/" className="mr-auto text-base font-semibold tracking-tight">PFT</Link>
     <div className="flex items-center gap-1">
@@ -33,7 +80,8 @@ export function TransactionTools({ children }: { children: ReactNode }) {
     <summary className="flex min-h-9 cursor-pointer list-none items-center md:hidden justify-between gap-2 rounded-md text-xs font-medium text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
       Details & editing <ChevronDown aria-hidden="true" className="size-4 transition-transform group-open:rotate-180" />
     </summary>
-    <div className="mt-2 min-w-0 md:mt-0">{children}</div>
+    {/* Explicitly remove closed editor overflow from Safari's scroll geometry. */}
+    <div hidden={!open} className="mt-2 min-w-0 md:mt-0">{children}</div>
   </details>
 }
 
@@ -52,15 +100,14 @@ export function MetricCard({ label, value, onClick, selected, primary = false }:
       <CardTitle className="text-sm font-medium text-muted-foreground">{label}</CardTitle>
     </CardHeader>
     <CardContent className={cn('p-4 pt-0', primary && 'sm:p-5 sm:pt-0')}>
-      <p className={cn('font-semibold tabular-nums tracking-tight', primary ? 'text-2xl sm:text-3xl' : 'text-xl')}>{value}</p>
+      <p className={cn('font-semibold tabular-nums tracking-tight [overflow-wrap:anywhere]', primary ? 'text-2xl sm:text-3xl' : 'text-xl')}>{value}</p>
     </CardContent>
   </>
   return (
-    <SummaryCard className={cn('h-full shadow-sm', selected && 'border-primary ring-2 ring-ring/20')}>
+    <SummaryCard className={cn('h-full min-w-0 shadow-sm', value.length > 11 && 'col-span-2 lg:col-span-1', selected && 'border-primary ring-2 ring-ring/20')}>
       {onClick
         ? <button type="button" onClick={onClick} aria-pressed={selected} className="h-full w-full rounded-xl text-left transition-colors hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">{content}</button>
         : content}
     </SummaryCard>
   )
 }
-

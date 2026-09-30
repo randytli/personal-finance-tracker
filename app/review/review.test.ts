@@ -9,6 +9,7 @@ jest.mock('@/components/label-editor', () => ({
 }))
 
 const originalFetch = global.fetch
+const originalMatchMedia = window.matchMedia
 type Row = ReturnType<typeof row>
 function row(id: string, amount: string, type: string, internal = false) {
   return {
@@ -118,7 +119,27 @@ test('bulk classification shows eligibility, protects mixed selections, and refr
   expect(rows.find(item => item.transaction_id === 'card-payment')!.effective_transaction_type).toBe('transfer')
   expect(screen.getByRole('status').textContent).toContain('1 changed · 0 unchanged')
 })
-afterEach(() => { cleanup(); global.fetch = originalFetch })
+afterEach(() => { cleanup(); global.fetch = originalFetch; window.matchMedia = originalMatchMedia })
+
+test('phone pages display 10 transactions, retain paging on focus, and clear page selection', async () => {
+  window.matchMedia = jest.fn(query => ({ matches: query.includes('max-width'), addEventListener: jest.fn(), removeEventListener: jest.fn() })) as unknown as typeof window.matchMedia
+  rows = Array.from({ length: 55 }, (_, i) => row(`phone-credit-${i}`, '20.00', 'transfer'))
+  render(createElement(ReviewPage))
+  await screen.findByText('Nothing needs review.')
+  fireEvent.click(screen.getByRole('button', { name: 'Credits & Transfers' }))
+  await screen.findByRole('heading', { name: 'phone-credit-0' })
+  expect(document.querySelectorAll('article')).toHaveLength(10)
+  fireEvent.click(screen.getByLabelText('Select phone-credit-0'))
+  fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+  await screen.findByRole('heading', { name: 'phone-credit-10' })
+  expect(document.querySelector('[data-bulk-toolbar]')).toBeNull()
+  fireEvent.focus(window)
+  await waitFor(() => {
+    const latest = requests.filter(url => url.pathname.endsWith('/review/transactions')).at(-1)!
+    expect(Object.fromEntries(latest.searchParams)).toMatchObject({ limit: '10', offset: '10', mode: 'credits_transfers', direction: 'incoming' })
+  })
+  expect(document.querySelectorAll('article')).toHaveLength(10)
+})
 
 test('Credits & Transfers defaults incoming, supports outgoing expense, and protects confirmed internal transfers', async () => {
   render(createElement(ReviewPage))
@@ -156,4 +177,25 @@ test('Credits & Transfers defaults incoming, supports outgoing expense, and prot
   fireEvent.click(screen.getByRole('button', { name: 'Undo / Restore automatic' }))
   await waitFor(() => expect(rows.find(item => item.transaction_id === 'friend-credit')!.effective_transaction_type).toBe('transfer'))
   expect(requests.some(url => url.searchParams.get('direction') === 'outgoing')).toBe(true)
+})
+
+test('focus refresh preserves Review mode, filters and page while resetting selection', async () => {
+  rows = Array.from({ length: 55 }, (_, index) => row(`credit-${index}`, '12.00', 'transfer'))
+  render(createElement(ReviewPage))
+  await screen.findByText('Nothing needs review.')
+  fireEvent.click(screen.getByRole('button', { name: 'Credits & Transfers' }))
+  await screen.findByRole('heading', { name: 'credit-0' })
+  fireEvent.change(screen.getByRole('combobox', { name: 'Effective type filter' }), { target: { value: 'transfer' } })
+  await screen.findByRole('heading', { name: 'credit-0' })
+  fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+  await screen.findByRole('heading', { name: 'credit-50' })
+  fireEvent.click(screen.getByLabelText('Select credit-50'))
+  expect(screen.getByText(/1 selected/)).toBeTruthy()
+  const count = requests.filter(url => url.pathname.endsWith('/transactions')).length
+  fireEvent.focus(window)
+  await waitFor(() => expect(requests.filter(url => url.pathname.endsWith('/transactions')).length).toBeGreaterThan(count))
+  await screen.findByRole('heading', { name: 'credit-50' })
+  const latest = requests.filter(url => url.pathname.endsWith('/transactions')).at(-1)!
+  expect(Object.fromEntries(latest.searchParams)).toMatchObject({ mode: 'credits_transfers', direction: 'incoming', transaction_type: 'transfer', offset: '50' })
+  expect(screen.queryByText(/1 selected/)).toBeNull()
 })

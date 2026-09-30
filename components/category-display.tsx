@@ -97,7 +97,7 @@ function CategoryBadgeView({
   const Icon = metadata.icon
   const contents = <>
     <Icon aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
-    <span>{metadata.label}</span>
+    <span className="min-w-0 [overflow-wrap:anywhere]">{metadata.label}</span>
     {manual && <Pencil aria-hidden="true" className="h-3 w-3 shrink-0" />}
     {manual && <span className="sr-only">(manually selected)</span>}
     {editable && <ChevronDown aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />}

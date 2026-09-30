@@ -47,3 +47,39 @@ test('keeps confirmation after a failed save and accepts only one in-flight Appl
   finish(false)
   await waitFor(() => expect(screen.getByRole('button', { name: 'Apply to selected' })).toBeTruthy())
 })
+
+test('fixed toolbar escapes clipped ancestors and shows the failed request beside confirmation', async () => {
+  const clipped = document.createElement('div')
+  clipped.style.overflow = 'hidden'
+  document.body.appendChild(clipped)
+  const view = render(createElement(BulkTransactionEditor, { ...base,
+    errorMessage: 'Synthetic network failure; no changes saved.', onApply: jest.fn(async () => false),
+  }), { container: clipped })
+  expect(document.querySelector('[data-bulk-toolbar]')?.parentElement).toBe(document.body)
+  expect(clipped.querySelector('[data-bulk-spacer]')).toBeTruthy()
+  fireEvent.change(screen.getByRole('combobox', { name: 'Bulk action' }), { target: { value: 'restore_category_auto' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Review changes' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Apply to selected' }))
+  await screen.findByText('Synthetic network failure; no changes saved.')
+  expect(screen.getByRole('button', { name: 'Apply to selected' })).toBeTruthy()
+  view.unmount()
+  clipped.remove()
+})
+
+test('toolbar compensation counts existing page and safe-area padding once and clears on unmount', () => {
+  const main = document.createElement('main')
+  main.style.paddingBottom = '40px'
+  const previousPadding = document.body.style.paddingBottom
+  document.body.style.paddingBottom = '34px'
+  document.body.appendChild(main)
+  const view = render(createElement(BulkTransactionEditor, { ...base, onApply: jest.fn(async () => true) }), { container: main })
+  const bar = document.querySelector('[data-bulk-toolbar]') as HTMLDivElement
+  bar.style.bottom = '34px'
+  bar.getBoundingClientRect = () => ({ height: 200 }) as DOMRect
+  fireEvent(window, new Event('resize'))
+  expect((main.querySelector('[data-bulk-spacer]') as HTMLElement).style.height).toBe('176px')
+  view.unmount()
+  expect(document.querySelector('[data-bulk-spacer]')).toBeNull()
+  document.body.style.paddingBottom = previousPadding
+  main.remove()
+})

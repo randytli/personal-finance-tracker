@@ -2,7 +2,8 @@
 
 import { cn } from '@/lib/utils'
 import { buttonVariants } from '@/components/ui/button'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { categoryMetadata } from './category-display'
 import { sortedCategoryOptions, type CategoryOption } from './category-editor'
 import type { LabelOption } from './label-editor'
@@ -24,6 +25,14 @@ export type BulkClassificationOption = {
 }
 
 const noValue = new Set<BulkOperation>(['restore_classification_auto', 'restore_category_auto', 'restore_benefit_category_auto'])
+
+function measuredSpacerHeight(element: HTMLElement, container: HTMLElement | null) {
+  const bottom = parseFloat(getComputedStyle(element).bottom) || 0
+  const pagePadding = container ? parseFloat(getComputedStyle(container).paddingBottom) || 0 : 0
+  const safeAreaPadding = container !== document.body ? parseFloat(getComputedStyle(document.body).paddingBottom) || 0 : 0
+  // Page/footer padding and the body's safe area already reserve scroll space.
+  return Math.max(0, Math.ceil(element.getBoundingClientRect().height + bottom + 16 - pagePadding - safeAreaPadding))
+}
 
 export function bulkEditRequest(
   transactionIds: string[],
@@ -65,6 +74,7 @@ export default function BulkTransactionEditor({
   allowCategory = false,
   allowBenefitCategory = false,
   busy = false,
+  errorMessage,
   onApply,
   onClear,
 }: {
@@ -80,6 +90,7 @@ export default function BulkTransactionEditor({
   allowCategory?: boolean
   allowBenefitCategory?: boolean
   busy?: boolean
+  errorMessage?: string
   onApply: (request: BulkEditRequest) => Promise<boolean>
   onClear: () => void
 }) {
@@ -87,8 +98,57 @@ export default function BulkTransactionEditor({
   const [value, setValue] = useState('')
   const [reviewing, setReviewing] = useState(false)
   const applying = useRef(false)
+  const toolbar = useRef<HTMLDivElement>(null)
+  const placeholder = useRef<HTMLSpanElement>(null)
+  const [portalRoot, setPortalRoot] = useState<HTMLElement | null>(null)
+  const [spacerRoot, setSpacerRoot] = useState<HTMLElement | null>(null)
+  const [spacerHeight, setSpacerHeight] = useState(0)
+  const [keyboardInset, setKeyboardInset] = useState(0)
+  const [availableHeight, setAvailableHeight] = useState<number | null>(null)
+  const [applyFailed, setApplyFailed] = useState(false)
+  useEffect(() => {
+    setPortalRoot(document.body)
+    setSpacerRoot(placeholder.current?.closest('main') || placeholder.current?.parentElement || document.body)
+  }, [])
+  // The viewport-fixed fallback stays visible after selecting near the top of a
+  // long list. A portal avoids clipped ancestors; measurement reserves enough
+  // space for confirmation/errors and the final row/footer on every viewport.
+  useLayoutEffect(() => {
+    const element = toolbar.current
+    if (!element) return
+    const measure = () => {
+      setSpacerHeight(measuredSpacerHeight(element, spacerRoot))
+    }
+    const viewport = window.visualViewport
+    const resize = () => {
+      const height = viewport?.height ?? window.innerHeight
+      // Pinch zoom must remain under the user's control.
+      const inset = !viewport || viewport.scale > 1 ? 0
+        : Math.max(0, window.innerHeight - height - viewport.offsetTop)
+      setKeyboardInset(inset)
+      setAvailableHeight(Math.floor(height * 0.7))
+      measure()
+    }
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure)
+    observer?.observe(element)
+    viewport?.addEventListener('resize', resize)
+    viewport?.addEventListener('scroll', resize)
+    window.addEventListener('resize', resize)
+    resize()
+    return () => {
+      observer?.disconnect()
+      viewport?.removeEventListener('resize', resize)
+      viewport?.removeEventListener('scroll', resize)
+      window.removeEventListener('resize', resize)
+    }
+  }, [portalRoot, spacerRoot])
+  useLayoutEffect(() => {
+    if (toolbar.current) {
+      setSpacerHeight(measuredSpacerHeight(toolbar.current, spacerRoot))
+    }
+  }, [keyboardInset, reviewing, applyFailed, spacerRoot])
   const selectionKey = [...transactionIds].sort().join('\u0000')
-  useEffect(() => { setReviewing(false) }, [selectionKey])
+  useEffect(() => { setReviewing(false); setApplyFailed(false) }, [selectionKey])
   const categories = useMemo(() => sortedCategoryOptions(categoryOptions), [categoryOptions])
   const hasValue = operation !== '' && !noValue.has(operation)
   const options = operation === 'set_classification' ? classificationOptions
@@ -117,19 +177,26 @@ export default function BulkTransactionEditor({
     setOperation(next)
     setValue('')
     setReviewing(false)
+    setApplyFailed(false)
   }
 
   async function apply() {
     if (!operation || !valid || applying.current) return
     applying.current = true
+    setApplyFailed(false)
     try {
       if (await onApply(bulkEditRequest(transactionIds, operation, value))) {
         setOperation(''); setValue(''); setReviewing(false)
-      }
+      } else setApplyFailed(true)
     } finally { applying.current = false }
   }
 
-  return <div data-bulk-toolbar className={cn("fixed bottom-[max(12px,env(safe-area-inset-bottom))] left-1/2 z-30 w-[calc(100%-2rem)] max-w-5xl -translate-x-1/2 rounded-lg border border-slate-300 bg-white p-3 shadow-lg", overviewStyle && "max-h-[70dvh] max-w-7xl overflow-y-auto border-border bg-card p-4 shadow-lg")}>
+  return <>
+    <span ref={placeholder} hidden aria-hidden="true" />
+    {spacerRoot && createPortal(<div data-bulk-spacer aria-hidden="true" style={{ height: spacerHeight }} />, spacerRoot)}
+    {portalRoot && createPortal(<div ref={toolbar} data-bulk-toolbar
+      style={{ bottom: `calc(max(12px, env(safe-area-inset-bottom)) + ${keyboardInset}px)`, maxHeight: availableHeight ?? '70dvh' }}
+      className={cn("fixed left-[max(1rem,env(safe-area-inset-left))] right-[max(1rem,env(safe-area-inset-right))] z-30 mx-auto max-w-5xl overflow-y-auto rounded-lg border border-slate-300 bg-white p-3 shadow-lg", overviewStyle && "max-w-7xl border-border bg-card p-4")}>
     <div className="grid gap-3 sm:flex sm:flex-wrap sm:items-center">
       <div className="flex items-center justify-between gap-3">
       <p className="text-sm font-semibold">{transactionIds.length} selected <span className="font-normal text-muted-foreground">· this page only</span></p>
@@ -171,6 +238,7 @@ export default function BulkTransactionEditor({
     {ineligibleCount > 0 && <p role="alert" className="mt-2 text-sm text-amber-800">
       {ineligibleCount} of {transactionIds.length} selected transactions are ineligible. Remove them before applying.
     </p>}
+    {applyFailed && <p role="alert" className="mt-2 text-sm text-destructive">{errorMessage || 'Changes could not be saved. Try again.'}</p>}
     {reviewing && operation && valid && <div className="mt-3 rounded-md bg-slate-50 p-3 text-sm">
       <p><strong>{actionName}{hasValue ? `: ${valueName}` : ''}</strong> for {transactionIds.length} selected transactions.</p>
       {operation === 'set_category' && <p className="mt-1 text-muted-foreground">Existing manual categories will be replaced. Transactions may leave the current category view.</p>}
@@ -181,5 +249,6 @@ export default function BulkTransactionEditor({
         <button type="button" disabled={busy} className="text-blue-700 underline" onClick={() => setReviewing(false)}>Cancel</button>
       </div>
     </div>}
-  </div>
+    </div>, portalRoot)}
+  </>
 }

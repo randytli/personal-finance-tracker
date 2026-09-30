@@ -1,6 +1,6 @@
 'use client'
 
-import { PageNavigation, TransactionTools, TransactionTypeBadge } from '@/components/page-presentation'
+import { PageNavigation, TransactionTools, TransactionTypeBadge, useTransactionPageSize } from '@/components/page-presentation'
 import { Button } from '@/components/ui/button'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import AccountBadge from '@/components/account-badge'
@@ -16,7 +16,6 @@ type TransactionType = typeof TYPES[number] | 'reimbursement'
 const CREDIT_TYPES = ['reimbursement', 'refund', 'income', 'transfer', 'payment', 'card_benefit', 'adjustment'] as const
 const OUTGOING_TYPES = ['expense', 'transfer', 'payment', 'adjustment'] as const
 const FILTERS = ['all', 'transfer', 'payment', 'income', 'refund', 'reimbursement', 'card_benefit', 'unclassified'] as const
-const PAGE_SIZE = 50
 
 type ReviewTransaction = CategoryDetail & BenefitCategoryDetail & LabelDetail & {
   transaction_id: string
@@ -43,6 +42,7 @@ export default function ReviewPage() {
   const [choices, setChoices] = useState<Record<string, TransactionType>>({})
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState('')
+  const [optionsRetry, setOptionsRetry] = useState(0)
   const [loading, setLoading] = useState(true)
   const [undo, setUndo] = useState<Undo | null>(null)
   const [mode, setMode] = useState<'needs_review' | 'credits_transfers'>('needs_review')
@@ -51,6 +51,7 @@ export default function ReviewPage() {
   const [categoryOptions, setCategoryOptions] = useState<Array<{ value: string; label: string }>>([])
   const [benefitCategoryOptions, setBenefitCategoryOptions] = useState<BenefitCategoryOption[]>([])
   const [categoryBusy, setCategoryBusy] = useState(false)
+  const pageSize = useTransactionPageSize()
   const [offset, setOffset] = useState(0)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [bulkBusy, setBulkBusy] = useState(false)
@@ -65,7 +66,7 @@ export default function ReviewPage() {
       .then(data => { if (active) setCategoryOptions(data.categories || []) })
       .catch(() => { if (active) setError('Category options could not be loaded.') })
     return () => { active = false }
-  }, [])
+  }, [optionsRetry])
 
   useEffect(() => {
     let active = true
@@ -73,18 +74,18 @@ export default function ReviewPage() {
       .then(data => { if (active) setBenefitCategoryOptions(data.categories || []) })
       .catch(() => { if (active) setError('Benefit category options could not be loaded.') })
     return () => { active = false }
-  }, [])
+  }, [optionsRetry])
 
   const load = useCallback(async () => {
     const id = ++requestId.current
     setLoading(true)
     setError('')
     try {
-      const params = new URLSearchParams({ mode, transaction_type: typeFilter, direction, limit: String(PAGE_SIZE), offset: String(offset) })
+      const params = new URLSearchParams({ mode, transaction_type: typeFilter, direction, limit: String(pageSize), offset: String(offset) })
       const [data] = await consistentJson([`/api/pft/review/transactions?${params}`], sync.check)
       if (id !== requestId.current) return
       if (offset > 0 && offset >= data.total) {
-        setOffset(Math.max(0, Math.floor((data.total - 1) / PAGE_SIZE) * PAGE_SIZE))
+        setOffset(Math.max(0, Math.floor((data.total - 1) / pageSize) * pageSize))
         return
       }
       setTransactions(Array.isArray(data.transactions) ? data.transactions : [])
@@ -95,7 +96,7 @@ export default function ReviewPage() {
     } finally {
       if (id === requestId.current) setLoading(false)
     }
-  }, [mode, typeFilter, direction, offset, sync.check])
+  }, [mode, typeFilter, direction, offset, pageSize, sync.check])
 
   useEffect(() => {
     setSelected(new Set())
@@ -235,7 +236,7 @@ export default function ReviewPage() {
         </div>
         <p className="text-sm font-medium">{total} {mode === 'needs_review' ? 'remaining' : 'matching transactions'}</p>
       </div>
-      <div className="mt-5"><SyncHealth status={sync.status} error={sync.error} /></div>
+      <div className="mt-5"><SyncHealth status={sync.status} error={sync.error} onRetry={() => { void sync.check().catch(() => undefined) }} /></div>
       <section aria-label="Review controls" className="mt-6 rounded-lg border bg-card p-4 shadow-sm">
       <nav aria-label="Review views" className="flex flex-wrap gap-2">
         {(['needs_review', 'credits_transfers'] as const).map((view) => (
@@ -265,12 +266,12 @@ export default function ReviewPage() {
       </section>
 
       {undo && (
-        <div className="mt-5 rounded-md border bg-white p-4 text-sm">
+        <div className="mt-5 rounded-md border bg-white p-4 text-sm [overflow-wrap:anywhere]">
           Saved {undo.transactionType.replace('_', ' ')} for {undo.transaction.description || undo.transaction.merchant_name || 'transaction'}.
           <button className="ml-3 font-medium text-blue-700 underline" onClick={() => clearOverride(undo.transaction)} disabled={busy !== null}>Undo / Restore automatic</button>
         </div>
       )}
-      {error && <p role="alert" className="mt-5 rounded-md bg-red-50 p-3 text-sm text-red-800">{error}</p>}
+      {error && <p role="alert" className="mt-5 rounded-md bg-red-50 p-3 text-sm text-red-800">{error} <Button type="button" variant="ghost" size="sm" onClick={() => { setError(''); setOptionsRetry(value => value + 1); sync.invalidate() }}>Retry loading</Button></p>}
       {bulkStatus && <p role="status" className="mt-5 rounded-md border bg-slate-50 p-3 text-sm">{bulkStatus}</p>}
       {loading && <p className="mt-8 text-muted-foreground">Loading transactions…</p>}
       {!loading && transactions.length === 0 && !error && (
@@ -300,7 +301,7 @@ export default function ReviewPage() {
                   disabled={bulkBusy || busy !== null} onChange={() => toggleSelected(transaction.transaction_id)}
                   aria-label={`Select ${transaction.merchant_name || transaction.description || 'transaction'}`} />
               </label>
-              <div className="min-w-0 flex-1">
+              <div className="min-w-0 flex-1 basis-40">
                 <h2 className="break-words font-medium">{transaction.merchant_name || transaction.description || 'Unknown transaction'}</h2>
                 {transaction.description !== transaction.merchant_name && <p className="mt-1 break-words text-sm text-muted-foreground">{transaction.description}</p>}
                 <div className="mt-2 flex flex-wrap gap-2">
@@ -316,7 +317,7 @@ export default function ReviewPage() {
                     {transaction.effective_is_internal_transfer ? 'Confirmed internal transfer · excluded money movement' : 'Excluded money movement'}
                   </p>}
               </div>
-              <p className="shrink-0 font-semibold tabular-nums">{new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(Number(transaction.amount))}</p>
+              <p className="max-w-full shrink-0 font-semibold tabular-nums [overflow-wrap:anywhere]">{new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(Number(transaction.amount))}</p>
             </div>
             {transaction.category_editable && <CategoryEditor detail={transaction} options={categoryOptions}
               busy={categoryBusy || bulkBusy || busy !== null} save={saveCategory} />}
@@ -368,7 +369,7 @@ export default function ReviewPage() {
           </article>
         ))}
       </div>
-      {selected.size > 0 && <div className="h-64 sm:h-32">
+      {selected.size > 0 && <div className="min-w-0">
         <BulkTransactionEditor overviewStyle
           transactionIds={Array.from(selected)}
           categoryOptions={categoryOptions}
@@ -381,14 +382,14 @@ export default function ReviewPage() {
           benefitIneligibleCount={selectedTransactions.filter(transaction => !transaction.benefit_category_editable).length}
           classificationOptions={classificationOptions}
           busy={bulkBusy}
-          onApply={applyBulk}
+          errorMessage={error} onApply={applyBulk}
           onClear={() => setSelected(new Set())}
         />
       </div>}
-      <div className="mt-5 flex items-center gap-4 text-sm">
-        <button disabled={loading || bulkBusy || busy !== null || offset === 0} onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))} className="disabled:opacity-40">Previous</button>
-        <span>{total === 0 ? 0 : offset + 1}–{Math.min(offset + PAGE_SIZE, total)} of {total}</span>
-        <button disabled={loading || bulkBusy || busy !== null || offset + PAGE_SIZE >= total} onClick={() => setOffset(offset + PAGE_SIZE)} className="disabled:opacity-40">Next</button>
+      <div className="mt-5 flex flex-wrap items-center gap-3 text-sm">
+        <button disabled={loading || bulkBusy || busy !== null || offset === 0} onClick={() => setOffset(Math.max(0, offset - pageSize))} className="disabled:opacity-40">Previous</button>
+        <span>{total === 0 ? 0 : offset + 1}–{Math.min(offset + pageSize, total)} of {total}</span>
+        <button disabled={loading || bulkBusy || busy !== null || offset + pageSize >= total} onClick={() => setOffset(offset + pageSize)} className="disabled:opacity-40">Next</button>
       </div>
     </main>
   )

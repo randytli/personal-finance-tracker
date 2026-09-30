@@ -74,7 +74,7 @@ beforeEach(() => {
       const filtered = scoped.filter(value => view === 'all' || value.transaction_type === kinds[view])
       const count = filtered.filter(value => value.transaction_type === 'reimbursement').length
       const offset = Number(url.searchParams.get('offset'))
-      data = { total: filtered.length, transactions: filtered.slice(offset, offset + 50),
+      data = { total: filtered.length, transactions: filtered.slice(offset, offset + Number(url.searchParams.get('limit'))),
         unallocated_reimbursements: count.toFixed(2), unallocated_reimbursement_transaction_count: count,
         membership_counts: { all: scoped.length, ...Object.fromEntries(Object.entries(kinds).map(([key, kind]) =>
           [key, scoped.filter(value => value.transaction_type === kind).length])) } }
@@ -82,8 +82,22 @@ beforeEach(() => {
     return { ok: true, json: async () => data } as Response
   }) as typeof fetch
 })
-afterEach(() => { cleanup(); global.fetch = originalFetch })
+const originalMatchMedia = window.matchMedia
+afterEach(() => { cleanup(); global.fetch = originalFetch; window.matchMedia = originalMatchMedia })
 const latestDetails = () => requests.filter(url => url.pathname.endsWith('/transactions')).at(-1)!
+
+test('phone Membership pages use 10 rows and keep the page on focus refresh', async () => {
+  window.matchMedia = jest.fn(query => ({ matches: query.includes('max-width'), addEventListener: jest.fn(), removeEventListener: jest.fn() })) as unknown as typeof window.matchMedia
+  render(createElement(MembershipsPage))
+  await screen.findByRole('region', { name: 'Overall membership costs' })
+  await waitFor(() => expect(document.querySelectorAll('article')).toHaveLength(10))
+  expect(latestDetails().searchParams.get('limit')).toBe('10')
+  fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+  await waitFor(() => expect(latestDetails().searchParams.get('offset')).toBe('10'))
+  fireEvent.focus(window)
+  await waitFor(() => expect(Object.fromEntries(latestDetails().searchParams)).toMatchObject({ limit: '10', offset: '10', membership_view: 'all' }))
+  await waitFor(() => expect(document.querySelectorAll('article')).toHaveLength(10))
+})
 
 test('refresh retains an account filter when its last matching row disappears', async () => {
   render(createElement(MembershipsPage))
