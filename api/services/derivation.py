@@ -4,6 +4,7 @@ from fastapi import HTTPException
 from decimal import Decimal, InvalidOperation
 from sqlalchemy import and_, func, or_, select, text, update
 from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.orm.attributes import set_committed_value
 
 from api.card_benefits import AMERICAN_EXPRESS_INSTITUTION_ID, AMEX_MERCHANT_BENEFIT_ACCOUNT_NAMES
 from api.classification_rules import (
@@ -117,6 +118,7 @@ async def _classification_inputs(db, user_id, item_scope):
         transaction.transaction_id: manual_type
         for transaction, _, manual_type in classified_rows if manual_type is not None
     }
+    stored_rows = {transaction.transaction_id: transaction for transaction, _, _ in classified_rows}
     result = await db.execute(
         select(Account.account_id)
         .join(Item, Item.item_id == Account.item_id)
@@ -155,7 +157,37 @@ async def _classification_inputs(db, user_id, item_scope):
     }
 
     return (transactions, credit_account_ids, amex_benefit_account_ids,
-            amex_merchant_benefit_account_ids, active_manual_types)
+            amex_merchant_benefit_account_ids, active_manual_types, stored_rows)
+
+
+async def _write_classifications(db, changed):
+    """Write only changed results, as one statement however many rows changed.
+
+    Matching needs the full history, so every row is still recomputed, but a
+    no-op sync then writes nothing. UPDATE ... FROM unnest keeps the round trips
+    constant; executemany is avoided because its round trips depend on driver
+    batching. The derivation advisory lock already serializes these writers.
+    """
+    if not changed:
+        return
+    await db.execute(text(
+        "UPDATE transactions AS t SET transaction_type = v.transaction_type, "
+        "is_spending = v.is_spending, is_internal_transfer = v.is_internal_transfer, "
+        "updated_at = now() "
+        "FROM unnest(CAST(:ids AS VARCHAR[]), CAST(:types AS VARCHAR[]), "
+        "CAST(:spending AS BOOLEAN[]), CAST(:internal AS BOOLEAN[])) "
+        "AS v(transaction_id, transaction_type, is_spending, is_internal_transfer) "
+        "WHERE t.transaction_id = v.transaction_id"
+    ), {
+        "ids": [row.transaction_id for row, _ in changed],
+        "types": [values[0] for _, values in changed],
+        "spending": [values[1] for _, values in changed],
+        "internal": [values[2] for _, values in changed],
+    })
+    # Keep loaded rows consistent with the database, as the ORM update did.
+    for row, values in changed:
+        for name, value in zip(("transaction_type", "is_spending", "is_internal_transfer"), values):
+            set_committed_value(row, name, value)
 
 
 async def classify_active_transactions(db, user_id):
@@ -167,7 +199,7 @@ async def classify_active_transactions(db, user_id):
                             Account.consumer_transactions_enabled.is_(True))
                      .order_by(Account.account_id).with_for_update(of=Account))
     inputs = await _classification_inputs(db, user_id, Item.status == "active")
-    transactions = inputs[0]
+    transactions, stored_rows = inputs[0], inputs[5]
     classifications, refund_matches = build_classifications(
         *inputs[:4], active_manual_types=inputs[4],
     )
@@ -183,20 +215,14 @@ async def classify_active_transactions(db, user_id):
         "transfer": 0,
         "unclassified": 0,
     }
+    changed = []
     for transaction in sorted(transactions, key=lambda candidate: candidate.transaction_id):
-        transaction_type, is_spending, is_internal_transfer = (
-            classifications[transaction.transaction_id]
-        )
-        await db.execute(
-            update(Transaction)
-            .where(Transaction.transaction_id == transaction.transaction_id)
-            .values(
-                transaction_type=transaction_type,
-                is_spending=is_spending,
-                is_internal_transfer=is_internal_transfer,
-            )
-        )
-        counts[transaction_type or "unclassified"] += 1
+        values = classifications[transaction.transaction_id]
+        row = stored_rows[transaction.transaction_id]
+        if (row.transaction_type, row.is_spending, row.is_internal_transfer) != values:
+            changed.append((row, values))
+        counts[values[0] or "unclassified"] += 1
+    await _write_classifications(db, changed)
 
     return {
         "classified_count": len(transactions) - counts["unclassified"],
