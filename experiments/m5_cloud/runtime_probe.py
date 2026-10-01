@@ -10,6 +10,7 @@ import importlib
 import importlib.metadata
 import os
 import platform
+from pathlib import Path
 import re
 import shutil
 import ssl
@@ -17,6 +18,7 @@ import sys
 import tempfile
 import time
 import uuid
+import asyncpg
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 from sqlalchemy import text
@@ -89,12 +91,20 @@ async def capability(request: Request):
         raise HTTPException(503, "Probe configuration rejected") from None
 
 
+def tls_context(environ=None):
+    env = os.environ if environ is None else environ
+    context = ssl.create_default_context()
+    if certificate := env.get("M5_SUPABASE_CA_PEM"):
+        context.load_verify_locations(cadata=certificate)
+    return context
+
+
 def new_engine(config, pool):
     options = {"poolclass": NullPool} if pool == "null" else {"pool_size": 4, "max_overflow": 0}
     return create_async_engine(config.url, pool_pre_ping=True, pool_timeout=5,
-        connect_args={"ssl": ssl.create_default_context(), "timeout": 10, "command_timeout": 15},
+        connect_args={"ssl": tls_context(), "timeout": 10, "command_timeout": 15},
         **options) if pool != "null" else create_async_engine(config.url,
-        connect_args={"ssl": ssl.create_default_context(), "timeout": 10, "command_timeout": 15},
+        connect_args={"ssl": tls_context(), "timeout": 10, "command_timeout": 15},
         **options)
 
 
@@ -173,6 +183,84 @@ async def connection_probe(pool: str = "null", config: Settings = Depends(capabi
             "prepared_query_result": prepared, "verified_tls_context": True}
     finally:
         await engine.dispose()
+
+
+@app.get("/probe/tls")
+async def tls_diagnostic(config: Settings = Depends(capability)):
+    """Layer-specific observation only; never replaces the existing identity gate."""
+    url = make_url(config.url)
+    context = tls_context()
+    connection = await asyncpg.connect(host=url.host, port=url.port or 5432,
+        database=url.database, user=url.username, password=url.password,
+        ssl=context, timeout=10, command_timeout=15)
+    try:
+        # asyncpg's transport is inspected only by this disposable diagnostic.
+        transport_tls = connection._transport.get_extra_info("ssl_object")
+        if (transport_tls is None or context.verify_mode != ssl.CERT_REQUIRED
+                or not context.check_hostname):
+            raise RuntimeError("Verified client TLS required")
+        row = await connection.fetchrow("select current_database() as database, current_user as role, "
+            "(select ssl from pg_stat_ssl where pid=pg_backend_pid()) as backend_ssl")
+        sentinel = await connection.fetchrow("select dataset_id,deployment_id,project_ref "
+            "from pft_m5_probe.identity where singleton=true")
+        if (row["database"] != "postgres" or row["role"] != config.database_role
+                or tuple(sentinel) != (config.dataset_id,config.deployment_id,config.project_ref)):
+            raise RuntimeError("Synthetic identity rejected")
+        return {"kind":"tls_layer_diagnostic", "acceptance_pass":False,
+            "existing_identity_guard_compatible":row["backend_ssl"] is True,
+            "client_certificate_required":True,"client_hostname_checked":True,
+            "client_tls_version":transport_tls.version(),"client_cipher":transport_tls.cipher()[0],
+            "backend_pg_stat_ssl":row["backend_ssl"],"database":row["database"],"role":row["role"]}
+    finally:
+        await connection.close(timeout=5)
+
+
+@app.get("/probe/pg-dump")
+async def pg_dump_packaging(config: Settings = Depends(capability)):
+    """Version execution only. No dump, backup storage or application subprocess."""
+    if config.role != "jobs":
+        raise HTTPException(403, "Jobs capability required")
+    engine = new_engine(config, "null")
+    try:
+        async with engine.connect() as connection:
+            await identity(connection, config)
+            version = await connection.scalar(text("show server_version"))
+            version_num = int(await connection.scalar(text("show server_version_num")))
+    finally:
+        await engine.dispose()
+    source = Path(__file__).resolve().parent / "pg-bin"
+    if not source.is_dir():
+        raise HTTPException(503, "Client package missing")
+    versions = {}
+    with tempfile.TemporaryDirectory(prefix="pft-m5-pg-client-") as directory:
+        package = Path(directory) / "pg-bin"
+        shutil.copytree(source, package)
+        loader = package / "lib/ld-musl-x86_64.so.1"
+        loader.chmod(0o700)
+        for executable in ("pg_dump", "pg_restore"):
+            process = await asyncio.create_subprocess_exec(str(loader), "--library-path",
+                str(package / "lib"), str(package / "bin" / executable), "--version",
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL,
+                env={"PATH": "/usr/bin:/bin", "LANG": "C"})
+            try:
+                stdout, _ = await asyncio.wait_for(process.communicate(), timeout=10)
+            except BaseException:
+                if process.returncode is None:
+                    process.kill()
+                await process.wait()
+                raise
+            match = re.fullmatch(rb"pg_(?:dump|restore) \(PostgreSQL\) (\d+)\.(\d+)\n", stdout)
+            if process.returncode or match is None or int(match[1]) != version_num // 10000:
+                raise RuntimeError("Compatible packaged PostgreSQL client required")
+            versions[executable] = match[1].decode() + "." + match[2].decode()
+    files = [p for p in source.rglob("*") if p.is_file()]
+    return {"kind": "pg_client_packaging_probe", "server_version": version,
+        "server_version_num": version_num, "client_versions": versions,
+        "client_package_bytes": sum(p.stat().st_size for p in files),
+        "client_package_files": len(files), "private_temp_cleanup": True,
+        "dump_attempted": False, "backup_acceptance_pass": False,
+        "large_functions_disabled": os.environ.get("VERCEL_SUPPORT_LARGE_FUNCTIONS") == "0",
+        "machine": platform.machine(), "libc": platform.libc_ver()}
 
 
 @app.post("/probe/locks")

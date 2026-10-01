@@ -18,3 +18,6 @@ __pycache__/
 .venv/
 
 *:Zone.Identifier
+
+# M5: rendered synthetic identity SQL contains role passwords; keep it private
+synthetic-identity.sql

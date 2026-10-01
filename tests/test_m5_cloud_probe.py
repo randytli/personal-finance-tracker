@@ -1,8 +1,9 @@
 """Local guard/bundle checks; no provider login, DB, SDK or cloud calls."""
 import tempfile
 from pathlib import Path
+import ssl
 import unittest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 from fastapi import HTTPException
 from starlette.requests import Request
@@ -21,6 +22,16 @@ def environment(role="reader"):
 
 
 class CloudGuardTests(unittest.IsolatedAsyncioTestCase):
+    def test_custom_ca_preserves_certificate_and_hostname_verification(self):
+        context = probe.tls_context({})
+        self.assertEqual(context.verify_mode, ssl.CERT_REQUIRED)
+        self.assertTrue(context.check_hostname)
+        with patch.object(probe.ssl, "create_default_context") as factory:
+            probe.tls_context({"M5_SUPABASE_CA_PEM": "public-ca-pem"})
+            factory.return_value.load_verify_locations.assert_called_once_with(cadata="public-ca-pem")
+        with self.assertRaises(ssl.SSLError):
+            probe.tls_context({"M5_SUPABASE_CA_PEM": "invalid-certificate"})
+
     def test_settings_reject_production_credentials_and_wrong_target(self):
         env = environment()
         self.assertEqual(probe.settings(env).role, "reader")
@@ -49,6 +60,13 @@ class CloudGuardTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(rejected.exception.status_code, 403)
             factory.assert_not_called()
 
+    async def test_reader_cannot_execute_packaged_backup_tools(self):
+        with patch.object(probe, "new_engine") as factory:
+            with self.assertRaises(HTTPException) as rejected:
+                await probe.pg_dump_packaging(probe.settings(environment()))
+            self.assertEqual(rejected.exception.status_code, 403)
+            factory.assert_not_called()
+
     async def test_identity_rejects_wrong_role_and_tls(self):
         config = probe.settings(environment())
         for row in (("postgres", "postgres", 42, True), ("postgres", "pft_m5_reader", 42, False)):
@@ -57,9 +75,31 @@ class CloudGuardTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(RuntimeError):
                 await probe.identity(connection, config)
 
+    async def test_tls_diagnostic_does_not_accept_unverified_client_or_backend(self):
+        config = probe.settings(environment())
+        connection = Mock()
+        connection._transport.get_extra_info.return_value.cipher.return_value = ("synthetic", "TLSv1.3", 256)
+        connection._transport.get_extra_info.return_value.version.return_value = "TLSv1.3"
+        connection.close = AsyncMock()
+        connection.fetchrow = AsyncMock(side_effect=[
+            {"database": "postgres", "role": config.database_role, "backend_ssl": False},
+            (config.dataset_id, config.deployment_id, config.project_ref)])
+        context = ssl.create_default_context()
+        with patch.object(probe.asyncpg, "connect", AsyncMock(return_value=connection)), \
+                patch.object(probe, "tls_context", return_value=context):
+            result = await probe.tls_diagnostic(config)
+            self.assertFalse(result["acceptance_pass"])
+            self.assertFalse(result["existing_identity_guard_compatible"])
+            self.assertFalse(result["backend_pg_stat_ssl"])
+            context.check_hostname = False
+            context.verify_mode = ssl.CERT_NONE
+            with self.assertRaisesRegex(RuntimeError, "Verified client TLS required"):
+                await probe.tls_diagnostic(config)
+        self.assertEqual(connection.close.await_count, 2)
+
     def test_no_financial_routes_exported(self):
         paths = {route.path for route in probe.app.routes}
-        self.assertEqual(paths, {"/probe/runtime", "/probe/imports", "/probe/connection", "/probe/locks"})
+        self.assertEqual(paths, {"/probe/runtime", "/probe/imports", "/probe/connection", "/probe/locks", "/probe/tls", "/probe/pg-dump"})
 
     async def test_import_probe_loads_role_modules_without_financial_app(self):
         for role in ("reader", "jobs"):
