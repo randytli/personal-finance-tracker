@@ -193,14 +193,14 @@ export default function BulkTransactionEditor({
     {spacerRoot && createPortal(<div data-bulk-spacer aria-hidden="true" style={{ height: spacerHeight }} />, spacerRoot)}
     {portalRoot && createPortal(<div ref={toolbar} data-bulk-toolbar
       style={{ bottom: `calc(max(12px, env(safe-area-inset-bottom)) + ${keyboardInset}px)`, maxHeight: availableHeight ?? '70dvh' }}
-      className="fixed left-[max(1rem,env(safe-area-inset-left))] right-[max(1rem,env(safe-area-inset-right))] z-30 mx-auto max-w-6xl overflow-y-auto rounded-2xl border border-border bg-card/95 p-3 shadow-[0_12px_40px_rgb(15_23_42/0.14)] backdrop-blur sm:p-4">
+      className="fixed left-[max(1rem,env(safe-area-inset-left))] right-[max(1rem,env(safe-area-inset-right))] z-30 mx-auto max-w-6xl overflow-y-auto rounded-[18px] border border-border bg-popover/95 p-3 shadow-[0_16px_48px_rgb(0_0_0/0.5)] backdrop-blur sm:p-4 lg:left-[calc(15rem+1.5rem)]">
     <div className="grid gap-3 sm:flex sm:flex-wrap sm:items-center">
       <div className="flex items-center justify-between gap-3">
       <p className="text-sm font-semibold">{transactionIds.length} selected <span className="font-normal text-muted-foreground">· this page only</span></p>
       <Button type="button" variant="link" size="inline" disabled={busy} className="sm:hidden" onClick={onClear}>Clear</Button>
       </div>
       <select aria-label="Bulk action" value={operation} disabled={busy}
-        className="min-h-9 min-w-0 max-w-full rounded-md border border-input bg-card px-3 py-1.5 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+        className="min-h-9 min-w-0 max-w-full rounded-xl border border-input bg-muted/60 px-3 py-1.5 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
         onChange={event => chooseOperation(event.target.value as BulkOperation | '')}>
         <option value="">Choose bulk action</option>
         {allowClassification && <option value="set_classification">Set Classification</option>}
@@ -217,7 +217,7 @@ export default function BulkTransactionEditor({
         : operation === 'set_category' ? 'Bulk category'
           : operation === 'set_benefit_category' ? 'Bulk benefit category' : 'Bulk label'}
         value={value} disabled={busy || options.length === 0}
-        className="min-h-9 min-w-0 max-w-full rounded-md border border-input bg-card px-3 py-1.5 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+        className="min-h-9 min-w-0 max-w-full rounded-xl border border-input bg-muted/60 px-3 py-1.5 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
         onChange={event => { setValue(event.target.value); setReviewing(false) }}>
         <option value="">Choose {operation === 'set_classification' ? 'classification'
           : operation === 'set_category' ? 'category'

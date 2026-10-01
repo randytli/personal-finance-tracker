@@ -112,12 +112,12 @@ export function SyncHealth({ status, error, onRetry }: { status: SyncStatus | nu
   ].filter((warning): warning is string => Boolean(warning)) : []
 
   const tone = error ? 'bg-destructive' : !status ? 'bg-muted-foreground/40 animate-pulse' : warnings.length ? 'bg-warning' : 'bg-success'
-  return <section aria-label="Sync and backup health" className="overflow-hidden break-words rounded-lg border bg-card/60 text-sm [overflow-wrap:anywhere]">
+  return <section aria-label="Sync and backup health" className={cn('overflow-hidden break-words rounded-2xl border bg-card text-sm [overflow-wrap:anywhere]', warnings.length > 0 && 'border-warning/30')}>
     <details className="group px-3 py-2 sm:px-4">
       <summary className="flex cursor-pointer list-none flex-wrap items-center gap-x-2 gap-y-0.5 rounded-md font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
         <span aria-hidden="true" className={cn('size-2 shrink-0 rounded-full', tone)} />
         <span>Sync and backup health</span>
-        {warnings.length > 0 && <span className="rounded-full bg-warning-soft px-2 py-0.5 text-xs font-medium text-warning ring-1 ring-inset ring-warning/25">
+        {warnings.length > 0 && <span className="rounded-full bg-warning/15 px-2 py-0.5 text-xs font-bold text-warning">
           {warnings.length} {warnings.length === 1 ? 'warning' : 'warnings'}
         </span>}
         <ChevronDown aria-hidden="true" className="ml-auto size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180 sm:order-last" />
@@ -135,7 +135,7 @@ export function SyncHealth({ status, error, onRetry }: { status: SyncStatus | nu
         {status.institutions.map(item => <li key={item.item_id} className="border-t pt-2">
           <details>
           <summary className="cursor-pointer rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-          <strong className="font-medium">{item.institution_name}</strong> ({item.status}{item.sync_paused ? ', paused' : ''})
+          <strong className="inline-block max-w-full truncate align-bottom font-semibold" title={item.institution_name}>{item.institution_name}</strong> ({item.status}{item.sync_paused ? ', paused' : ''})
           <span className="block text-xs text-muted-foreground">Last bank check: {time(item.last_success_at)}</span>
           </summary>
           <div className="py-2 text-xs text-muted-foreground">
@@ -160,9 +160,9 @@ export function SyncHealth({ status, error, onRetry }: { status: SyncStatus | nu
     {error && <p role="alert" className="border-t bg-destructive/5 px-4 py-2.5 text-destructive">Status unavailable. {status ? 'Last reported values are shown; bank freshness could not be verified.' : 'Bank freshness could not be verified.'}
       {onRetry && <button type="button" className="ml-2 rounded-md px-2 font-medium underline underline-offset-4" onClick={onRetry}>Retry status</button>}
     </p>}
-    {warnings.length > 0 && <ul tabIndex={0} className="flex max-h-28 flex-col gap-1 overflow-y-auto overscroll-contain border-t px-3 py-2 text-xs sm:px-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring" aria-label="Sync and backup warnings">
-      {warnings.map((warning, index) => <li key={`${warning}-${index}`} className="flex gap-2">
-        <TriangleAlert aria-hidden="true" className="mt-px size-3.5 shrink-0 text-warning" /><span className="min-w-0">{warning}</span>
+    {warnings.length > 0 && <ul tabIndex={0} className="flex max-h-[4.5rem] flex-col gap-0.5 overflow-y-auto overscroll-contain border-t px-3 py-2 text-xs text-muted-foreground sm:px-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring" aria-label="Sync and backup warnings">
+      {warnings.map((warning, index) => <li key={`${warning}-${index}`} className="flex min-w-0 items-center gap-2" title={warning}>
+        <TriangleAlert aria-hidden="true" className="size-3.5 shrink-0 text-warning" /><span className="min-w-0 truncate">{warning}</span>
       </li>)}
     </ul>}
   </section>

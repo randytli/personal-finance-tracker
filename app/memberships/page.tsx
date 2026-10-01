@@ -1,11 +1,11 @@
 'use client'
 
 import { apiFetch } from '@/lib/api'
-import { Amount, ChartLegend, ChartMonthlyTotals, ChipRow, ControlField, LoadingState, PageHeader, PageNavigation, Pagination, SectionCard, SectionHeader, SelectAllBar, Statement, TransactionRow, TransactionTools, TransactionTypeBadge, compactMoney, fieldClassName, pageClassName, sheetClassName, useNarrowViewport, useTransactionPageSize } from '@/components/page-presentation'
+import { Amount, ChartLegend, ChartMonthlyTotals, ChipRow, ControlField, LoadingState, MoreTags, PageHeader, PageNavigation, Pagination, SectionCard, SectionHeader, SelectAllBar, StatButton, TransactionRow, TransactionTools, TransactionTypeBadge, cardClassName, chartAxisTick, chartTooltipStyle, compactMoney, fieldClassName, pageClassName, useNarrowViewport, useTransactionPageSize } from '@/components/page-presentation'
 import { Alert } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { ChevronRight, CircleAlert, CircleCheck } from 'lucide-react'
+import { ChevronRight, CircleAlert, CircleCheck, TriangleAlert } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
@@ -277,7 +277,15 @@ export default function MembershipsPage() {
     { value: 'expense' as const, label: 'Expense', eligibleCount: selectedDetails.filter(detail => Number(detail.amount) < 0 && detail.is_internal_transfer !== true).length },
   ]
 
-  const lineColor = { netCost: 'hsl(var(--chart-1))', grossCharges: 'hsl(var(--muted-foreground))', refunds: 'hsl(var(--chart-2))', reimbursements: 'hsl(var(--chart-5))', cardBenefits: 'hsl(var(--chart-4))' }
+  const lineColor = { netCost: 'hsl(var(--chart-1))', grossCharges: 'hsl(var(--muted-foreground))', refunds: 'hsl(var(--chart-2))', reimbursements: 'hsl(185 70% 55%)', cardBenefits: 'hsl(var(--chart-4))' }
+  // Composition of gross charges: what remains as net cost and what each credit type took off it.
+  const composition = summary ? ([
+    ['Net cost', summary.overall.net_cost, lineColor.netCost],
+    ['Refunds', summary.overall.refunds, lineColor.refunds],
+    ['Reimbursements', summary.overall.reimbursements, lineColor.reimbursements],
+    ['Card benefits', summary.overall.card_benefits, lineColor.cardBenefits],
+  ] as const).map(([label, value, color]) => ({ label, value: Math.abs(Number(value)), color })) : []
+  const compositionTotal = composition.reduce((sum, part) => sum + part.value, 0)
   return <>
   <PageNavigation current="Memberships" />
   <main className={pageClassName}>
@@ -310,57 +318,74 @@ export default function MembershipsPage() {
     {status && <Alert role="status" variant="success" className="mt-4"><CircleCheck aria-hidden="true" />{status}</Alert>}
     {loading && !summary && <LoadingState label="Loading membership costs…" rows={3} />}
     {summary && <>
-      <div className={cn(sheetClassName, 'mt-6 grid gap-x-10 gap-y-5 p-3 sm:p-5 lg:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)] lg:px-7 lg:py-6')}>
-        <div className="min-w-0">
-          <h2 className="px-2 pb-1 font-serif text-[19px] font-semibold sm:px-3">Net membership cost</h2>
-          <p className="px-2 pb-2 text-[13px] text-muted-foreground sm:px-3">Select a line to filter the transactions below.</p>
-          <Statement label="Overall membership costs" lines={([
-            ['Gross charges', summary.overall.gross_charges, 'charges', undefined],
-            ['Refunds', summary.overall.refunds, 'refunds', '−'],
-            ['Reimbursements', summary.overall.reimbursements, 'reimbursements', '−'],
-            ['Card benefits', summary.overall.card_benefits, 'card_benefits', '−'],
-          ] as const).map(([name, value, targetView, operator]) => ({ label: name, value: money(value), operator,
-            selected: !accountId && view === targetView, onClick: () => { changeAccount(null); changeView(targetView) } }))}
-            total={{ label: 'Net cost', value: money(summary.overall.net_cost), selected: !accountId && view === 'all',
-              onClick: () => { changeAccount(null); changeView('all') } }} />
-        </div>
-        <div className="min-w-0 border-t pt-4 lg:border-l lg:border-t-0 lg:pl-10 lg:pt-1">
-        <div className="px-2 text-[13px] leading-5 text-muted-foreground sm:px-3 lg:px-0">
-          <p>Net Membership Cost = gross charges − refunds − reimbursements − card benefits. Each transaction affects its posted month.</p>
-          <p className="mt-1">
-            {summary.type_counts.charges} charges · {summary.type_counts.refunds} refunds · {summary.type_counts.reimbursements} reimbursements · {summary.type_counts.card_benefits} card benefit credits · {summary.overall.excluded_transaction_count} excluded from cost
-            {summary.overall.unclassified_count > 0 ? ` (${summary.overall.unclassified_count} unclassified)` : ''}.
-            {' '}Payments, transfers, adjustments, income, and unclassified entries do not affect cost.
-          </p>
-        </div>
-        <details aria-label="Membership reconciliation" className="group mx-2 mt-4 rounded-lg bg-background/70 px-3 py-2.5 text-sm sm:mx-3 lg:mx-0">
-          <summary className="flex cursor-pointer list-none items-start gap-1.5 rounded-md font-medium tabular-nums focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
-            <ChevronRight aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-90" />
-            <span>Unallocated reimbursements: {money(summary.overall.unallocated_reimbursements)} · {summary.overall.unallocated_reimbursement_transaction_count} transactions</span>
-          </summary>
-          <div className="mt-2 pl-[22px]">
-            <p className="text-muted-foreground">These reduce overall Membership net cost, but do not reduce any individual account’s net cost. Receiving accounts identify where the money arrived, not which membership expense it repays.</p>
-            <p className="mt-2">Sum of per-account net costs − unallocated reimbursements = overall net cost.</p>
-            <p className="tabular-nums text-muted-foreground">Unallocated deduction: {money(summary.overall.unallocated_reimbursements)} · Overall net cost: {money(summary.overall.net_cost)}</p>
+      <div className="mt-6 grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.35fr)]">
+      <div className={cn(cardClassName, 'min-w-0')}>
+        <SectionHeader title="Net membership cost" />
+        <section aria-label="Overall membership costs" className="px-2 sm:px-3">
+          <div className="flex flex-col items-center text-center">
+            <button type="button" aria-pressed={!accountId && view === 'all'} onClick={() => { changeAccount(null); changeView('all') }}
+              className={cn('flex max-w-full flex-col items-center rounded-2xl px-4 py-1.5 transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring', !accountId && view === 'all' && 'bg-primary/10')}>
+              <span className="order-2 text-sm font-semibold text-muted-foreground">Net cost</span>{' '}
+              <span className="money order-1 text-[26px] font-bold leading-tight tracking-tight min-[380px]:text-[30px] sm:text-[34px]">{money(summary.overall.net_cost)}</span>
+            </button>
           </div>
-        </details>
+          {compositionTotal > 0 && <div aria-hidden="true" className="mx-2 mt-4 flex h-2.5 gap-0.5 overflow-hidden rounded-full sm:mx-1">
+            {composition.filter(part => part.value > 0).map(part => <span key={part.label} className="h-full rounded-full"
+              style={{ width: `${part.value / compositionTotal * 100}%`, minWidth: 4, background: part.color }} />)}
+          </div>}
+          <div className="mt-3 grid grid-cols-1 gap-1 min-[380px]:grid-cols-2">
+            {([
+              ['Gross charges', summary.overall.gross_charges, 'charges', undefined, undefined],
+              ['Refunds', summary.overall.refunds, 'refunds', '−', lineColor.refunds],
+              ['Reimbursements', summary.overall.reimbursements, 'reimbursements', '−', lineColor.reimbursements],
+              ['Card benefits', summary.overall.card_benefits, 'card_benefits', '−', lineColor.cardBenefits],
+            ] as const).map(([name, value, targetView, operator, color]) => <StatButton key={name} label={name} value={money(value)} operator={operator} color={color}
+              selected={!accountId && view === targetView} onClick={() => { changeAccount(null); changeView(targetView) }} />)}
+          </div>
+        </section>
+        <div className="flex flex-col gap-2 px-4 pb-4 pt-3 text-sm sm:px-5 sm:pb-5">
+          <details className="group rounded-xl bg-muted/60 px-3 py-2.5">
+            <summary className="flex cursor-pointer list-none items-start gap-1.5 rounded-md font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
+              <ChevronRight aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-90" />
+              How net cost is calculated
+            </summary>
+            <div className="mt-2 pl-[22px] text-[13px] leading-5 text-muted-foreground">
+              <p>Net Membership Cost = gross charges − refunds − reimbursements − card benefits. Each transaction affects its posted month.</p>
+              <p className="mt-1">
+                {summary.type_counts.charges} charges · {summary.type_counts.refunds} refunds · {summary.type_counts.reimbursements} reimbursements · {summary.type_counts.card_benefits} card benefit credits · {summary.overall.excluded_transaction_count} excluded from cost
+                {summary.overall.unclassified_count > 0 ? ` (${summary.overall.unclassified_count} unclassified)` : ''}.
+                {' '}Payments, transfers, adjustments, income, and unclassified entries do not affect cost.
+              </p>
+            </div>
+          </details>
+          <details aria-label="Membership reconciliation" className="group rounded-xl bg-muted/60 px-3 py-2.5">
+            <summary className="flex cursor-pointer list-none items-start gap-1.5 rounded-md font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
+              <ChevronRight aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-90" />
+              <span className="money min-w-0 whitespace-normal">Unallocated reimbursements: {money(summary.overall.unallocated_reimbursements)} · {summary.overall.unallocated_reimbursement_transaction_count} transactions</span>
+            </summary>
+            <div className="mt-2 pl-[22px] text-[13px] leading-5">
+              <p className="text-muted-foreground">These reduce overall Membership net cost, but do not reduce any individual account’s net cost. Receiving accounts identify where the money arrived, not which membership expense it repays.</p>
+              <p className="mt-2">Sum of per-account net costs − unallocated reimbursements = overall net cost.</p>
+              <p className="money whitespace-normal text-muted-foreground">Unallocated deduction: {money(summary.overall.unallocated_reimbursements)} · Overall net cost: {money(summary.overall.net_cost)}</p>
+            </div>
+          </details>
         </div>
       </div>
 
-      <SectionCard plain className="mt-10 min-w-0">
-        <SectionHeader plain title="Monthly membership cost" description="By posted month, in US dollars" />
-        <div>
+      <SectionCard className="min-w-0">
+        <SectionHeader title="Monthly membership cost" description="By posted month, in US dollars" />
+        <div className="px-4 pb-4 sm:px-5 sm:pb-5">
           <ChartLegend items={[{ label: 'Net cost', color: lineColor.netCost }, { label: 'Gross charges', color: lineColor.grossCharges },
             { label: 'Refunds', color: lineColor.refunds }, { label: 'Reimbursements', color: lineColor.reimbursements, dashed: true }, { label: 'Card benefits', color: lineColor.cardBenefits }]} />
           <div className="mt-3 h-64 min-w-0 sm:h-72">
             <ResponsiveContainer width="100%" height="100%">
               <LineChart accessibilityLayer data={chartData} margin={{ top: 8, right: 4, bottom: 0, left: 0 }}>
-                <CartesianGrid vertical={false} stroke="hsl(var(--border))" strokeDasharray="3 3" />
-                <XAxis dataKey="month" tickLine={false} axisLine={false} tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} minTickGap={narrowViewport ? 40 : 18} tickFormatter={value => value.slice(5)} />
-                <YAxis tickCount={narrowViewport ? 4 : 5} width={56} tickLine={false} axisLine={false} tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} tickFormatter={compactMoney} />
+                <CartesianGrid vertical={false} stroke="hsl(var(--border))" strokeDasharray="3 5" />
+                <XAxis dataKey="month" tickLine={false} axisLine={false} tick={chartAxisTick} minTickGap={narrowViewport ? 40 : 18} tickFormatter={value => value.slice(5)} />
+                <YAxis tickCount={narrowViewport ? 4 : 5} width={56} tickLine={false} axisLine={false} tick={chartAxisTick} tickFormatter={compactMoney} />
                 <Tooltip trigger={narrowViewport ? 'click' : 'hover'} position={narrowViewport ? { x: 4, y: 4 } : undefined} wrapperStyle={{ maxWidth: 'calc(100% - 8px)' }} content={({ active, payload }) => {
                   const month = payload?.[0]?.payload as typeof chartData[number] | undefined
-                  return active && month ? <div className="max-w-full rounded-lg border bg-popover p-3 text-[13px] tabular-nums text-popover-foreground shadow-lg [overflow-wrap:anywhere]">
+                  return active && month ? <div className="max-w-full rounded-xl border bg-popover p-3 text-[13px] tabular-nums text-popover-foreground shadow-[0_12px_32px_rgb(0_0_0/0.45)] [overflow-wrap:anywhere]">
                     <p className="font-semibold">{month.month}</p>
                     <p>Gross charges: {money(String(month.grossCharges))}</p>
                     <p>Refunds: {money(String(month.refunds))}</p>
@@ -369,39 +394,40 @@ export default function MembershipsPage() {
                     <p className="mt-1 border-t pt-1 font-semibold">Net cost: {money(String(month.netCost))}</p>
                   </div> : null
                 }} />
-                <Line type="monotone" dataKey="grossCharges" name="Gross charges" stroke={lineColor.grossCharges} strokeWidth={1.5} dot={false} />
-                <Line type="monotone" dataKey="refunds" name="Refunds" stroke={lineColor.refunds} strokeWidth={1.5} dot={false} />
-                <Line type="monotone" dataKey="reimbursements" name="Reimbursements" stroke={lineColor.reimbursements} strokeWidth={1.5} strokeDasharray="4 3" dot={false} />
-                <Line type="monotone" dataKey="cardBenefits" name="Card benefits" stroke={lineColor.cardBenefits} strokeWidth={1.5} dot={false} />
-                <Line type="monotone" dataKey="netCost" name="Net cost" stroke={lineColor.netCost} strokeWidth={2.5} dot={false} activeDot={{ r: 4 }} />
+                <Line isAnimationActive={false} type="monotone" dataKey="grossCharges" name="Gross charges" stroke={lineColor.grossCharges} strokeWidth={1.5} dot={false} />
+                <Line isAnimationActive={false} type="monotone" dataKey="refunds" name="Refunds" stroke={lineColor.refunds} strokeWidth={1.5} dot={false} />
+                <Line isAnimationActive={false} type="monotone" dataKey="reimbursements" name="Reimbursements" stroke={lineColor.reimbursements} strokeWidth={1.5} strokeDasharray="4 3" dot={false} />
+                <Line isAnimationActive={false} type="monotone" dataKey="cardBenefits" name="Card benefits" stroke={lineColor.cardBenefits} strokeWidth={1.5} dot={false} />
+                <Line isAnimationActive={false} type="monotone" dataKey="netCost" name="Net cost" stroke={lineColor.netCost} strokeWidth={3} strokeLinecap="round" dot={false} activeDot={{ r: 5 }} />
               </LineChart>
             </ResponsiveContainer>
           </div>
           <ChartMonthlyTotals rows={chartData} columns={[{ key: 'netCost', label: 'Net cost' }, { key: 'grossCharges', label: 'Gross charges' }, { key: 'refunds', label: 'Refunds' }, { key: 'reimbursements', label: 'Reimbursements' }, { key: 'cardBenefits', label: 'Card benefits' }]} money={money} />
         </div>
       </SectionCard>
+      </div>
 
-      <section className="mt-10 border-t border-foreground/15 pt-4" aria-labelledby="membership-accounts">
-        <h2 id="membership-accounts" className="font-serif text-[19px] font-semibold leading-7">By account</h2>
-        <p className="mt-0.5 text-sm text-muted-foreground">Account net costs exclude unallocated reimbursements. Reimbursements received are shown only as source context.</p>
+      <section className="mt-8" aria-labelledby="membership-accounts">
+        <h2 id="membership-accounts" className="text-xs font-bold uppercase tracking-[0.08em] text-info">By account</h2>
+        <p className="mt-1 text-[13px] text-muted-foreground">Account net costs exclude unallocated reimbursements. Reimbursements received are shown only as source context.</p>
         {summary.accounts.length === 0 && <p className="mt-3 text-sm text-muted-foreground">No Membership transactions in this period.</p>}
         <div className="mt-3 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {summary.accounts.map(account => <div key={account.account_id}
-            className={cn(sheetClassName, 'flex min-w-0 flex-col overflow-hidden text-left', accountId === account.account_id && 'border-foreground/60 ring-1 ring-foreground/60')}>
+            className={cn(cardClassName, 'flex min-w-0 flex-col overflow-hidden text-left', accountId === account.account_id && 'border-info/70 ring-1 ring-info/70')}>
             <button type="button" aria-pressed={accountId === account.account_id}
-              className="w-full p-4 text-left transition-colors hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:px-5"
+              className="flex w-full min-w-0 flex-col items-start p-4 text-left transition-colors hover:bg-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:px-5"
               onClick={() => { changeAccount(accountId === account.account_id ? null : account.account_id); changeView('all') }}>
               <AccountBadge institutionName={account.institution_name} accountName={account.account_name}
                 accountMask={account.account_mask} accountType={account.account_type} accountSubtype={account.account_subtype} />
-              <p className="figures mt-3 text-[26px] font-semibold leading-tight">{money(account.net_cost)} net cost</p>
-              <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-sm tabular-nums">
+              <p className="money mt-3 text-[22px] font-bold leading-tight tracking-tight">{money(account.net_cost)} net cost</p>
+              <dl className="mt-3 grid w-full grid-cols-2 gap-x-4 gap-y-2 text-sm tabular-nums">
                 <div className="min-w-0"><dt className="text-xs text-muted-foreground">Gross</dt><dd className="[overflow-wrap:anywhere]">{money(account.gross_charges)}</dd></div>
                 <div className="min-w-0"><dt className="text-xs text-muted-foreground">Refunds</dt><dd className="[overflow-wrap:anywhere]">{money(account.refunds)}</dd></div>
                 <div className="min-w-0"><dt className="text-xs text-muted-foreground">Benefits</dt><dd className="[overflow-wrap:anywhere]">{money(account.card_benefits)}</dd></div>
                 <div className="min-w-0"><dt className="text-xs text-muted-foreground">Transactions</dt><dd>{account.membership_transaction_count} Membership transactions</dd></div>
               </dl>
             </button>
-            <div className="mt-auto flex flex-col items-start gap-2 border-t bg-background/50 px-4 py-3 sm:px-5">
+            <div className="mt-auto flex flex-col items-start gap-2 border-t px-4 py-3 sm:px-5">
               <Button type="button" variant="outline" size="sm"
                 onClick={event => { event.stopPropagation(); changeAccount(account.account_id); changeView('card_benefits') }}>
                 View {money(account.card_benefits)} benefits
@@ -421,7 +447,7 @@ export default function MembershipsPage() {
         </div>
       </section>
 
-      <SectionCard className="mt-10 overflow-hidden">
+      <SectionCard className="mt-8">
         <SectionHeader title="Membership transactions"
           description={<>
             <p>
@@ -437,16 +463,16 @@ export default function MembershipsPage() {
           actions={accountId && <Button type="button" variant="link" size="inline"
             onClick={() => changeAccount(null)}>Show all accounts</Button>} />
         <div className="px-4 pb-4 sm:px-5">
-          <div className="inline-flex max-w-full flex-wrap gap-0.5 rounded-lg bg-muted p-1" aria-label="Membership transaction type filter">
+          <div className="inline-flex max-w-full flex-wrap gap-0.5 rounded-[18px] border bg-background/40 p-1" aria-label="Membership transaction type filter">
             {([['all', 'All'], ['charges', 'Charges'], ['refunds', 'Refunds'], ['reimbursements', 'Reimbursements'], ['card_benefits', 'Card Benefits']] as const).map(([value, label]) => (
               <Button key={value} type="button" size="sm" variant="ghost" aria-pressed={view === value}
-                className={cn('text-muted-foreground hover:bg-card/70', view === value && 'bg-card text-foreground shadow-sm hover:bg-card')}
-                onClick={() => changeView(value)}>{label}{summary && <span className="ml-1 tabular-nums text-muted-foreground">({value === 'all' ? viewCounts.all : viewCounts[value]})</span>}</Button>
+                className={cn('text-muted-foreground hover:bg-accent', view === value && 'bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground')}
+                onClick={() => changeView(value)}>{label}{summary && <span className="ml-1 tabular-nums opacity-75">({value === 'all' ? viewCounts.all : viewCounts[value]})</span>}</Button>
             ))}
           </div>
         </div>
         {detailLoading && <p className="border-t px-4 py-3.5 text-sm text-muted-foreground sm:px-5">Loading transactions…</p>}
-        {!detailLoading && details.length > 0 && <SelectAllBar>
+        {!detailLoading && details.length > 0 && <SelectAllBar className="border-t">
           <label className="inline-flex items-center gap-2 text-sm font-medium">
             <input type="checkbox" checked={details.every(detail => selected.has(detail.transaction_id))}
               ref={element => { if (element) element.indeterminate = selected.size > 0 && !details.every(detail => selected.has(detail.transaction_id)) }}
@@ -457,25 +483,27 @@ export default function MembershipsPage() {
           </label>
         </SelectAllBar>}
         {!detailLoading && details.length === 0 && <p className="border-t px-4 py-3.5 text-sm text-muted-foreground sm:px-5">No matching transactions.</p>}
-        <div className="divide-y border-t empty:border-t-0">
+        <div className="px-1.5 py-1 empty:hidden">
           {!detailLoading && details.map(detail => <TransactionRow as="article" key={detail.transaction_id}
             select={<label><input type="checkbox" checked={selected.has(detail.transaction_id)} disabled={busy}
               aria-label={`Select ${detail.merchant_name || detail.description || 'transaction'}`}
               onChange={() => toggleSelected(detail.transaction_id)} /></label>}
             title={<p className="font-medium break-words">{detail.merchant_name || detail.description || 'Unknown transaction'}</p>}
             date={detail.transaction_date}
-            meta={detail.merchant_name && detail.description !== detail.merchant_name ? detail.description : undefined}
+            meta={<>
+              {detail.merchant_name && detail.description !== detail.merchant_name && detail.description}
+              {!contributesToCost(detail) && <Badge variant="warning" className="mt-1 flex w-fit"><TriangleAlert aria-hidden="true" className="size-3" />Excluded from cost</Badge>}
+              {isMembershipReimbursement(detail) && <p className="mt-1 text-xs">Reduces overall cost only · receiving account shown as context</p>}
+            </>}
+            pill={<CategoryEditor detail={detail} options={categoryOptions} busy={busy} save={saveCategory} />}
             amount={<Amount value={detail.amount}>{signedMoney(detail.amount)}</Amount>}>
-            <ChipRow>
-              <TransactionTypeBadge type={detail.transaction_type} />
-              {detail.institution_name && detail.account_name && <AccountBadge institutionName={detail.institution_name} accountName={detail.account_name}
-                accountMask={detail.account_mask} accountType={detail.account_type || ''} accountSubtype={detail.account_subtype} />}
-              {!contributesToCost(detail) && <Badge variant="warning">Excluded from cost</Badge>}
-              <CategoryEditor detail={detail} options={categoryOptions} busy={busy} save={saveCategory} />
-            </ChipRow>
-            {isMembershipReimbursement(detail) && <p className="mt-1.5 text-xs text-muted-foreground">Reduces overall cost only · receiving account shown as context</p>}
-            <TransactionTools>
+            <TransactionTools count={detail.institution_name && detail.account_name ? 2 : 1}>
               <ChipRow className="mt-0">
+                <MoreTags count={detail.institution_name && detail.account_name ? 2 : 1}>
+                  <TransactionTypeBadge type={detail.transaction_type} />
+                  {detail.institution_name && detail.account_name && <AccountBadge institutionName={detail.institution_name} accountName={detail.account_name}
+                    accountMask={detail.account_mask} accountType={detail.account_type || ''} accountSubtype={detail.account_subtype} />}
+                </MoreTags>
                 <BenefitCategoryEditor detail={detail} options={benefitCategoryOptions} disabled={busy} onChanged={updateBenefitCategory} />
                 <LabelEditor detail={detail} options={labelOptions.options} optionsLoading={labelOptions.loading}
                   optionsError={labelOptions.error} onRetryOptions={labelOptions.retry} disabled={busy} onChanged={updateLabels} />

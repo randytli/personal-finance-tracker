@@ -1,7 +1,7 @@
 'use client'
 
 import { apiFetch } from '@/lib/api'
-import { Amount, ChipRow, ControlField, LoadingState, PageHeader, PageNavigation, Pagination, SelectAllBar, TransactionRow, TransactionTools, TransactionTypeBadge, fieldClassName, pageClassName, sheetClassName, useTransactionPageSize } from '@/components/page-presentation'
+import { Amount, ControlField, DayGroup, LoadingState, MoreTags, PageHeader, PageNavigation, Pagination, SelectAllBar, TransactionRow, TransactionTools, TransactionTypeBadge, cardClassName, fieldClassName, groupByDay, pageClassName, useTransactionPageSize } from '@/components/page-presentation'
 import { Alert } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -241,10 +241,10 @@ export default function ReviewPage() {
         </Badge>} />
       <div className="mt-5"><SyncHealth status={sync.status} error={sync.error} onRetry={() => { void sync.check().catch(() => undefined) }} /></div>
       <section aria-label="Review controls" className="mt-6 flex flex-wrap items-end justify-between gap-3">
-        <nav aria-label="Review views" className="inline-flex flex-wrap gap-0.5 rounded-lg bg-muted p-1">
+        <nav aria-label="Review views" className="inline-flex flex-wrap gap-0.5 rounded-full border bg-card p-1">
           {(['needs_review', 'credits_transfers'] as const).map((view) => (
             <Button size="sm" variant="ghost" key={view} aria-pressed={mode === view} disabled={controlsBusy}
-              className={cn('text-muted-foreground hover:bg-card/70', mode === view && 'bg-card text-foreground shadow-sm hover:bg-card')}
+              className={cn('text-muted-foreground hover:bg-accent', mode === view && 'bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground')}
               onClick={() => { setMode(view); setDirection('incoming'); setOffset(0); setTypeFilter('all'); setChoices({}); setSelected(new Set()) }}>
               {view === 'needs_review' ? 'Needs Review' : 'Credits & Transfers'}
             </Button>
@@ -277,15 +277,16 @@ export default function ReviewPage() {
       {bulkStatus && <Alert role="status" variant="success" className="mt-4"><CircleCheck aria-hidden="true" />{bulkStatus}</Alert>}
       {loading && <LoadingState label="Loading transactions…" rows={4} />}
       {!loading && transactions.length === 0 && !error && (
-        <div className="mt-4 flex flex-col items-center gap-2 rounded-xl border border-dashed border-foreground/20 px-6 py-12 text-center">
+        <div className={cn(cardClassName, 'mt-4 flex flex-col items-center gap-2 px-6 py-12 text-center')}>
           <CircleCheck aria-hidden="true" className="size-8 text-success" />
           <p className="font-medium">{mode === 'needs_review' ? 'Nothing needs review.' : 'No matching credits or transfers.'}</p>
           <p className="text-sm text-muted-foreground">{mode === 'needs_review' ? 'Every transaction in scope has a classification.' : 'Try another direction or type filter.'}</p>
         </div>
       )}
 
-      {!loading && transactions.length > 0 && <div className={cn(sheetClassName, 'mt-4 overflow-hidden')}>
-      <SelectAllBar className="border-t-0">
+      {!loading && transactions.length > 0 && <section aria-labelledby="review-list-title" className={cn(cardClassName, 'mt-4')}>
+      <h2 id="review-list-title" className="px-4 pt-4 text-base font-semibold sm:px-5 sm:pt-5">{mode === 'needs_review' ? 'Transactions to review' : 'Credits and transfers'}</h2>
+      <SelectAllBar className="mt-1">
         <label className="inline-flex items-center gap-2 text-sm font-medium">
           <input type="checkbox"
             checked={transactions.every(transaction => selected.has(transaction.transaction_id))}
@@ -299,8 +300,9 @@ export default function ReviewPage() {
           disabled={controlsBusy} onClick={() => setSelected(new Set())}>Clear selection</Button>}
       </SelectAllBar>
 
-      <div className="divide-y border-t">
-        {transactions.map((transaction) => (
+      <div className="px-1.5 pb-2">
+        {groupByDay(transactions, transaction => transaction.transaction_date).map(group => <DayGroup key={group.date} date={group.date}>
+        {group.rows.map((transaction) => (
           <TransactionRow as="article" key={transaction.transaction_id}
             select={<label>
               <input type="checkbox" checked={selected.has(transaction.transaction_id)}
@@ -308,30 +310,31 @@ export default function ReviewPage() {
                 aria-label={`Select ${transaction.merchant_name || transaction.description || 'transaction'}`} />
             </label>}
             title={<h2 className="break-words font-medium">{transaction.merchant_name || transaction.description || 'Unknown transaction'}</h2>}
-            date={transaction.transaction_date}
-            meta={transaction.description !== transaction.merchant_name ? transaction.description : undefined}
-            amount={<Amount value={transaction.amount}>{new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(Number(transaction.amount))}</Amount>}>
-            <ChipRow>
-              <TransactionTypeBadge type={transaction.effective_transaction_type} manual={Boolean(transaction.override_transaction_type)} />
-              {transaction.category_editable
-                ? <CategoryEditor detail={transaction} options={categoryOptions} busy={categoryBusy || controlsBusy} save={saveCategory} />
-                : <CategoryBadge category={transaction.effective_category} manual={transaction.override_category != null} />}
-              <AccountBadge institutionName={transaction.institution_name} accountName={transaction.account_name}
-                accountMask={transaction.account_mask} accountType={transaction.account_type} />
-              {transaction.override_transaction_type && <span className="text-xs text-muted-foreground">
-                Automatic: {transaction.automatic_transaction_type?.replace(/_/g, ' ') || 'unclassified'}
-              </span>}
+            meta={<>
+              {transaction.description !== transaction.merchant_name && transaction.description}
               {mode === 'credits_transfers' && (transaction.effective_is_internal_transfer ||
                 transaction.effective_transaction_type === 'transfer' || transaction.effective_transaction_type === 'payment') &&
-                <Badge variant="muted">
+                <Badge variant="muted" className="mt-1 flex w-fit">
                   {transaction.effective_is_internal_transfer ? 'Confirmed internal transfer · excluded money movement' : 'Excluded money movement'}
                 </Badge>}
-            </ChipRow>
-            <TransactionTools>
+            </>}
+            pill={transaction.category_editable
+              ? <CategoryEditor detail={transaction} options={categoryOptions} busy={categoryBusy || controlsBusy} save={saveCategory} />
+              : <CategoryBadge category={transaction.effective_category} manual={transaction.override_category != null} />}
+            amount={<Amount value={transaction.amount}>{new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(Number(transaction.amount))}</Amount>}>
+            <TransactionTools count={transaction.override_transaction_type ? 5 : 4}>
               <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                 <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
-                  <span className="mr-1">{transaction.institution_name} · {transaction.account_type}</span>
-                  <span className="mr-1 flex flex-wrap items-center gap-1.5"><span>Plaid category</span><CategoryBadge category={transaction.plaid_category} /></span>
+                  <MoreTags count={transaction.override_transaction_type ? 5 : 4}>
+                    <TransactionTypeBadge type={transaction.effective_transaction_type} manual={Boolean(transaction.override_transaction_type)} />
+                    {transaction.override_transaction_type && <span className="text-xs text-muted-foreground">
+                      Automatic: {transaction.automatic_transaction_type?.replace(/_/g, ' ') || 'unclassified'}
+                    </span>}
+                    <AccountBadge institutionName={transaction.institution_name} accountName={transaction.account_name}
+                      accountMask={transaction.account_mask} accountType={transaction.account_type} />
+                    <span className="min-w-0 truncate" title={`${transaction.institution_name} · ${transaction.account_type}`}>{transaction.institution_name} · {transaction.account_type}</span>
+                    <span className="flex flex-wrap items-center gap-1.5"><span>Plaid category</span><CategoryBadge category={transaction.plaid_category} /></span>
+                  </MoreTags>
                   <BenefitCategoryEditor detail={transaction} options={benefitCategoryOptions}
                     disabled={controlsBusy} onChanged={updateBenefitCategory} />
                   <LabelEditor detail={transaction} options={labelOptions.options}
@@ -369,8 +372,9 @@ export default function ReviewPage() {
             </TransactionTools>
           </TransactionRow>
         ))}
+        </DayGroup>)}
       </div>
-      </div>}
+      </section>}
       {selected.size > 0 && <div className="min-w-0">
         <BulkTransactionEditor
           transactionIds={Array.from(selected)}

@@ -4,7 +4,7 @@ import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "@/lib/utils"
 
 const alertVariants = cva(
-  "relative flex w-full flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border px-4 py-3 text-sm [overflow-wrap:anywhere] [&>svg]:size-4 [&>svg]:shrink-0",
+  "relative flex w-full flex-wrap items-center gap-x-3 gap-y-1 rounded-2xl border px-4 py-2.5 text-sm [overflow-wrap:anywhere] [&>svg]:size-4 [&>svg]:shrink-0",
   {
     variants: {
       variant: {
@@ -12,7 +12,7 @@ const alertVariants = cva(
         info: "border-info/25 bg-info-soft text-foreground [&>svg]:text-info",
         success: "border-success/25 bg-success-soft text-foreground [&>svg]:text-success",
         warning: "border-warning/30 bg-warning-soft text-foreground [&>svg]:text-warning",
-        destructive: "border-destructive/30 bg-destructive/5 text-destructive [&>svg]:text-destructive",
+        destructive: "border-destructive/30 bg-destructive/10 text-destructive [&>svg]:text-destructive",
       },
     },
     defaultVariants: {

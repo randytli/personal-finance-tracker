@@ -14,11 +14,11 @@ export default function InstitutionBadge({ institutionName }: { institutionName:
 
   return (
     <span
-      className="inline-flex max-w-full items-center gap-1.5 [overflow-wrap:anywhere] rounded-md border bg-card px-2 py-1 text-[11px] font-semibold leading-4 tracking-wide text-foreground"
+      className="inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-full bg-muted px-2.5 py-1 text-[11px] font-bold leading-4 tracking-[0.04em] text-foreground"
       title={name || 'Unknown institution'}
     >
       <span aria-hidden="true" className={`h-2 w-3 shrink-0 rounded-[2px] ${style.className}`} />
-      {style.label}
+      <span className="truncate">{style.label}</span>
     </span>
   )
 }

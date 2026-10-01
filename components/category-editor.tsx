@@ -95,7 +95,7 @@ export default function CategoryEditor({ detail, options, busy, save }: {
         editable={detail.category_editable} busy={busy} expanded={open} controls={panelId} onClick={toggle} />
     </div>
 
-    {open && detail.category_editable && <div id={panelId} className="order-last w-full basis-full rounded-lg border bg-muted/40 p-3">
+    {open && detail.category_editable && <div id={panelId} className="order-last w-full basis-full rounded-2xl border bg-popover p-3 md:absolute md:right-0 md:top-full md:z-20 md:mt-2 md:w-[28rem] md:max-w-[calc(100vw-3rem)] md:shadow-[0_16px_48px_rgb(0_0_0/0.55)]">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
           <p className="font-medium">Spending category</p>
@@ -112,8 +112,8 @@ export default function CategoryEditor({ detail, options, busy, save }: {
           const metadata = categoryMetadata(option.value)
           const Icon = metadata.icon
           const checked = selected === option.value
-          return <label key={option.value} className={cn('flex cursor-pointer items-center gap-2 rounded-md border bg-card px-3 py-2 text-xs font-medium outline-none transition focus-within:ring-2 focus-within:ring-ring',
-            checked ? 'border-primary bg-info-soft text-primary' : 'border-border hover:border-ring/50',
+          return <label key={option.value} className={cn('flex cursor-pointer items-center gap-2 rounded-xl border bg-card px-3 py-2 text-xs font-medium outline-none transition focus-within:ring-2 focus-within:ring-ring',
+            checked ? 'border-info bg-info-soft text-info' : 'border-border hover:border-ring/50',
             busy && 'cursor-default opacity-50')}>
             <input type="radio" className="sr-only" name={`category-${detail.transaction_id}`}
               value={option.value} checked={checked} disabled={busy}

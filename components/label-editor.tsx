@@ -147,7 +147,7 @@ export default function LabelEditor({
         const source = manual ? 'manually included' : 'automatic'
         return <span key={label} title={`${optionMap.get(label) || fallbackLabel(label)} · ${source}`}
           className={cn('inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium leading-4',
-            manual ? 'border-info/30 bg-info-soft text-info' : 'border-border bg-muted/60 text-foreground')}>
+            manual ? 'border-info/30 bg-info-soft text-info' : 'border-transparent bg-muted text-foreground')}>
           {manual ? <Pencil aria-hidden="true" className="h-3 w-3" /> : <Sparkles aria-hidden="true" className="h-3 w-3" />}
           <span>{optionMap.get(label) || fallbackLabel(label)}</span>
           <span className="sr-only">({source})</span>
@@ -155,13 +155,13 @@ export default function LabelEditor({
       })}
       {excludedCount > 0 && <span className="text-xs text-muted-foreground">{excludedCount} excluded</span>}
       <button type="button" aria-expanded={open} aria-controls={panelId}
-        className="inline-flex items-center gap-1 rounded-md border border-dashed bg-card px-2.5 py-1 text-xs font-medium text-muted-foreground transition-colors hover:border-solid hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+        className="inline-flex items-center gap-1 rounded-full border border-dashed border-input px-2.5 py-1 text-xs font-semibold text-muted-foreground transition-colors hover:border-solid hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
         disabled={busy || disabled} onClick={() => setOpen(value => !value)}>
         Labels <ChevronDown aria-hidden="true" className={`h-3.5 w-3.5 transition ${open ? 'rotate-180' : ''}`} />
       </button>
     </div>
 
-    {open && <div id={panelId} className="order-last w-full max-h-72 basis-full overflow-y-auto rounded-lg border bg-muted/40 p-3">
+    {open && <div id={panelId} className="order-last w-full max-h-72 basis-full overflow-y-auto rounded-2xl border bg-popover p-3">
       <div className="flex items-center justify-between gap-3">
         <p className="font-medium">Labels</p>
         <p className="text-xs text-muted-foreground">Changes save automatically</p>
@@ -183,7 +183,7 @@ export default function LabelEditor({
               <span className="ml-2 text-xs text-muted-foreground">Automatic: {automatic ? 'included' : 'not included'}</span>
             </span>
             <select aria-label={`${option.label} label decision`} value={labelChoice(detail, option.value)}
-              disabled={busy || disabled} className="rounded-md border border-input bg-card px-2 py-1 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              disabled={busy || disabled} className="rounded-lg border border-input bg-muted/60 px-2 py-1 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               onChange={event => void update(option.value, event.target.value as LabelChoice)}>
               <option value="auto">Auto</option>
               <option value="include">Include</option>
