@@ -1,6 +1,8 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { ChevronDown } from 'lucide-react'
+import { cn } from '@/lib/utils'
 
 export type SyncStatus = {
   last_published_run_id: string | null
@@ -108,14 +110,17 @@ export function SyncHealth({ status, error, onRetry }: { status: SyncStatus | nu
     ]),
   ].filter((warning): warning is string => Boolean(warning)) : []
 
-  return <section aria-label="Sync and backup health" className="break-words rounded-lg border bg-card px-4 py-3 text-sm shadow-sm [overflow-wrap:anywhere]">
-    <details>
-      <summary className="cursor-pointer font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-        <span className="ml-2">Sync and backup health</span>
-        <span className="ml-2 block text-xs font-normal text-muted-foreground sm:inline sm:text-sm">
+  const tone = error ? 'bg-destructive' : !status ? 'bg-muted-foreground/40 animate-pulse' : warnings.length ? 'bg-warning' : 'bg-success'
+  return <section aria-label="Sync and backup health" className="break-words rounded-xl border bg-card px-4 py-2.5 text-sm shadow-sm [overflow-wrap:anywhere]">
+    <details className="group">
+      <summary className="flex cursor-pointer list-none flex-wrap items-center gap-x-2 rounded-md font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
+        <span aria-hidden="true" className={cn('size-2 shrink-0 rounded-full', tone)} />
+        <span>Sync and backup health</span>
+        <span className="basis-full pl-4 text-xs font-normal text-muted-foreground sm:basis-auto sm:pl-0 sm:text-sm">
           {status ? `· Last published ${time(status.published_at)}` : '· Checking status…'}
         </span>
-        {!error && status && warnings.length === 0 && <span className="ml-2 font-normal text-muted-foreground">· All clear</span>}
+        {!error && status && warnings.length === 0 && <span className="font-normal text-success">· All clear</span>}
+        <ChevronDown aria-hidden="true" className="ml-auto size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" />
       </summary>
       {status && <div className="mt-3 border-t pt-3">
         <p className="mb-2 text-xs text-muted-foreground">{error ? 'Last reported status. API reachability could not be verified.' : 'API reachable. Bank freshness is shown separately for each institution.'}</p>
@@ -132,11 +137,11 @@ export function SyncHealth({ status, error, onRetry }: { status: SyncStatus | nu
           <div className="py-2 text-xs">
           Last attempt: {time(item.last_attempt_at)}
           {' · '}Last change: {time(item.last_change_at)}
-          {item.metadata_warning && <span className="text-amber-700">
+          {item.metadata_warning && <span className="text-warning">
             {' · '}Metadata warning: {item.metadata_warning} ({time(item.metadata_warning_at || null)})
           </span>}
           {item.latest_outcome && <> · {item.latest_outcome.status}
-            {item.latest_outcome.error_category && <span className="text-amber-700">
+            {item.latest_outcome.error_category && <span className="text-warning">
               {' · '}{item.latest_outcome.phase}: {item.latest_outcome.error_category}
             </span>}
             {' · '}Added {item.latest_outcome.counts.added_count}, modified {item.latest_outcome.counts.modified_count}, removed {item.latest_outcome.counts.removed_count}
@@ -149,9 +154,9 @@ export function SyncHealth({ status, error, onRetry }: { status: SyncStatus | nu
       </div>}
     </details>
     {error && <p role="alert" className="mt-2 text-destructive">Status unavailable. {status ? 'Last reported values are shown; bank freshness could not be verified.' : 'Bank freshness could not be verified.'}
-      {onRetry && <button type="button" className="ml-2 rounded-md px-2 underline" onClick={onRetry}>Retry status</button>}
+      {onRetry && <button type="button" className="ml-2 rounded-md px-2 font-medium underline underline-offset-4" onClick={onRetry}>Retry status</button>}
     </p>}
-    {warnings.length > 0 && <ul tabIndex={0} className="mt-2 flex max-h-48 flex-col gap-1 overflow-y-auto overscroll-contain text-destructive sm:max-h-none" aria-label="Sync and backup warnings">
+    {warnings.length > 0 && <ul tabIndex={0} className="mt-2 flex max-h-48 flex-col gap-1 overflow-y-auto overscroll-contain border-t pt-2 text-warning sm:max-h-none" aria-label="Sync and backup warnings">
       {warnings.map((warning, index) => <li key={`${warning}-${index}`}>{warning}</li>)}
     </ul>}
   </section>

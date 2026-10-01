@@ -4,7 +4,8 @@
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
+    /* Soft canvas so white cards separate without heavy shadows. */
+    --background: 210 33% 98.5%;
     --foreground: 222.2 84% 4.9%;
     --card: 0 0% 100%;
     --card-foreground: 222.2 84% 4.9%;
@@ -24,6 +25,17 @@
     --input: 214.3 31.8% 91.4%;
     --ring: 221.2 83.2% 53.3%;
     --radius: 0.5rem;
+    --success: 152 69% 31%;
+    --success-soft: 152 60% 96%;
+    --warning: 32 95% 34%;
+    --warning-soft: 48 100% 96%;
+    --info: 221.2 83.2% 45%;
+    --info-soft: 214 100% 97%;
+    --chart-1: 221.2 83.2% 53.3%;
+    --chart-2: 152 60% 38%;
+    --chart-3: 12 76% 56%;
+    --chart-4: 271 60% 52%;
+    --chart-5: 38 92% 45%;
   }
 
   .dark {
@@ -46,6 +58,17 @@
     --border: 217.2 32.6% 17.5%;
     --input: 217.2 32.6% 17.5%;
     --ring: 224.3 76.3% 94.1%;
+    --success: 152 55% 52%;
+    --success-soft: 152 45% 12%;
+    --warning: 38 92% 60%;
+    --warning-soft: 32 55% 12%;
+    --info: 213 94% 68%;
+    --info-soft: 217 45% 16%;
+    --chart-1: 217.2 91.2% 59.8%;
+    --chart-2: 152 55% 52%;
+    --chart-3: 12 80% 64%;
+    --chart-4: 271 70% 70%;
+    --chart-5: 38 92% 60%;
   }
 }
 
@@ -54,7 +77,15 @@
     @apply border-border;
   }
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: "cv11", "ss01";
+  }
+}
+
+@layer base {
+  .pft-app input[type="checkbox"],
+  .pft-app input[type="radio"] {
+    accent-color: hsl(var(--primary));
   }
 }
 

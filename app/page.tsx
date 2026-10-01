@@ -1,7 +1,8 @@
 'use client'
 
-import { MetricCard, PageNavigation, ChartMonthlyTotals, compactMoney, useNarrowViewport } from '@/components/page-presentation'
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { Amount, ChartMonthlyTotals, LoadingState, MetricCard, PageHeader, PageNavigation, Pagination, SectionCard, SelectAllBar, TransactionRow, chartTooltipStyle, compactMoney, fieldClassName, useNarrowViewport } from '@/components/page-presentation'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { CircleAlert, CircleCheck, ListChecks } from 'lucide-react'
 import {
   CartesianGrid,
   Line,
@@ -20,6 +21,8 @@ import LabelEditor, { mergeLabelDetail, type LabelDetail, useLabelOptions } from
 import PlaidLinkButton from '@/components/plaid-link-button'
 import { SyncHealth, consistentJson, useSyncRefresh } from '@/components/sync-health'
 import BenefitCategoryEditor, { type BenefitCategoryOption, type BenefitCategoryDetail } from '@/components/benefit-category-editor'
+import { Alert } from '@/components/ui/alert'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import SpendingCategoryView, { netColumns, type NetCategory, type SpendingComponent } from '@/components/spending-category-view'
@@ -92,10 +95,6 @@ type Detail = CategoryDetail & LabelDetail & {
   canonical_category?: string | null
   attribution_source?: string | null
   net_contribution?: string | null
-}
-
-function Card({ children, className = '' }: { children: ReactNode; className?: string }) {
-  return <section className={`rounded-lg border bg-white shadow-sm ${className}`}>{children}</section>
 }
 
 function money(value: string) {
@@ -315,39 +314,30 @@ export default function HomePage() {
     })
   }
 
+  const filterChip = 'capitalize'
   return (
-    <main className="mx-auto max-w-7xl px-4 pb-10 pt-4 sm:px-6 sm:pt-6">
+    <main className="mx-auto max-w-7xl px-4 pb-10 sm:px-6">
       <PageNavigation current="Overview" />
-      <header className="mt-6 flex flex-wrap items-end justify-between gap-4">
-        <div className="min-w-0">
-          <h1 className="text-3xl font-semibold tracking-tight">Overview</h1>
-          <p className="mt-1 text-sm text-muted-foreground">Effective spending and savings across active institutions.</p>
-        </div>
-        <div className="flex w-full flex-wrap items-end gap-3 sm:w-auto">
+      <PageHeader title="Overview" description="Effective spending and savings across active institutions."
+        actions={<>
           {monthly && !loading && <Button variant="outline" size="sm" type="button" onClick={() => setDetailFilter({ transactionType: 'unclassified' })}>
-            Needs Review ({monthly.unclassified_count})
+            <ListChecks aria-hidden="true" />Needs Review ({monthly.unclassified_count})
           </Button>}
           <label className="flex items-center gap-2 text-sm font-medium">
             Month
-            <input
-              className="min-h-9 min-w-0 max-w-full rounded-md border bg-background px-2 py-1.5"
-              type="month"
-              value={month}
-              onChange={(event) => setMonth(event.target.value)}
-            />
+            <input className={fieldClassName} type="month" value={month} onChange={(event) => setMonth(event.target.value)} />
           </label>
-        </div>
-      </header>
+        </>} />
 
       <div className="mt-4"><SyncHealth status={sync.status} error={sync.error} onRetry={() => { void sync.check().catch(() => undefined) }} /></div>
 
-      {error && <p role="alert" className="mt-6 rounded-md bg-red-50 p-3 text-sm text-red-800">{error} <Button type="button" variant="ghost" size="sm" onClick={() => { setError(''); setOptionsRetry(value => value + 1); sync.invalidate() }}>Retry loading</Button></p>}
-      {bulkStatus && <p role="status" className="mt-6 rounded-md border bg-slate-50 p-3 text-sm">{bulkStatus}</p>}
-      {categoryUndo && <p role="status" className="mt-4 rounded border p-3 text-sm">
-        Category saved.
-        <button type="button" className="ml-2 text-blue-700 underline" disabled={categoryBusy} onClick={() => saveCategory(categoryUndo.detail, categoryUndo.previous, true)}>Undo category change</button>
-      </p>}
-      {loading && <p className="mt-8 text-muted-foreground">Loading analytics…</p>}
+      {error && <Alert role="alert" variant="destructive" className="mt-4"><CircleAlert aria-hidden="true" /><span className="min-w-0 flex-1">{error}</span> <Button type="button" variant="outline" size="sm" onClick={() => { setError(''); setOptionsRetry(value => value + 1); sync.invalidate() }}>Retry loading</Button></Alert>}
+      {bulkStatus && <Alert role="status" variant="success" className="mt-4"><CircleCheck aria-hidden="true" />{bulkStatus}</Alert>}
+      {categoryUndo && <Alert role="status" variant="info" className="mt-4">
+        <CircleCheck aria-hidden="true" />Category saved.
+        <Button type="button" variant="link" size="inline" disabled={categoryBusy} onClick={() => saveCategory(categoryUndo.detail, categoryUndo.previous, true)}>Undo category change</Button>
+      </Alert>}
+      {loading && <LoadingState label="Loading analytics…" rows={3} />}
 
       {monthly && !loading && (
         <>
@@ -362,18 +352,18 @@ export default function HomePage() {
             <MetricCard label="Reimbursements" value={money(monthly.reimbursements)} selected={categoryMode === 'reimbursements'} onClick={() => selectCategoryMode('reimbursements')} />
             <MetricCard label="Card Benefits" value={money(monthly.card_benefits)} selected={categoryMode === 'card_benefits'} onClick={() => selectCategoryMode('card_benefits')} />
           </section>
-          <p className="mt-3 text-sm text-muted-foreground">Net Spending = Gross Spending − Refunds − Reimbursements − Card Benefits.</p>
+          <p className="mt-3 text-xs text-muted-foreground sm:text-sm">Net Spending = Gross Spending − Refunds − Reimbursements − Card Benefits.</p>
 
-          <section className="mt-8 grid gap-6 lg:grid-cols-2">
-            <Card className="min-w-0 p-4 sm:p-5">
+          <section className="mt-6 grid gap-4 sm:gap-6 lg:grid-cols-2">
+            <SectionCard aria-label="12-Month Trend" className="min-w-0 p-4 sm:p-5">
               <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
                 <h2 className="text-lg font-semibold">12-Month Trend</h2>
                 <p className="text-xs text-muted-foreground">Monthly totals · USD</p>
               </div>
               <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground" aria-label="Trend series">
-                <span><span className="mr-1.5 inline-block size-2 rounded-full bg-destructive" />Net Spending</span>
-                <span><span className="mr-1.5 inline-block size-2 rounded-full bg-primary" />Income</span>
-                <span><span className="mr-1.5 inline-block size-2 rounded-full bg-foreground" />Net Savings</span>
+                <span><span className="mr-1.5 inline-block size-2 rounded-full bg-chart-3" />Net Spending</span>
+                <span><span className="mr-1.5 inline-block size-2 rounded-full bg-chart-2" />Income</span>
+                <span><span className="mr-1.5 inline-block size-2 rounded-full bg-chart-1" />Net Savings</span>
               </div>
               <div className="mt-4 h-64 min-w-0 sm:h-72">
                 {chartData.length > 0 ? <ResponsiveContainer width="100%" height="100%">
@@ -381,15 +371,15 @@ export default function HomePage() {
                     <CartesianGrid vertical={false} stroke="hsl(var(--border))" strokeDasharray="3 3" />
                     <XAxis dataKey="month" tickLine={false} axisLine={false} tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} minTickGap={narrowViewport ? 40 : 18} tickFormatter={value => value.slice(5)} />
                     <YAxis tickCount={narrowViewport ? 4 : 5} width={56} tickLine={false} axisLine={false} tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} tickFormatter={compactMoney} />
-                    <Tooltip trigger={narrowViewport ? 'click' : 'hover'} position={narrowViewport ? { x: 4, y: 4 } : undefined} wrapperStyle={{ maxWidth: 'calc(100% - 8px)' }} formatter={(value) => money(String(value))} contentStyle={{ borderRadius: 8, borderColor: 'hsl(var(--border))', fontSize: 14, overflowWrap: 'anywhere' }} />
-                    <Line type="monotone" dataKey="netSpending" name="Net Spending" stroke="hsl(var(--destructive))" strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
-                    <Line type="monotone" dataKey="income" name="Income" stroke="hsl(var(--primary))" strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
-                    <Line type="monotone" dataKey="netSavings" name="Net Savings" stroke="hsl(var(--foreground))" strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
+                    <Tooltip trigger={narrowViewport ? 'click' : 'hover'} position={narrowViewport ? { x: 4, y: 4 } : undefined} wrapperStyle={{ maxWidth: 'calc(100% - 8px)' }} formatter={(value) => money(String(value))} contentStyle={chartTooltipStyle} />
+                    <Line type="monotone" dataKey="netSpending" name="Net Spending" stroke="hsl(var(--chart-3))" strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
+                    <Line type="monotone" dataKey="income" name="Income" stroke="hsl(var(--chart-2))" strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
+                    <Line type="monotone" dataKey="netSavings" name="Net Savings" stroke="hsl(var(--chart-1))" strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
                   </LineChart>
                 </ResponsiveContainer> : <p className="flex h-full items-center justify-center text-sm text-muted-foreground">No trend data for this period.</p>}
               </div>
               <ChartMonthlyTotals rows={chartData} columns={[{ key: 'netSpending', label: 'Net Spending' }, { key: 'income', label: 'Income' }, { key: 'netSavings', label: 'Net Savings' }]} money={money} />
-            </Card>
+            </SectionCard>
 
             <SpendingCategoryView categories={monthly.category_net_breakdown || []} metric={categoryMode}
               selectedCategory={detailFilter?.canonicalCategory} selectedComponent={detailFilter?.spendingComponent}
@@ -397,15 +387,17 @@ export default function HomePage() {
               money={money} detailsId="overview-transaction-details" />
           </section>
 
-          <Card className="mt-6 overflow-hidden">
+          <SectionCard className="mt-4 overflow-hidden sm:mt-6">
             <div className="flex flex-wrap items-center justify-between gap-3 p-4 sm:p-5">
-              <h2 className="text-lg font-semibold">{categoryMode === 'card_benefits' ? `Card Benefits by ${groupBy}`
-                : categoryMode === 'reimbursements' ? `Reimbursements by ${groupBy}` : `Spending by ${groupBy}`}</h2>
-              <select aria-label="Group summary by" className="min-h-9 min-w-0 max-w-full rounded-md border bg-background px-3 py-2 text-sm" value={groupBy} onChange={(event) => setGroupBy(event.target.value as 'institution' | 'account')}>
+              <div className="min-w-0">
+                <h2 className="text-lg font-semibold">{categoryMode === 'card_benefits' ? `Card Benefits by ${groupBy}`
+                  : categoryMode === 'reimbursements' ? `Reimbursements by ${groupBy}` : `Spending by ${groupBy}`}</h2>
+                <p className="mt-1 text-xs text-muted-foreground">Select a category above to filter these summaries by {groupBy}.</p>
+              </div>
+              <select aria-label="Group summary by" className={fieldClassName} value={groupBy} onChange={(event) => setGroupBy(event.target.value as 'institution' | 'account')}>
                 <option value="institution">Institution</option><option value="account">Account</option>
               </select>
             </div>
-            <p className="px-4 pb-3 text-xs text-muted-foreground sm:px-5">Select a category above to filter these summaries by {groupBy}.</p>
             <div className="grid border-t sm:grid-cols-2">
               {breakdown.map((group) => (
                 <button
@@ -416,7 +408,7 @@ export default function HomePage() {
                   aria-pressed={Boolean(detailFilter?.secondary && (group.account_id
                     ? detailFilter.secondary.account_id === group.account_id
                     : detailFilter.secondary.institution_id === group.institution_id))}
-                  className={cn('flex min-w-0 flex-wrap items-center justify-between gap-3 border-b p-4 text-left transition-colors last:border-b-0 sm:border-r sm:even:border-r-0 enabled:hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
+                  className={cn('flex min-w-0 flex-wrap items-center justify-between gap-3 border-b p-4 text-left transition-colors last:border-b-0 sm:border-r sm:px-5 sm:even:border-r-0 enabled:hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
                     detailFilter?.secondary && (group.account_id
                       ? detailFilter.secondary.account_id === group.account_id
                       : detailFilter.secondary.institution_id === group.institution_id) && 'bg-accent/70 ring-2 ring-inset ring-ring')}
@@ -435,19 +427,20 @@ export default function HomePage() {
                   </span>
                 </button>
               ))}
+              {breakdown.length === 0 && <p className="p-4 text-sm text-muted-foreground sm:col-span-2 sm:px-5">No accounts contribute to this view.</p>}
             </div>
-          </Card>
+          </SectionCard>
 
           {detailFilter && (
-            <div id="overview-transaction-details" ref={detailSection} tabIndex={-1} className="mt-6 scroll-mt-4 focus:outline-none">
-            <Card className="overflow-hidden ring-1 ring-ring/30">
+            <div id="overview-transaction-details" ref={detailSection} tabIndex={-1} className="mt-4 scroll-mt-16 focus:outline-none sm:mt-6">
+            <SectionCard className="overflow-hidden ring-1 ring-ring/30">
               <div className="flex items-start justify-between gap-4 p-4 sm:p-5">
                 <div className="min-w-0">
                   <h2 className="text-lg font-semibold">Transaction Details</h2>
                   <div aria-label="Active detail filters" className="mt-2 flex flex-wrap items-center gap-2 text-sm">
-                    <span className="rounded-full bg-secondary px-2.5 py-1 text-xs font-medium text-secondary-foreground">{month}</span>
-                    {detailFilter.transactionType && <span className="rounded-full bg-secondary px-2.5 py-1 text-xs font-medium capitalize text-secondary-foreground">{detailFilter.transactionType.replace(/_/g, ' ')}</span>}
-                    {detailFilter.spendingComponent && <span className="rounded-full bg-secondary px-2.5 py-1 text-xs font-medium capitalize text-secondary-foreground">{detailFilter.spendingComponent.replace(/_/g, ' ')}</span>}
+                    <Badge variant="secondary">{month}</Badge>
+                    {detailFilter.transactionType && <Badge variant="secondary" className={filterChip}>{detailFilter.transactionType.replace(/_/g, ' ')}</Badge>}
+                    {detailFilter.spendingComponent && <Badge variant="secondary" className={filterChip}>{detailFilter.spendingComponent.replace(/_/g, ' ')}</Badge>}
                     {detailFilter.canonicalCategory
                       ? <CategoryBadge category={detailFilter.canonicalCategory} />
                       : detailFilter.category
@@ -456,7 +449,7 @@ export default function HomePage() {
                         ? <BenefitCategoryBadge category={detailFilter.benefitCategory} />
                         : null}
                     {detailFilter.secondary && (
-                      <button type="button" className="rounded-full border border-primary px-2.5 py-1 text-xs font-medium text-primary hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={() => setDetailFilter({ ...detailFilter, secondary: undefined })}>
+                      <button type="button" className="rounded-md border border-primary/50 bg-info-soft px-2.5 py-1 text-xs font-medium text-primary hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={() => setDetailFilter({ ...detailFilter, secondary: undefined })}>
                         {detailFilter.secondary.institution_name}
                         {detailFilter.secondary.account_name ? ` · ${detailFilter.secondary.account_name} · ${detailFilter.secondary.account_mask || ''}` : ''}
                         {' · Clear ×'}
@@ -465,15 +458,15 @@ export default function HomePage() {
                   </div>
                   <p className="mt-2 text-sm text-muted-foreground">{detailTotal} matching transactions</p>
                   {detailFilter.transactionType === 'reimbursement' &&
-                    <p className="text-sm font-medium text-slate-700">Total reimbursements: {money(detailReimbursements)}</p>}
-                  {detailFilter.spendingComponent && <p className="text-sm font-medium text-slate-700">
+                    <p className="text-sm font-medium">Total reimbursements: {money(detailReimbursements)}</p>}
+                  {detailFilter.spendingComponent && <p className="text-sm font-medium">
                     {detailFilter.spendingComponent === 'net' ? 'Net contribution' : netColumns.find(column => column.key === detailFilter.spendingComponent)?.label}: {' '}
                     {money(detailComponentTotals[detailFilter.spendingComponent === 'gross' ? 'gross_spending' : detailFilter.spendingComponent === 'net' ? 'net_spending' : detailFilter.spendingComponent] || '0.00')}
                   </p>}
                 </div>
                 <Button type="button" variant="ghost" size="sm" onClick={() => { setDetailFilter(null); setSelectedDetails(new Set()) }}>Close</Button>
               </div>
-              {details.length > 0 && <div className="border-t bg-slate-50 px-4 py-3">
+              {details.length > 0 && <SelectAllBar>
                 <label className="inline-flex items-center gap-2 text-sm font-medium">
                   <input type="checkbox"
                     checked={details.length > 0 && details.every(detail => selectedDetails.has(detail.transaction_id))}
@@ -483,34 +476,34 @@ export default function HomePage() {
                       ? new Set(details.map(detail => detail.transaction_id)) : new Set())} />
                   Select all displayed ({details.length})
                 </label>
-              </div>}
-              {detailLoading && <p role="status" className="border-t p-4 text-sm text-muted-foreground">Loading transaction details…</p>}
-              {!detailLoading && details.length === 0 && !error && <p className="border-t p-4 text-sm text-muted-foreground">No matching transactions.</p>}
-              <div className="divide-y">
+              </SelectAllBar>}
+              {detailLoading && <p role="status" className="border-t p-4 text-sm text-muted-foreground sm:px-5">Loading transaction details…</p>}
+              {!detailLoading && details.length === 0 && !error && <p className="border-t p-4 text-sm text-muted-foreground sm:px-5">No matching transactions.</p>}
+              <div className="divide-y border-t">
                 {details.map((detail) => (
-                  <div key={detail.transaction_id} className="flex flex-wrap items-start justify-between gap-3 p-4">
-                    <label className="pt-1">
+                  <TransactionRow key={detail.transaction_id}
+                    select={<label>
                       <input type="checkbox" checked={selectedDetails.has(detail.transaction_id)}
                         disabled={bulkBusy} onChange={() => toggleDetail(detail.transaction_id)}
                         aria-label={`Select ${detail.merchant_name || detail.description || 'transaction'}`} />
-                    </label>
-                    <div className="min-w-0 flex-1 basis-40">
+                    </label>}
+                    title={<>
                       <p className="break-words font-medium">{detail.merchant_name || detail.description || 'Unknown transaction'}</p>
                       <p className="break-words text-sm text-muted-foreground">{detail.transaction_date} · {detail.description} · {detail.transaction_type.replace(/_/g, ' ')}</p>
-                      {detail.institution_name && detail.account_name && (
-                        <div className="mt-2"><AccountBadge institutionName={detail.institution_name} accountName={detail.account_name} accountMask={detail.account_mask} accountType={detail.account_type || ''} accountSubtype={detail.account_subtype} /></div>
-                      )}
-                    </div>
-                    <p className="max-w-full font-semibold tabular-nums [overflow-wrap:anywhere]">{money(detail.amount)}</p>
-                    {detailFilter.spendingComponent === 'net' && detail.net_contribution && <p className="w-full text-right text-sm font-medium tabular-nums">Net contribution {money(detail.net_contribution)}</p>}
-                    <div className="grid w-full gap-x-5 md:grid-cols-2">
-                      <CategoryEditor detail={detail} options={categoryOptions} busy={categoryBusy || bulkBusy} save={saveCategory} />
-                      <BenefitCategoryEditor detail={detail} options={benefitCategoryOptions} disabled={bulkBusy} onChanged={changed => updateBenefitCategory(detail, changed)} />
-                      <LabelEditor detail={detail} options={labelOptions.options}
-                        optionsLoading={labelOptions.loading} optionsError={labelOptions.error}
-                        disabled={bulkBusy} onRetryOptions={labelOptions.retry} onChanged={updateLabels} />
-                    </div>
-                  </div>
+                    </>}
+                    amount={<>
+                      <Amount value={detail.amount}>{money(detail.amount)}</Amount>
+                      {detailFilter.spendingComponent === 'net' && detail.net_contribution && <p className="text-xs font-medium tabular-nums text-muted-foreground">Net contribution {money(detail.net_contribution)}</p>}
+                    </>}>
+                    {detail.institution_name && detail.account_name && (
+                      <div className="mt-2"><AccountBadge institutionName={detail.institution_name} accountName={detail.account_name} accountMask={detail.account_mask} accountType={detail.account_type || ''} accountSubtype={detail.account_subtype} /></div>
+                    )}
+                    <CategoryEditor detail={detail} options={categoryOptions} busy={categoryBusy || bulkBusy} save={saveCategory} />
+                    <BenefitCategoryEditor detail={detail} options={benefitCategoryOptions} disabled={bulkBusy} onChanged={changed => updateBenefitCategory(detail, changed)} />
+                    <LabelEditor detail={detail} options={labelOptions.options}
+                      optionsLoading={labelOptions.loading} optionsError={labelOptions.error}
+                      disabled={bulkBusy} onRetryOptions={labelOptions.retry} onChanged={updateLabels} />
+                  </TransactionRow>
                 ))}
               </div>
               {selectedDetails.size > 0 && <div className="min-w-0">
@@ -530,23 +523,17 @@ export default function HomePage() {
                   onClear={() => setSelectedDetails(new Set())}
                 />
               </div>}
-              {detailTotal > 100 && <div className="flex flex-wrap items-center gap-3 border-t p-4 text-sm">
-                <button type="button" disabled={detailOffset === 0}
-                  className="disabled:opacity-40" onClick={() => setDetailOffset(Math.max(0, detailOffset - 100))}>Previous</button>
-                <span>{detailOffset + 1}–{Math.min(detailOffset + 100, detailTotal)} of {detailTotal}</span>
-                <button type="button" disabled={detailOffset + 100 >= detailTotal}
-                  className="disabled:opacity-40" onClick={() => setDetailOffset(detailOffset + 100)}>Next</button>
-              </div>}
-            </Card>
+              {detailTotal > 100 && <Pagination className="border-t p-4 sm:px-5" offset={detailOffset} pageSize={100} total={detailTotal} onPage={setDetailOffset} />}
+            </SectionCard>
             </div>
           )}
         </>
       )}
 
-      <Card className="mt-8 p-5">
-        <h2 className="font-semibold">Connected Institutions</h2>
+      <SectionCard aria-labelledby="connected-institutions" className="mt-6 p-4 sm:mt-8 sm:p-5">
+        <h2 id="connected-institutions" className="text-lg font-semibold">Connected Institutions</h2>
         <div className="mt-3"><PlaidLinkButton /></div>
-      </Card>
+      </SectionCard>
     </main>
   )
 }

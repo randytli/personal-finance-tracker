@@ -1,6 +1,7 @@
 'use client'
 
 import { useRef, useState } from 'react'
+import { Button } from '@/components/ui/button'
 
 export type BenefitCategoryOption = { value: string; label: string }
 export type BenefitCategoryDetail = {
@@ -37,15 +38,15 @@ export default function BenefitCategoryEditor({ detail, options, disabled, onCha
     finally { inFlight.current = false; setSaving(false) }
   }
   if (!detail.benefit_category_editable) return null
-  return <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
-    <span className="font-medium">Benefit category</span>
+  return <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+    <span className="font-medium text-muted-foreground">Benefit category</span>
     <select aria-label="Benefit category" disabled={disabled || saving} value={detail.override_benefit_category || detail.effective_benefit_category || 'UNCATEGORIZED'}
-      className="rounded-md border bg-white px-2 py-1" onChange={event => void save(event.target.value)}>
+      className="rounded-md border border-input bg-card px-2 py-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onChange={event => void save(event.target.value)}>
       {options.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
     </select>
-    {detail.override_benefit_category && <button type="button" disabled={disabled || saving} className="text-blue-700 underline"
-      onClick={() => void save(null)}>Restore automatic</button>}
+    {detail.override_benefit_category && <Button type="button" variant="link" size="inline" className="text-xs" disabled={disabled || saving}
+      onClick={() => void save(null)}>Restore automatic</Button>}
     {saving && <span role="status">Saving…</span>}
-    {error && <span role="alert" className="w-full text-red-700">{error}</span>}
+    {error && <span role="alert" className="w-full text-destructive">{error}</span>}
   </div>
 }

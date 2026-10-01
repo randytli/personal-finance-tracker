@@ -103,8 +103,8 @@ function CategoryBadgeView({
     {editable && <ChevronDown aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />}
   </>
   const className = `inline-flex max-w-full items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs font-medium ${
-    manual ? 'border-blue-300 bg-blue-50 text-blue-900' : 'border-slate-300 bg-slate-50 text-slate-800'
-  } ${editable || onClick ? 'cursor-pointer hover:border-blue-400 hover:bg-blue-50 disabled:cursor-default disabled:opacity-50' : ''}`
+    manual ? 'border-info/30 bg-info-soft text-info' : 'border-border bg-card text-foreground'
+  } ${editable || onClick ? 'cursor-pointer shadow-sm transition-colors hover:border-primary/50 hover:bg-info-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default disabled:opacity-50' : ''}`
 
   return editable || onClick
     ? <button type="button" className={className} disabled={busy} onClick={onClick}

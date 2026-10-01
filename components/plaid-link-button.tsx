@@ -6,6 +6,10 @@ import {
   type PlaidLinkOnExit,
   type PlaidLinkOnSuccess,
 } from 'react-plaid-link'
+import { Plus } from 'lucide-react'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import InstitutionBadge from '@/components/institution-badge'
 
 const LINK_TOKEN_KEY = 'pft_plaid_link_token'
 
@@ -102,19 +106,17 @@ export default function PlaidLinkButton({ resumeOAuth = false }: { resumeOAuth?:
       {!resumeOAuth && (
         <>
           {items.length > 0 && (
-            <ul className="space-y-1 text-sm">
-              {items.map((item) => <li key={item.item_id}>{item.institution_name} — {item.status}</li>)}
+            <ul aria-label="Connected institutions" className="flex flex-wrap gap-2 text-sm">
+              {items.map((item) => <li key={item.item_id} className="inline-flex items-center gap-2 rounded-lg border bg-muted/40 py-1.5 pl-1.5 pr-2.5">
+                <InstitutionBadge institutionName={item.institution_name} />
+                <Badge variant={item.status === 'active' ? 'success' : 'warning'} className="capitalize">{item.status}</Badge>
+              </li>)}
             </ul>
           )}
           <p className="text-sm text-muted-foreground">Choose your institution securely inside Plaid Link.</p>
-          <button
-            type="button"
-            onClick={startLink}
-            disabled={shouldOpen}
-            className="rounded-md bg-black px-5 py-3 font-medium text-white disabled:opacity-50"
-          >
-            Connect new institution
-          </button>
+          <Button type="button" onClick={startLink} disabled={shouldOpen}>
+            <Plus aria-hidden="true" />Connect new institution
+          </Button>
         </>
       )}
       {status && <p role="status" className="text-sm text-muted-foreground">{status}</p>}
