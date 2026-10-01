@@ -18,3 +18,8 @@ __pycache__/
 .venv/
 
 *:Zone.Identifier
+
+# Design preview build output
+.next-design-preview
+preview/.run
+preview/.next-env.d.ts.keep

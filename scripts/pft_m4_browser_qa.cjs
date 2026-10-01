@@ -2,12 +2,10 @@
 const assert = require('node:assert/strict')
 const fs = require('node:fs')
 const path = require('node:path')
-const { chromium, webkit } = require(process.env.PFT_PLAYWRIGHT_MODULE || 'playwright')
 const base = process.env.PFT_QA_URL || 'http://127.0.0.1:3003'
 const target = new URL(base)
 assert(['127.0.0.1', 'localhost'].includes(target.hostname) && target.port && target.port !== '3000', 'Use an isolated local frontend, never Production')
 const out = process.env.PFT_QA_OUTPUT || '/tmp/pft-m4-20260930/browser'
-fs.mkdirSync(out, { recursive: true })
 const money = value => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(Number(value))
 const fixed = value => Number(value).toFixed(2)
 const categories = ['DINING', 'GROCERIES', 'ENTERTAINMENT', 'UNCATEGORIZED', 'TRAVEL']
@@ -265,6 +263,9 @@ async function states(page, data, route, width) {
  await geometry(page, 'empty/error/recovery', width)
 }
 async function main() {
+ // Lazy so the synthetic fixtures can be reused without Playwright installed.
+ const { chromium, webkit } = require(process.env.PFT_PLAYWRIGHT_MODULE || 'playwright')
+ fs.mkdirSync(out, { recursive: true })
  const engine = process.env.PFT_QA_ENGINE === 'webkit' ? webkit : chromium
  const browser = await engine.launch({ headless: true, ...(engine === chromium ? { args: ['--no-sandbox'] } : {}) }), results = []
  try {

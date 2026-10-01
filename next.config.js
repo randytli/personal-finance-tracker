@@ -23,4 +23,7 @@ const nextConfig = {
   },
 }
 
-module.exports = nextConfig
+// The design preview (preview/) is opt-in; without this variable the config is unchanged.
+module.exports = process.env.PFT_PREVIEW_BASE_PATH
+  ? require('./preview/next-config.cjs')(nextConfig)
+  : nextConfig
