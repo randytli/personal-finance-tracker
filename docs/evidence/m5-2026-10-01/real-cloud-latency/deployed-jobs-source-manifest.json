@@ -1,0 +1,152 @@
+{
+  "kind": "source_candidate_not_vercel_build",
+  "role": "jobs",
+  "files": [
+    {
+      "path": ".python-version",
+      "bytes": 5,
+      "sha256": "7b55f8e67b5623c4bef3fa691288da9437d79d3aba156de48d481db32ac7d16d"
+    },
+    {
+      "path": "api/backup.py",
+      "bytes": 6633,
+      "sha256": "eed0a5dafe90c3b7731266a6c8348ebcf51f71404d87b605bc753b3e23aafe98"
+    },
+    {
+      "path": "api/backup_crypto.py",
+      "bytes": 5796,
+      "sha256": "d1cde1ddb22dc45002273e663c6e345ff8df7b684ee02510087f4565ad0fc26b"
+    },
+    {
+      "path": "api/benefit_categories.py",
+      "bytes": 3208,
+      "sha256": "c68b9d1cb09ca6b4d264e4f2891d4980d04fe73126b84b38b875be7d1557d8d6"
+    },
+    {
+      "path": "api/card_benefits.py",
+      "bytes": 2213,
+      "sha256": "3b793e42c8c1d2b616677a3b4a12bcf445167b7961fd7e2e326927e9cd5b77c9"
+    },
+    {
+      "path": "api/categories.py",
+      "bytes": 2980,
+      "sha256": "8aad30b7008b53bd418f78f2cfd5572936014098f363495c7ecff3d67df0c861"
+    },
+    {
+      "path": "api/classification.py",
+      "bytes": 1399,
+      "sha256": "9896917dde01d76f1a0bd3dcd15757057a843b22af2fe4638cb8747946b0e4ee"
+    },
+    {
+      "path": "api/classification_rules.py",
+      "bytes": 10963,
+      "sha256": "f02c16cfaffdacf865439b3d2582da5c3d08c4ac646200e2d3f46f51f2f9026f"
+    },
+    {
+      "path": "api/consumer_scope.py",
+      "bytes": 646,
+      "sha256": "6800ba4c99f1114886f00d99f44f495cf8e5edf2d24b089103a6ba569968642b"
+    },
+    {
+      "path": "api/db.py",
+      "bytes": 2725,
+      "sha256": "435d5bc55b87585f6767629ae7d5926957c51037137ea320eb3594328e81547b"
+    },
+    {
+      "path": "api/jobs.py",
+      "bytes": 8611,
+      "sha256": "252a5a06aaa0e8f5fa64b7aa22985466f38db650f8a0bb882719ba5eb38f98c5"
+    },
+    {
+      "path": "api/labels.py",
+      "bytes": 5067,
+      "sha256": "681a4a439cb860b4bc9ec5cf3a63ca6c7f820e2573fb502f870f01c46d6b9f00"
+    },
+    {
+      "path": "api/migrations.py",
+      "bytes": 11765,
+      "sha256": "27199a07925f4176b19f76d60fcb1537e6824081afecc964420a1e1079d3456e"
+    },
+    {
+      "path": "api/models.py",
+      "bytes": 12962,
+      "sha256": "c50dd3ad3157586027ca25cf059a32747dc7f7beab118c9d114b61eac38d2a1e"
+    },
+    {
+      "path": "api/routes/plaid.py",
+      "bytes": 17028,
+      "sha256": "4dc9e3095a4e35706813342b0901940919b4c231a65ed5caa52d3bd95f0edf27"
+    },
+    {
+      "path": "api/services/__init__.py",
+      "bytes": 32,
+      "sha256": "e59905a4290f26093a09e5e4c6a0ce4d17a32f26ad0094dcd5f2dafc5911e03d"
+    },
+    {
+      "path": "api/services/derivation.py",
+      "bytes": 12236,
+      "sha256": "2b0d34ab20fad0307f2170d859ff09564bba68735a7f43025e9141e3957218d9"
+    },
+    {
+      "path": "api/services/persistence.py",
+      "bytes": 10235,
+      "sha256": "525e76a7f288af2251e78da74c685867b3321f4ad7f16ebb0a23b437614b9aae"
+    },
+    {
+      "path": "api/services/sync_all.py",
+      "bytes": 30147,
+      "sha256": "addfd541aaf68e283a998f3c4e4446b18443f9e1b69f497c18816d1912430074"
+    },
+    {
+      "path": "api/services/sync_state.py",
+      "bytes": 1896,
+      "sha256": "36dda1a60f7a0cb01279cfed75f7be01548570858d881be4b2fd4dc0d95992c5"
+    },
+    {
+      "path": "api/statement_semantics.py",
+      "bytes": 2099,
+      "sha256": "b9a60a3321b6b8f95ac27a3ec9613dfe89a996b3dae58a780094e0ad5edb220c"
+    },
+    {
+      "path": "main.py",
+      "bytes": 15302,
+      "sha256": "b5efc067b59a2712b933489d07c1a5670d35508d2866902fc35ff6f5edf4b6a0"
+    },
+    {
+      "path": "pool_probe_support.py",
+      "bytes": 1862,
+      "sha256": "f97dffcf89f132e2cd119091f85f14a181c825912326307ce6cc0bc44f097691"
+    },
+    {
+      "path": "requirements.txt",
+      "bytes": 110,
+      "sha256": "04476dcfb1834ccc970dca970ee0a0af5031be836dfbc946c3dbd04e247cd717"
+    },
+    {
+      "path": "statement_imports/__init__.py",
+      "bytes": 227,
+      "sha256": "51039b744498eac6df1674d870c4202e0336ff566fcc64a5ee6e48e60f87e36c"
+    },
+    {
+      "path": "statement_imports/models.py",
+      "bytes": 2434,
+      "sha256": "9d70d875b2debdffe55df5e3b7ae3e845af1f840482c5b2e88f48c24579ea3a4"
+    },
+    {
+      "path": "statement_imports/persistence.py",
+      "bytes": 18698,
+      "sha256": "23cf1c927678389bda356e6b94c0371b2bf7fef5c475aa7c2c8f53e3c5d6d863"
+    },
+    {
+      "path": "vercel.json",
+      "bytes": 311,
+      "sha256": "077aa945aa0fd4db3eb8490ce6950b2398d6271a5c890f41d16cb6399d77f000"
+    },
+    {
+      "path": "sync_benchmark_support.py",
+      "bytes": 21139,
+      "sha256": "559a6bc0d21776976a9b322a4bd6f00ba381ef1e229c34276fdd508ffeac417b"
+    }
+  ],
+  "source_bytes": 208729
+}

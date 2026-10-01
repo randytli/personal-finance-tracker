@@ -1,0 +1,894 @@
+{
+  "scales": {
+    "2610": {
+      "n": 5,
+      "completed": 5,
+      "timeouts": 0,
+      "client_wall_s": {
+        "n": 5,
+        "min": 19.01221790999989,
+        "median": 25.3354294320161,
+        "max": 29.28462952299742
+      },
+      "handler_wall_s": {
+        "n": 5,
+        "min": 18.566109186000006,
+        "median": 24.994546632000038,
+        "max": 28.729750266999986
+      },
+      "shared_sync_wall_s": {
+        "n": 5,
+        "min": 18.34089445899997,
+        "median": 24.751132882000036,
+        "max": 27.615037588000007
+      },
+      "cold_handler_wall_s": {
+        "n": 1,
+        "min": 28.729750266999986,
+        "median": 28.729750266999986,
+        "max": 28.729750266999986
+      },
+      "warm_handler_wall_s": {
+        "n": 4,
+        "min": 18.566109186000006,
+        "median": 23.92102148950002,
+        "max": 27.807090691999974
+      },
+      "query_counts": [
+        5361,
+        5361,
+        5361,
+        5361,
+        5361
+      ],
+      "query_median_ms": {
+        "n": 5,
+        "min": 2.403055000002041,
+        "median": 3.5085399999843503,
+        "max": 4.030156999988321
+      },
+      "query_observed_p95_ms": {
+        "n": 5,
+        "min": 2.7308670000252278,
+        "median": 4.041233999998894,
+        "max": 4.382335000002513
+      },
+      "query_weighted_mean_ms": 3.514106082820237,
+      "query_max_ms": 153.20822000001044,
+      "stages_s": {
+        "_assert_lock_owner": {
+          "n": 5,
+          "min": 0.006065831000000799,
+          "median": 0.009400926000012078,
+          "max": 0.01220228199997564
+        },
+        "_fetch_item": {
+          "n": 5,
+          "min": 0.0013464940000176284,
+          "median": 0.0014292599999521372,
+          "max": 0.0036843780000310744
+        },
+        "_publish_item": {
+          "n": 5,
+          "min": 9.793098119999911,
+          "median": 12.49955434900005,
+          "max": 14.415488923999987
+        },
+        "acquire_session_lock": {
+          "n": 5,
+          "min": 0.009939674000008836,
+          "median": 0.015227143000004162,
+          "max": 0.020583326999997098
+        },
+        "classify_active_transactions": {
+          "n": 5,
+          "min": 8.092555215999994,
+          "median": 11.710033014000032,
+          "max": 12.771580940000007
+        },
+        "normalize_item_transactions": {
+          "n": 5,
+          "min": 9.613382220999995,
+          "median": 12.257202479,
+          "max": 14.136914344000047
+        }
+      },
+      "connection_samples_s": {
+        "n": 15,
+        "min": 0.0396858529999804,
+        "median": 0.07335524299998042,
+        "max": 0.10298646400002553
+      },
+      "connection_identity_guard_s": {
+        "n": 5,
+        "min": 0.12335730500001318,
+        "median": 0.13442647700003363,
+        "max": 0.153863006999984
+      },
+      "successful_publication_commit_exit_s": {
+        "n": 5,
+        "min": 0.009072082999978193,
+        "median": 0.012370830999998361,
+        "max": 0.015054794999997512
+      },
+      "cleanup_s": {
+        "n": 5,
+        "min": 0.005751825000004374,
+        "median": 0.007475105999958487,
+        "max": 0.008509408000008989
+      },
+      "cpu_s": {
+        "n": 5,
+        "min": 6.645449100999997,
+        "median": 7.259596741999999,
+        "max": 8.450878465
+      },
+      "process_rss_high_water_mib": {
+        "n": 5,
+        "min": 108.3046875,
+        "median": 115.73046875,
+        "max": 116.44140625
+      },
+      "engine_checkout_peak": 3,
+      "observer_checkout_bound": 1,
+      "sampled_jobs_backend_peak": 4,
+      "sampled_database_backend_peak": 11,
+      "request_body_bytes": 150,
+      "response_body_bytes": 20030,
+      "sdk_shape_request_bytes": 1650,
+      "sdk_shape_response_bytes": 3925,
+      "run_p95_supported": false,
+      "full_duration_right_censored": false
+    },
+    "35600": {
+      "n": 5,
+      "completed": 0,
+      "timeouts": 5,
+      "client_wall_s": {
+        "n": 5,
+        "min": 213.75498787901597,
+        "median": 213.9419280810107,
+        "max": 215.42271297899424
+      },
+      "handler_wall_s": {
+        "n": 5,
+        "min": 212.064285424,
+        "median": 212.22278400999994,
+        "max": 213.60858179099995
+      },
+      "shared_sync_wall_s": {
+        "n": 5,
+        "min": 210.14923912200015,
+        "median": 210.17107897699998,
+        "max": 210.190683584
+      },
+      "cold_handler_wall_s": {
+        "n": 1,
+        "min": 213.60858179099995,
+        "median": 213.60858179099995,
+        "max": 213.60858179099995
+      },
+      "warm_handler_wall_s": {
+        "n": 4,
+        "min": 212.064285424,
+        "median": 212.14739777549994,
+        "max": 212.33040830100003
+      },
+      "query_counts": [
+        34449,
+        37832,
+        47195,
+        46646,
+        44032
+      ],
+      "query_median_ms": {
+        "n": 5,
+        "min": 3.0874729999368355,
+        "median": 3.3064149998836,
+        "max": 4.536419000032765
+      },
+      "query_observed_p95_ms": {
+        "n": 5,
+        "min": 3.548321000039323,
+        "median": 3.707749000113836,
+        "max": 4.945732000010139
+      },
+      "query_weighted_mean_ms": 3.68985226577656,
+      "query_max_ms": 530.5026360000511,
+      "stages_s": {
+        "_assert_lock_owner": {
+          "n": 5,
+          "min": 0.007785863999970388,
+          "median": 0.011983094000015626,
+          "max": 0.08437604699986423
+        },
+        "_fetch_item": {
+          "n": 5,
+          "min": 0.0011812019999979384,
+          "median": 0.0013733800000181873,
+          "max": 0.0033726449998994212
+        },
+        "_finalize_failure": {
+          "n": 5,
+          "min": 0.11680146399999103,
+          "median": 0.12443435799991676,
+          "max": 0.15441509799984487
+        },
+        "_publish_item": {
+          "n": 5,
+          "min": 163.459721425,
+          "median": 170.015661529,
+          "max": 209.56205768200005
+        },
+        "acquire_session_lock": {
+          "n": 5,
+          "min": 0.011474038999949698,
+          "median": 0.015933085000028768,
+          "max": 0.0241449279999415
+        },
+        "classify_active_transactions": {
+          "n": 4,
+          "min": 12.499189548000004,
+          "median": 42.26018751000004,
+          "max": 46.15064733500003
+        },
+        "normalize_item_transactions": {
+          "n": 5,
+          "min": 163.18603273899998,
+          "median": 169.7820382479997,
+          "max": 209.24121624100002
+        }
+      },
+      "connection_samples_s": {
+        "n": 20,
+        "min": 0.04116354300003877,
+        "median": 0.061614147500023364,
+        "max": 0.10286029799999596
+      },
+      "connection_identity_guard_s": {
+        "n": 5,
+        "min": 0.13091833399994357,
+        "median": 0.1768755229999215,
+        "max": 0.18859461200003125
+      },
+      "successful_publication_commit_exit_s": {
+        "n": 0
+      },
+      "cleanup_s": {
+        "n": 5,
+        "min": 0.00627922400008174,
+        "median": 0.008021798000072522,
+        "max": 0.039390535000052296
+      },
+      "cpu_s": {
+        "n": 5,
+        "min": 63.29271285800001,
+        "median": 74.95023019199999,
+        "max": 79.61645929
+      },
+      "process_rss_high_water_mib": {
+        "n": 5,
+        "min": 126.63671875,
+        "median": 198.01171875,
+        "max": 203.0078125
+      },
+      "engine_checkout_peak": 3,
+      "observer_checkout_bound": 1,
+      "sampled_jobs_backend_peak": 4,
+      "sampled_database_backend_peak": 11,
+      "request_body_bytes": 155,
+      "response_body_bytes": 32667,
+      "sdk_shape_request_bytes": 1650,
+      "sdk_shape_response_bytes": 3925,
+      "run_p95_supported": false,
+      "full_duration_right_censored": true
+    }
+  },
+  "negative_tests": [
+    {
+      "action": "timeout_publication",
+      "handler_wall_s": 20.917086715999858,
+      "result": {
+        "state_unchanged": true,
+        "before": {
+          "legacy_consumer_rows": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "accounts": {
+            "rows": 13,
+            "full_row_hash": "4b029f71f90170cd754db3e34ceb1ada"
+          },
+          "statement_import_batches": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "statement_import_rows": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "raw_transactions": {
+            "rows": 2610,
+            "full_row_hash": "eef150112572e33db0ff717ed9b47ef1"
+          },
+          "transactions": {
+            "rows": 2610,
+            "full_row_hash": "69c300c5e60bdf0ea9778a22ed55df96"
+          },
+          "manual_benefit_category_overrides": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "manual_category_overrides": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "manual_classification_overrides": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "manual_transaction_label_overrides": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "cursors_and_success": [
+            [
+              "item-0",
+              "synthetic-start",
+              "2026-10-01T20:06:23.180388+00:00",
+              null
+            ],
+            [
+              "item-1",
+              "synthetic-start",
+              "2026-10-01T20:06:23.180388+00:00",
+              null
+            ],
+            [
+              "item-2",
+              "synthetic-start",
+              "2026-10-01T20:06:23.180388+00:00",
+              null
+            ],
+            [
+              "item-3",
+              "synthetic-start",
+              "2026-10-01T20:06:23.180388+00:00",
+              null
+            ],
+            [
+              "item-4",
+              "synthetic-start",
+              "2026-10-01T20:06:23.180388+00:00",
+              null
+            ]
+          ],
+          "publication_marker": [
+            {
+              "user_id": "synthetic-cloud-2610",
+              "published_at": "2026-10-01T20:06:23.180388+00:00",
+              "last_backup_at": null,
+              "handled_sequence": 0,
+              "running_item_ids": null,
+              "running_sequence": null,
+              "jobs_heartbeat_at": null,
+              "last_backup_error": null,
+              "requested_item_ids": null,
+              "requested_sequence": 0,
+              "last_published_run_id": "b0acb083-e950-429a-af2d-dd09115a1837",
+              "last_backup_attempt_at": null
+            }
+          ]
+        },
+        "after": {
+          "legacy_consumer_rows": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "accounts": {
+            "rows": 13,
+            "full_row_hash": "4b029f71f90170cd754db3e34ceb1ada"
+          },
+          "statement_import_batches": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "statement_import_rows": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "raw_transactions": {
+            "rows": 2610,
+            "full_row_hash": "eef150112572e33db0ff717ed9b47ef1"
+          },
+          "transactions": {
+            "rows": 2610,
+            "full_row_hash": "69c300c5e60bdf0ea9778a22ed55df96"
+          },
+          "manual_benefit_category_overrides": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "manual_category_overrides": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "manual_classification_overrides": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "manual_transaction_label_overrides": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "cursors_and_success": [
+            [
+              "item-0",
+              "synthetic-start",
+              "2026-10-01T20:06:23.180388+00:00",
+              null
+            ],
+            [
+              "item-1",
+              "synthetic-start",
+              "2026-10-01T20:06:23.180388+00:00",
+              null
+            ],
+            [
+              "item-2",
+              "synthetic-start",
+              "2026-10-01T20:06:23.180388+00:00",
+              null
+            ],
+            [
+              "item-3",
+              "synthetic-start",
+              "2026-10-01T20:06:23.180388+00:00",
+              null
+            ],
+            [
+              "item-4",
+              "synthetic-start",
+              "2026-10-01T20:06:23.180388+00:00",
+              null
+            ]
+          ],
+          "publication_marker": [
+            {
+              "user_id": "synthetic-cloud-2610",
+              "published_at": "2026-10-01T20:06:23.180388+00:00",
+              "last_backup_at": null,
+              "handled_sequence": 0,
+              "running_item_ids": null,
+              "running_sequence": null,
+              "jobs_heartbeat_at": null,
+              "last_backup_error": null,
+              "requested_item_ids": null,
+              "requested_sequence": 0,
+              "last_published_run_id": "b0acb083-e950-429a-af2d-dd09115a1837",
+              "last_backup_attempt_at": null
+            }
+          ]
+        },
+        "immediate_run": {
+          "run_id": "3e688313-45b0-43fc-bb70-b6d3c08e699a",
+          "status": "failed",
+          "published_at": null,
+          "classification_status": "not_run",
+          "error_category": "publication_failed"
+        },
+        "after_next_owner_reconciliation": null,
+        "locks_released": true,
+        "sdk_thread_finished": true
+      }
+    },
+    {
+      "action": "cancel_publication",
+      "handler_wall_s": 3.134034048000103,
+      "result": {
+        "state_unchanged": true,
+        "before": {
+          "legacy_consumer_rows": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "accounts": {
+            "rows": 13,
+            "full_row_hash": "4b029f71f90170cd754db3e34ceb1ada"
+          },
+          "statement_import_batches": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "statement_import_rows": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "raw_transactions": {
+            "rows": 2610,
+            "full_row_hash": "eef150112572e33db0ff717ed9b47ef1"
+          },
+          "transactions": {
+            "rows": 2610,
+            "full_row_hash": "69c300c5e60bdf0ea9778a22ed55df96"
+          },
+          "manual_benefit_category_overrides": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "manual_category_overrides": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "manual_classification_overrides": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "manual_transaction_label_overrides": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "cursors_and_success": [
+            [
+              "item-0",
+              "synthetic-start",
+              "2026-10-01T20:06:23.180388+00:00",
+              null
+            ],
+            [
+              "item-1",
+              "synthetic-start",
+              "2026-10-01T20:06:23.180388+00:00",
+              null
+            ],
+            [
+              "item-2",
+              "synthetic-start",
+              "2026-10-01T20:06:23.180388+00:00",
+              null
+            ],
+            [
+              "item-3",
+              "synthetic-start",
+              "2026-10-01T20:06:23.180388+00:00",
+              null
+            ],
+            [
+              "item-4",
+              "synthetic-start",
+              "2026-10-01T20:06:23.180388+00:00",
+              null
+            ]
+          ],
+          "publication_marker": [
+            {
+              "user_id": "synthetic-cloud-2610",
+              "published_at": "2026-10-01T20:06:23.180388+00:00",
+              "last_backup_at": null,
+              "handled_sequence": 0,
+              "running_item_ids": null,
+              "running_sequence": null,
+              "jobs_heartbeat_at": null,
+              "last_backup_error": null,
+              "requested_item_ids": null,
+              "requested_sequence": 0,
+              "last_published_run_id": "b0acb083-e950-429a-af2d-dd09115a1837",
+              "last_backup_attempt_at": null
+            }
+          ]
+        },
+        "after": {
+          "legacy_consumer_rows": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "accounts": {
+            "rows": 13,
+            "full_row_hash": "4b029f71f90170cd754db3e34ceb1ada"
+          },
+          "statement_import_batches": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "statement_import_rows": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "raw_transactions": {
+            "rows": 2610,
+            "full_row_hash": "eef150112572e33db0ff717ed9b47ef1"
+          },
+          "transactions": {
+            "rows": 2610,
+            "full_row_hash": "69c300c5e60bdf0ea9778a22ed55df96"
+          },
+          "manual_benefit_category_overrides": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "manual_category_overrides": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "manual_classification_overrides": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "manual_transaction_label_overrides": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "cursors_and_success": [
+            [
+              "item-0",
+              "synthetic-start",
+              "2026-10-01T20:06:23.180388+00:00",
+              null
+            ],
+            [
+              "item-1",
+              "synthetic-start",
+              "2026-10-01T20:06:23.180388+00:00",
+              null
+            ],
+            [
+              "item-2",
+              "synthetic-start",
+              "2026-10-01T20:06:23.180388+00:00",
+              null
+            ],
+            [
+              "item-3",
+              "synthetic-start",
+              "2026-10-01T20:06:23.180388+00:00",
+              null
+            ],
+            [
+              "item-4",
+              "synthetic-start",
+              "2026-10-01T20:06:23.180388+00:00",
+              null
+            ]
+          ],
+          "publication_marker": [
+            {
+              "user_id": "synthetic-cloud-2610",
+              "published_at": "2026-10-01T20:06:23.180388+00:00",
+              "last_backup_at": null,
+              "handled_sequence": 0,
+              "running_item_ids": null,
+              "running_sequence": null,
+              "jobs_heartbeat_at": null,
+              "last_backup_error": null,
+              "requested_item_ids": null,
+              "requested_sequence": 0,
+              "last_published_run_id": "b0acb083-e950-429a-af2d-dd09115a1837",
+              "last_backup_attempt_at": null
+            }
+          ]
+        },
+        "immediate_run": {
+          "run_id": "6e445644-49f6-4585-81b0-4235e6019a5e",
+          "status": "running",
+          "published_at": null,
+          "classification_status": "not_run",
+          "error_category": null
+        },
+        "after_next_owner_reconciliation": {
+          "run_id": "6e445644-49f6-4585-81b0-4235e6019a5e",
+          "status": "interrupted",
+          "published_at": null,
+          "classification_status": "not_run",
+          "error_category": "interrupted"
+        },
+        "locks_released": true,
+        "sdk_thread_finished": true
+      }
+    },
+    {
+      "action": "cancel_fetch",
+      "handler_wall_s": 1.8865514789999906,
+      "result": {
+        "state_unchanged": true,
+        "before": {
+          "legacy_consumer_rows": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "accounts": {
+            "rows": 13,
+            "full_row_hash": "4b029f71f90170cd754db3e34ceb1ada"
+          },
+          "statement_import_batches": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "statement_import_rows": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "raw_transactions": {
+            "rows": 2610,
+            "full_row_hash": "eef150112572e33db0ff717ed9b47ef1"
+          },
+          "transactions": {
+            "rows": 2610,
+            "full_row_hash": "69c300c5e60bdf0ea9778a22ed55df96"
+          },
+          "manual_benefit_category_overrides": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "manual_category_overrides": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "manual_classification_overrides": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "manual_transaction_label_overrides": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "cursors_and_success": [
+            [
+              "item-0",
+              "synthetic-start",
+              "2026-10-01T20:06:23.180388+00:00",
+              null
+            ],
+            [
+              "item-1",
+              "synthetic-start",
+              "2026-10-01T20:06:23.180388+00:00",
+              null
+            ],
+            [
+              "item-2",
+              "synthetic-start",
+              "2026-10-01T20:06:23.180388+00:00",
+              null
+            ],
+            [
+              "item-3",
+              "synthetic-start",
+              "2026-10-01T20:06:23.180388+00:00",
+              null
+            ],
+            [
+              "item-4",
+              "synthetic-start",
+              "2026-10-01T20:06:23.180388+00:00",
+              null
+            ]
+          ],
+          "publication_marker": [
+            {
+              "user_id": "synthetic-cloud-2610",
+              "published_at": "2026-10-01T20:06:23.180388+00:00",
+              "last_backup_at": null,
+              "handled_sequence": 0,
+              "running_item_ids": null,
+              "running_sequence": null,
+              "jobs_heartbeat_at": null,
+              "last_backup_error": null,
+              "requested_item_ids": null,
+              "requested_sequence": 0,
+              "last_published_run_id": "b0acb083-e950-429a-af2d-dd09115a1837",
+              "last_backup_attempt_at": null
+            }
+          ]
+        },
+        "after": {
+          "legacy_consumer_rows": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "accounts": {
+            "rows": 13,
+            "full_row_hash": "4b029f71f90170cd754db3e34ceb1ada"
+          },
+          "statement_import_batches": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "statement_import_rows": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "raw_transactions": {
+            "rows": 2610,
+            "full_row_hash": "eef150112572e33db0ff717ed9b47ef1"
+          },
+          "transactions": {
+            "rows": 2610,
+            "full_row_hash": "69c300c5e60bdf0ea9778a22ed55df96"
+          },
+          "manual_benefit_category_overrides": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "manual_category_overrides": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "manual_classification_overrides": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "manual_transaction_label_overrides": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "cursors_and_success": [
+            [
+              "item-0",
+              "synthetic-start",
+              "2026-10-01T20:06:23.180388+00:00",
+              null
+            ],
+            [
+              "item-1",
+              "synthetic-start",
+              "2026-10-01T20:06:23.180388+00:00",
+              null
+            ],
+            [
+              "item-2",
+              "synthetic-start",
+              "2026-10-01T20:06:23.180388+00:00",
+              null
+            ],
+            [
+              "item-3",
+              "synthetic-start",
+              "2026-10-01T20:06:23.180388+00:00",
+              null
+            ],
+            [
+              "item-4",
+              "synthetic-start",
+              "2026-10-01T20:06:23.180388+00:00",
+              null
+            ]
+          ],
+          "publication_marker": [
+            {
+              "user_id": "synthetic-cloud-2610",
+              "published_at": "2026-10-01T20:06:23.180388+00:00",
+              "last_backup_at": null,
+              "handled_sequence": 0,
+              "running_item_ids": null,
+              "running_sequence": null,
+              "jobs_heartbeat_at": null,
+              "last_backup_error": null,
+              "requested_item_ids": null,
+              "requested_sequence": 0,
+              "last_published_run_id": "b0acb083-e950-429a-af2d-dd09115a1837",
+              "last_backup_attempt_at": null
+            }
+          ]
+        },
+        "immediate_run": {
+          "run_id": "c5e57742-fe64-4bc1-8cdf-17a16a978ad0",
+          "status": "running",
+          "published_at": null,
+          "classification_status": "not_run",
+          "error_category": null
+        },
+        "after_next_owner_reconciliation": {
+          "run_id": "c5e57742-fe64-4bc1-8cdf-17a16a978ad0",
+          "status": "interrupted",
+          "published_at": null,
+          "classification_status": "not_run",
+          "error_category": "interrupted"
+        },
+        "locks_released": true,
+        "sdk_thread_finished": true
+      }
+    }
+  ],
+  "source_path_optimized": false,
+  "provider_billing_totals": "UNKNOWN"
+}

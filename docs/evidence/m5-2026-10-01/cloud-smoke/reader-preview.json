@@ -1,0 +1,39 @@
+{
+  "id": "dpl_UBs7eXg9GNWZ6H6ku4xPgtThNWZy",
+  "url": "pft-m5-reader-20261001-fyt97b2xw-pft2.vercel.app",
+  "name": "pft-m5-reader-20261001",
+  "target": null,
+  "readyState": "READY",
+  "projectId": "prj_Mwj8yCakhXMDDNa8d3wVgdOYk64p",
+  "regions": [
+    "iad1"
+  ],
+  "functions": null,
+  "buildStats": null,
+  "createdAt": 1790882826654,
+  "buildingAt": 1790882827843,
+  "ready": 1790882855179,
+  "errorCode": null,
+  "errorMessage": null,
+  "config": {
+    "version": 1,
+    "secureComputePrimaryRegion": null,
+    "secureComputeFallbackRegion": null,
+    "functionTimeout": 300,
+    "functionType": "fluid",
+    "functionMemoryType": "standard",
+    "isUsingActiveCPU": true,
+    "resourceConfig": {
+      "buildMachine": {
+        "defaultPurchaseType": "basic",
+        "purchaseType": "basic",
+        "machineSelectionType": "fixed",
+        "selectionSource": "plan-default"
+      },
+      "buildQueue": {
+        "configuration": "SKIP_NAMESPACE_QUEUE"
+      }
+    }
+  },
+  "plan": "hobby"
+}

@@ -1,0 +1,39 @@
+{
+  "id": "dpl_CfFrmrfWLRJRiUYiQCJuha7rs4Ys",
+  "url": "pft-m5-jobs-20261001-ct2gx4g49-pft2.vercel.app",
+  "name": "pft-m5-jobs-20261001",
+  "target": null,
+  "readyState": "READY",
+  "projectId": "prj_T8mZTCne3EfvSAS1y7DvmNcJ17Kb",
+  "regions": [
+    "iad1"
+  ],
+  "functions": null,
+  "buildStats": null,
+  "createdAt": 1790882961210,
+  "buildingAt": 1790882962429,
+  "ready": 1790882988373,
+  "errorCode": null,
+  "errorMessage": null,
+  "config": {
+    "version": 1,
+    "secureComputePrimaryRegion": null,
+    "secureComputeFallbackRegion": null,
+    "functionTimeout": 300,
+    "functionType": "fluid",
+    "functionMemoryType": "standard",
+    "isUsingActiveCPU": true,
+    "resourceConfig": {
+      "buildMachine": {
+        "defaultPurchaseType": "basic",
+        "purchaseType": "basic",
+        "machineSelectionType": "fixed",
+        "selectionSource": "plan-default"
+      },
+      "buildQueue": {
+        "configuration": "SKIP_NAMESPACE_QUEUE"
+      }
+    }
+  },
+  "plan": "hobby"
+}

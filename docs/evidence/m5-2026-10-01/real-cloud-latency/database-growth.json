@@ -1,0 +1,24 @@
+{
+  "pre_fixtures_database_bytes": 10892979,
+  "after_first_current_sample_database_bytes": 39278259,
+  "after_first_current_sample_relations": {
+    "2610": 4808704,
+    "35600": 23011328
+  },
+  "early_first_current_sample_database_bytes": 36705971,
+  "fixture_relation_bytes_early_first_current_sample": {
+    "2610": 2236416,
+    "35600": 23011328
+  },
+  "during_second_grown_run_database_bytes": 45684403,
+  "during_second_grown_run_relations": {
+    "2610": 4808704,
+    "35600": 29417472
+  },
+  "final_database_bytes": 40515251,
+  "final_relations_bytes": {
+    "2610": 4808704,
+    "35600": 24248320
+  },
+  "measurement_notes": "Database/relation bytes are physical SQL samples, including indexes, dead tuples and both co-resident synthetic scales. Intermediate samples can include in-flight writes; not billed storage/egress."
+}

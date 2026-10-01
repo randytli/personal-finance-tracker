@@ -1,0 +1,39 @@
+{
+  "id": "dpl_6iLXs6XhNKYjy5L5zxsuHQ7ZEVJY",
+  "url": "pft-m5-web-probe-20261001-lmppay15y-pft2.vercel.app",
+  "name": "pft-m5-web-probe-20261001",
+  "target": null,
+  "readyState": "READY",
+  "projectId": "prj_fpqcRuzagxcs7WmNTZsS37tS3ECF",
+  "regions": [
+    "iad1"
+  ],
+  "functions": null,
+  "buildStats": null,
+  "createdAt": 1790882765786,
+  "buildingAt": 1790882768241,
+  "ready": 1790882789098,
+  "errorCode": null,
+  "errorMessage": null,
+  "config": {
+    "version": 1,
+    "secureComputePrimaryRegion": null,
+    "secureComputeFallbackRegion": null,
+    "functionTimeout": 300,
+    "functionType": "fluid",
+    "functionMemoryType": "standard",
+    "isUsingActiveCPU": true,
+    "resourceConfig": {
+      "buildMachine": {
+        "defaultPurchaseType": "basic",
+        "purchaseType": "basic",
+        "machineSelectionType": "fixed",
+        "selectionSource": "plan-default"
+      },
+      "buildQueue": {
+        "configuration": "SKIP_NAMESPACE_QUEUE"
+      }
+    }
+  },
+  "plan": "hobby"
+}

@@ -1,0 +1,20 @@
+[
+  {
+    "name": "pft-m5-reader-20261001",
+    "id": "prj_Mwj8yCakhXMDDNa8d3wVgdOYk64p",
+    "role": "reader",
+    "framework": "fastapi"
+  },
+  {
+    "name": "pft-m5-jobs-20261001",
+    "id": "prj_T8mZTCne3EfvSAS1y7DvmNcJ17Kb",
+    "role": "jobs",
+    "framework": "fastapi"
+  },
+  {
+    "name": "pft-m5-web-probe-20261001",
+    "id": "prj_fpqcRuzagxcs7WmNTZsS37tS3ECF",
+    "role": "web-probe",
+    "framework": "nextjs"
+  }
+]

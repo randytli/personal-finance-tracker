@@ -1,0 +1,3724 @@
+[
+  {
+    "timestamp_utc": "2026-10-01T20:02:40.371625+00:00",
+    "deployment_id": "dpl_8rCoZKyQ7S9vJgk2sL2FBotTbyXB",
+    "scale": 2610,
+    "action": "noop",
+    "http_status": 200,
+    "client_wall_s": 29.28462952299742,
+    "http_request_body_bytes": 30,
+    "http_request_header_value_bytes": 202,
+    "http_response_body_bytes": 3997,
+    "http_response_header_bytes": 318,
+    "result": {
+      "kind": "real_cloud_shared_sync_benchmark",
+      "scale": 2610,
+      "action": "noop",
+      "instance_id": "40ac5c8528494bf88c90d47898c2f198",
+      "first_benchmark_in_process": true,
+      "process_benchmark_ordinal": 1,
+      "status": "success",
+      "published": true,
+      "shared_sync_result": {
+        "status": "success",
+        "run_id": "17f05f3c-1d33-41ea-88ca-5a57a87b8338",
+        "published": true,
+        "classification_duration_ms": 12772,
+        "items": {
+          "item-0": {
+            "status": "success",
+            "error_category": null
+          },
+          "item-1": {
+            "status": "success",
+            "error_category": null
+          },
+          "item-2": {
+            "status": "success",
+            "error_category": null
+          },
+          "item-3": {
+            "status": "success",
+            "error_category": null
+          },
+          "item-4": {
+            "status": "success",
+            "error_category": null
+          }
+        }
+      },
+      "handler_wall_s": 28.729750266999986,
+      "shared_sync_wall_s": 27.615037588000007,
+      "process_cpu_s": 8.450878465,
+      "import_s": 0.8490442900000232,
+      "initial_rss_high_water_mib": 96.2421875,
+      "rss_high_water_mib": 108.3046875,
+      "connection_identity_guard_s": 0.153863006999984,
+      "connection_samples_s": [
+        0.1000809150000066,
+        0.10298646400002553,
+        0.06921632800001021
+      ],
+      "stage_s": {
+        "acquire_session_lock": 0.015523217999998451,
+        "_fetch_item": 0.0036843780000310744,
+        "normalize_item_transactions": 13.901853665999994,
+        "_publish_item": 14.18129615899997,
+        "_assert_lock_owner": 0.009689931999986356,
+        "classify_active_transactions": 12.771580940000007
+      },
+      "transaction_exits": [
+        {
+          "wall_s": 0.004317993999990222,
+          "nested": false,
+          "exception": false
+        },
+        {
+          "wall_s": 0.004725874000001795,
+          "nested": false,
+          "exception": false
+        },
+        {
+          "wall_s": 0.00856954500000029,
+          "nested": true,
+          "exception": false
+        },
+        {
+          "wall_s": 0.0081141810000247,
+          "nested": true,
+          "exception": false
+        },
+        {
+          "wall_s": 0.007825571999973135,
+          "nested": true,
+          "exception": false
+        },
+        {
+          "wall_s": 0.007923501000021815,
+          "nested": true,
+          "exception": false
+        },
+        {
+          "wall_s": 0.008156981000013275,
+          "nested": true,
+          "exception": false
+        },
+        {
+          "wall_s": 0.015054794999997512,
+          "nested": false,
+          "exception": false
+        }
+      ],
+      "last_outer_transaction_exit_s": 0.015054794999997512,
+      "cleanup_s": 0.008509408000008989,
+      "sql_attempts": 5361,
+      "sql_observed": {
+        "n": 5361,
+        "min_s": 0.003133950000005825,
+        "median_s": 0.004003217000018822,
+        "mean_s": 0.004086325926879082,
+        "max_s": 0.038630689999990864,
+        "observed_query_p90_s": 0.00425659999999084,
+        "observed_query_p95_s": 0.004382335000002513
+      },
+      "sql_by_phase": {
+        "sync": {
+          "n": 49,
+          "min_s": 0.003959272000003011,
+          "median_s": 0.006920261000004757,
+          "mean_s": 0.006877741204081122,
+          "max_s": 0.0170564790000185,
+          "observed_query_p90_s": 0.01040760700001897,
+          "observed_query_p95_s": 0.011738363999995727
+        },
+        "acquire_session_lock": {
+          "n": 2,
+          "min_s": 0.0056948109999837015,
+          "median_s": 0.0058868909999887364,
+          "mean_s": 0.0058868909999887364,
+          "max_s": 0.006078970999993771,
+          "observed_query_p90_s": 0.006078970999993771,
+          "observed_query_p95_s": 0.006078970999993771
+        },
+        "_publish_item": {
+          "n": 50,
+          "min_s": 0.0037622030000079576,
+          "median_s": 0.00406355049999263,
+          "mean_s": 0.0047950885200015135,
+          "max_s": 0.00847406799999817,
+          "observed_query_p90_s": 0.007867779000008568,
+          "observed_query_p95_s": 0.008160573999987264
+        },
+        "normalize_item_transactions": {
+          "n": 2640,
+          "min_s": 0.0036058670000045367,
+          "median_s": 0.003971301999996513,
+          "mean_s": 0.004019588726136256,
+          "max_s": 0.018486555999999155,
+          "observed_query_p90_s": 0.004206553999978269,
+          "observed_query_p95_s": 0.004314085999993722
+        },
+        "_assert_lock_owner": {
+          "n": 2,
+          "min_s": 0.003133950000005825,
+          "median_s": 0.004579028000009089,
+          "mean_s": 0.004579028000009089,
+          "max_s": 0.0060241060000123525,
+          "observed_query_p90_s": 0.0060241060000123525,
+          "observed_query_p95_s": 0.0060241060000123525
+        },
+        "classify_active_transactions": {
+          "n": 2618,
+          "min_s": 0.0036395710000078907,
+          "median_s": 0.004032481999999504,
+          "mean_s": 0.004086089944231855,
+          "max_s": 0.038630689999990864,
+          "observed_query_p90_s": 0.004271350000010443,
+          "observed_query_p95_s": 0.0043813590000070235
+        }
+      },
+      "sql_total_s": 21.90679329399876,
+      "engine_checkout_peak": 3,
+      "engine_checked_out_after": 0,
+      "observer_checkout_bound": 1,
+      "observed_peaks": {
+        "samples": 55,
+        "database_backends": 10,
+        "jobs_backends": 4,
+        "active_jobs_backends": 2,
+        "rss_sampled_peak_mib": 108.3046875
+      },
+      "sdk_calls": 5,
+      "synthetic_sdk_request_bytes": 330,
+      "synthetic_sdk_response_bytes": 785,
+      "http_request_body_bytes": 30,
+      "application_deadline_s": 210,
+      "cancellation": null,
+      "locks_released": true
+    }
+  },
+  {
+    "timestamp_utc": "2026-10-01T20:04:48.586057+00:00",
+    "deployment_id": "dpl_8rCoZKyQ7S9vJgk2sL2FBotTbyXB",
+    "scale": 2610,
+    "action": "noop",
+    "http_status": 200,
+    "client_wall_s": 25.3354294320161,
+    "http_request_body_bytes": 30,
+    "http_request_header_value_bytes": 202,
+    "http_response_body_bytes": 4019,
+    "http_response_header_bytes": 318,
+    "result": {
+      "kind": "real_cloud_shared_sync_benchmark",
+      "scale": 2610,
+      "action": "noop",
+      "instance_id": "40ac5c8528494bf88c90d47898c2f198",
+      "first_benchmark_in_process": false,
+      "process_benchmark_ordinal": 2,
+      "status": "success",
+      "published": true,
+      "shared_sync_result": {
+        "status": "success",
+        "run_id": "7d6fc0eb-150b-4d7a-808a-0037abe3d8fb",
+        "published": true,
+        "classification_duration_ms": 11710,
+        "items": {
+          "item-0": {
+            "status": "success",
+            "error_category": null
+          },
+          "item-1": {
+            "status": "success",
+            "error_category": null
+          },
+          "item-2": {
+            "status": "success",
+            "error_category": null
+          },
+          "item-3": {
+            "status": "success",
+            "error_category": null
+          },
+          "item-4": {
+            "status": "success",
+            "error_category": null
+          }
+        }
+      },
+      "handler_wall_s": 24.994546632000038,
+      "shared_sync_wall_s": 24.751132882000036,
+      "process_cpu_s": 7.259596741999999,
+      "import_s": 5.661999978201493e-06,
+      "initial_rss_high_water_mib": 109.0703125,
+      "rss_high_water_mib": 112.98828125,
+      "connection_identity_guard_s": 0.1507071050000377,
+      "connection_samples_s": [
+        0.09440493700003572,
+        0.06872693200000413,
+        0.07441944300001069
+      ],
+      "stage_s": {
+        "acquire_session_lock": 0.011304017999975713,
+        "_fetch_item": 0.0014149009999755435,
+        "normalize_item_transactions": 12.257202479,
+        "_publish_item": 12.49955434900005,
+        "_assert_lock_owner": 0.00689350900000818,
+        "classify_active_transactions": 11.710033014000032
+      },
+      "transaction_exits": [
+        {
+          "wall_s": 0.0036948919999986174,
+          "nested": false,
+          "exception": false
+        },
+        {
+          "wall_s": 0.0038886769999635362,
+          "nested": false,
+          "exception": false
+        },
+        {
+          "wall_s": 0.006723062000048685,
+          "nested": true,
+          "exception": false
+        },
+        {
+          "wall_s": 0.007675793000032627,
+          "nested": true,
+          "exception": false
+        },
+        {
+          "wall_s": 0.006827770999962013,
+          "nested": true,
+          "exception": false
+        },
+        {
+          "wall_s": 0.0067558169999983875,
+          "nested": true,
+          "exception": false
+        },
+        {
+          "wall_s": 0.0067528860000152235,
+          "nested": true,
+          "exception": false
+        },
+        {
+          "wall_s": 0.012370830999998361,
+          "nested": false,
+          "exception": false
+        }
+      ],
+      "last_outer_transaction_exit_s": 0.012370830999998361,
+      "cleanup_s": 0.005751825000004374,
+      "sql_attempts": 5361,
+      "sql_observed": {
+        "n": 5361,
+        "min_s": 0.0022844999999733773,
+        "median_s": 0.0035085399999843503,
+        "mean_s": 0.0036233990615557824,
+        "max_s": 0.038919608000014705,
+        "observed_query_p90_s": 0.003794365999965521,
+        "observed_query_p95_s": 0.004041233999998894
+      },
+      "sql_by_phase": {
+        "sync": {
+          "n": 49,
+          "min_s": 0.003362753999965662,
+          "median_s": 0.005454434000000674,
+          "mean_s": 0.005897910816322704,
+          "max_s": 0.012959711000007701,
+          "observed_query_p90_s": 0.008635837000042557,
+          "observed_query_p95_s": 0.009847059999970043
+        },
+        "acquire_session_lock": {
+          "n": 2,
+          "min_s": 0.004138855000007879,
+          "median_s": 0.004273741500014694,
+          "mean_s": 0.004273741500014694,
+          "max_s": 0.004408628000021508,
+          "observed_query_p90_s": 0.004408628000021508,
+          "observed_query_p95_s": 0.004408628000021508
+        },
+        "_publish_item": {
+          "n": 50,
+          "min_s": 0.003183810999985326,
+          "median_s": 0.003512915000015937,
+          "mean_s": 0.004211086160001969,
+          "max_s": 0.007658387999981642,
+          "observed_query_p90_s": 0.006941538000035052,
+          "observed_query_p95_s": 0.007179438000036953
+        },
+        "normalize_item_transactions": {
+          "n": 2640,
+          "min_s": 0.0031651929999725326,
+          "median_s": 0.0034389599999826714,
+          "mean_s": 0.0035000262280304338,
+          "max_s": 0.016208210000002055,
+          "observed_query_p90_s": 0.0036607489999482823,
+          "observed_query_p95_s": 0.003752436000013404
+        },
+        "_assert_lock_owner": {
+          "n": 2,
+          "min_s": 0.0022844999999733773,
+          "median_s": 0.003216914499972745,
+          "mean_s": 0.003216914499972745,
+          "max_s": 0.004149328999972113,
+          "observed_query_p90_s": 0.004149328999972113,
+          "observed_query_p95_s": 0.004149328999972113
+        },
+        "classify_active_transactions": {
+          "n": 2618,
+          "min_s": 0.0032134059999862075,
+          "median_s": 0.0035766834999719777,
+          "mean_s": 0.0036938273021391594,
+          "max_s": 0.038919608000014705,
+          "observed_query_p90_s": 0.0038839090000237775,
+          "observed_query_p95_s": 0.004225179999991724
+        }
+      },
+      "sql_total_s": 19.42504236900055,
+      "engine_checkout_peak": 3,
+      "engine_checked_out_after": 0,
+      "observer_checkout_bound": 1,
+      "observed_peaks": {
+        "samples": 49,
+        "database_backends": 10,
+        "jobs_backends": 4,
+        "active_jobs_backends": 2,
+        "rss_sampled_peak_mib": 112.98046875
+      },
+      "sdk_calls": 5,
+      "synthetic_sdk_request_bytes": 330,
+      "synthetic_sdk_response_bytes": 785,
+      "http_request_body_bytes": 30,
+      "application_deadline_s": 210,
+      "cancellation": null,
+      "locks_released": true
+    }
+  },
+  {
+    "timestamp_utc": "2026-10-01T20:05:13.741445+00:00",
+    "deployment_id": "dpl_8rCoZKyQ7S9vJgk2sL2FBotTbyXB",
+    "scale": 2610,
+    "action": "noop",
+    "http_status": 200,
+    "client_wall_s": 19.01221790999989,
+    "http_request_body_bytes": 30,
+    "http_request_header_value_bytes": 202,
+    "http_response_body_bytes": 4007,
+    "http_response_header_bytes": 318,
+    "result": {
+      "kind": "real_cloud_shared_sync_benchmark",
+      "scale": 2610,
+      "action": "noop",
+      "instance_id": "40ac5c8528494bf88c90d47898c2f198",
+      "first_benchmark_in_process": false,
+      "process_benchmark_ordinal": 3,
+      "status": "success",
+      "published": true,
+      "shared_sync_result": {
+        "status": "success",
+        "run_id": "b4e4c8b3-246a-45e5-8d10-6abf31b98b20",
+        "published": true,
+        "classification_duration_ms": 8093,
+        "items": {
+          "item-0": {
+            "status": "success",
+            "error_category": null
+          },
+          "item-1": {
+            "status": "success",
+            "error_category": null
+          },
+          "item-2": {
+            "status": "success",
+            "error_category": null
+          },
+          "item-3": {
+            "status": "success",
+            "error_category": null
+          },
+          "item-4": {
+            "status": "success",
+            "error_category": null
+          }
+        }
+      },
+      "handler_wall_s": 18.566109186000006,
+      "shared_sync_wall_s": 18.34089445899997,
+      "process_cpu_s": 6.645449100999997,
+      "import_s": 5.74400002051334e-06,
+      "initial_rss_high_water_mib": 113.5,
+      "rss_high_water_mib": 115.73046875,
+      "connection_identity_guard_s": 0.12682326499998453,
+      "connection_samples_s": [
+        0.07335524299998042,
+        0.08368964999999662,
+        0.04228231799999094
+      ],
+      "stage_s": {
+        "acquire_session_lock": 0.020583326999997098,
+        "_fetch_item": 0.0014380110000615787,
+        "normalize_item_transactions": 9.613382220999995,
+        "_publish_item": 9.793098119999911,
+        "_assert_lock_owner": 0.01220228199997564,
+        "classify_active_transactions": 8.092555215999994
+      },
+      "transaction_exits": [
+        {
+          "wall_s": 0.0024117180000189364,
+          "nested": false,
+          "exception": false
+        },
+        {
+          "wall_s": 0.0032221549999462695,
+          "nested": false,
+          "exception": false
+        },
+        {
+          "wall_s": 0.0049489179999682165,
+          "nested": true,
+          "exception": false
+        },
+        {
+          "wall_s": 0.00529502599999887,
+          "nested": true,
+          "exception": false
+        },
+        {
+          "wall_s": 0.004945388000010098,
+          "nested": true,
+          "exception": false
+        },
+        {
+          "wall_s": 0.00493127499998991,
+          "nested": true,
+          "exception": false
+        },
+        {
+          "wall_s": 0.005049014000007901,
+          "nested": true,
+          "exception": false
+        },
+        {
+          "wall_s": 0.009072082999978193,
+          "nested": false,
+          "exception": false
+        }
+      ],
+      "last_outer_transaction_exit_s": 0.009072082999978193,
+      "cleanup_s": 0.006586846999994123,
+      "sql_attempts": 5361,
+      "sql_observed": {
+        "n": 5361,
+        "min_s": 0.002072629999986475,
+        "median_s": 0.002403055000002041,
+        "mean_s": 0.002503885322887428,
+        "max_s": 0.07487718799995946,
+        "observed_query_p90_s": 0.002616022999973211,
+        "observed_query_p95_s": 0.0027308670000252278
+      },
+      "sql_by_phase": {
+        "sync": {
+          "n": 49,
+          "min_s": 0.002339779000010367,
+          "median_s": 0.004623221000031208,
+          "mean_s": 0.004383561224489433,
+          "max_s": 0.01176060900002085,
+          "observed_query_p90_s": 0.007411630999968111,
+          "observed_query_p95_s": 0.007876352000039333
+        },
+        "acquire_session_lock": {
+          "n": 2,
+          "min_s": 0.0077336349999654885,
+          "median_s": 0.007827283999972678,
+          "mean_s": 0.007827283999972678,
+          "max_s": 0.007920932999979868,
+          "observed_query_p90_s": 0.007920932999979868,
+          "observed_query_p95_s": 0.007920932999979868
+        },
+        "_publish_item": {
+          "n": 50,
+          "min_s": 0.0021378829999889604,
+          "median_s": 0.002487309000002824,
+          "mean_s": 0.0029382610200025285,
+          "max_s": 0.005046692999997049,
+          "observed_query_p90_s": 0.004776842000012493,
+          "observed_query_p95_s": 0.0050002849999941645
+        },
+        "normalize_item_transactions": {
+          "n": 2640,
+          "min_s": 0.0020808890000125757,
+          "median_s": 0.0023898200000189718,
+          "mean_s": 0.0024693024253789383,
+          "max_s": 0.05282325600001059,
+          "observed_query_p90_s": 0.0026014029999714694,
+          "observed_query_p95_s": 0.002712549999955627
+        },
+        "_assert_lock_owner": {
+          "n": 2,
+          "min_s": 0.003947600000003604,
+          "median_s": 0.005868017500006317,
+          "mean_s": 0.005868017500006317,
+          "max_s": 0.007788435000009031,
+          "observed_query_p90_s": 0.007788435000009031,
+          "observed_query_p95_s": 0.007788435000009031
+        },
+        "classify_active_transactions": {
+          "n": 2618,
+          "min_s": 0.002072629999986475,
+          "median_s": 0.002414789000027895,
+          "mean_s": 0.0024886450187162103,
+          "max_s": 0.07487718799995946,
+          "observed_query_p90_s": 0.0026035570000431107,
+          "observed_query_p95_s": 0.00269061899996359
+        }
+      },
+      "sql_total_s": 13.423329215999502,
+      "engine_checkout_peak": 3,
+      "engine_checked_out_after": 0,
+      "observer_checkout_bound": 1,
+      "observed_peaks": {
+        "samples": 36,
+        "database_backends": 10,
+        "jobs_backends": 4,
+        "active_jobs_backends": 1,
+        "rss_sampled_peak_mib": 115.73046875
+      },
+      "sdk_calls": 5,
+      "synthetic_sdk_request_bytes": 330,
+      "synthetic_sdk_response_bytes": 785,
+      "http_request_body_bytes": 30,
+      "application_deadline_s": 210,
+      "cancellation": null,
+      "locks_released": true
+    }
+  },
+  {
+    "timestamp_utc": "2026-10-01T20:05:32.772130+00:00",
+    "deployment_id": "dpl_8rCoZKyQ7S9vJgk2sL2FBotTbyXB",
+    "scale": 2610,
+    "action": "noop",
+    "http_status": 200,
+    "client_wall_s": 23.240917902003275,
+    "http_request_body_bytes": 30,
+    "http_request_header_value_bytes": 202,
+    "http_response_body_bytes": 4011,
+    "http_response_header_bytes": 318,
+    "result": {
+      "kind": "real_cloud_shared_sync_benchmark",
+      "scale": 2610,
+      "action": "noop",
+      "instance_id": "40ac5c8528494bf88c90d47898c2f198",
+      "first_benchmark_in_process": false,
+      "process_benchmark_ordinal": 4,
+      "status": "success",
+      "published": true,
+      "shared_sync_result": {
+        "status": "success",
+        "run_id": "cecb2185-4845-4c1e-8074-cc3dd66fc925",
+        "published": true,
+        "classification_duration_ms": 10383,
+        "items": {
+          "item-0": {
+            "status": "success",
+            "error_category": null
+          },
+          "item-1": {
+            "status": "success",
+            "error_category": null
+          },
+          "item-2": {
+            "status": "success",
+            "error_category": null
+          },
+          "item-3": {
+            "status": "success",
+            "error_category": null
+          },
+          "item-4": {
+            "status": "success",
+            "error_category": null
+          }
+        }
+      },
+      "handler_wall_s": 22.847496347000003,
+      "shared_sync_wall_s": 22.641799434000006,
+      "process_cpu_s": 7.182614972,
+      "import_s": 5.169000019122905e-06,
+      "initial_rss_high_water_mib": 115.73046875,
+      "rss_high_water_mib": 116.109375,
+      "connection_identity_guard_s": 0.12335730500001318,
+      "connection_samples_s": [
+        0.07227550000004612,
+        0.0396858529999804,
+        0.046199624999985645
+      ],
+      "stage_s": {
+        "acquire_session_lock": 0.009939674000008836,
+        "_fetch_item": 0.0013464940000176284,
+        "normalize_item_transactions": 11.57370040000012,
+        "_publish_item": 11.792961936999973,
+        "_assert_lock_owner": 0.006065831000000799,
+        "classify_active_transactions": 10.383040040999958
+      },
+      "transaction_exits": [
+        {
+          "wall_s": 0.0031121449999886863,
+          "nested": false,
+          "exception": false
+        },
+        {
+          "wall_s": 0.004020713999977943,
+          "nested": false,
+          "exception": false
+        },
+        {
+          "wall_s": 0.006345827000018289,
+          "nested": true,
+          "exception": false
+        },
+        {
+          "wall_s": 0.006040396999992481,
+          "nested": true,
+          "exception": false
+        },
+        {
+          "wall_s": 0.006780039000034321,
+          "nested": true,
+          "exception": false
+        },
+        {
+          "wall_s": 0.006402287000014439,
+          "nested": true,
+          "exception": false
+        },
+        {
+          "wall_s": 0.0065593109999895205,
+          "nested": true,
+          "exception": false
+        },
+        {
+          "wall_s": 0.010855875999993714,
+          "nested": false,
+          "exception": false
+        }
+      ],
+      "last_outer_transaction_exit_s": 0.010855875999993714,
+      "cleanup_s": 0.007475105999958487,
+      "sql_attempts": 5361,
+      "sql_observed": {
+        "n": 5361,
+        "min_s": 0.0018912880000243604,
+        "median_s": 0.003141992999985632,
+        "mean_s": 0.0032442631122926694,
+        "max_s": 0.15320822000001044,
+        "observed_query_p90_s": 0.003347716999996919,
+        "observed_query_p95_s": 0.0034435000000030414
+      },
+      "sql_by_phase": {
+        "sync": {
+          "n": 49,
+          "min_s": 0.003073769000025095,
+          "median_s": 0.0053069229999778145,
+          "mean_s": 0.005687949428574614,
+          "max_s": 0.03348267799998439,
+          "observed_query_p90_s": 0.008314362000021447,
+          "observed_query_p95_s": 0.009439659999998185
+        },
+        "acquire_session_lock": {
+          "n": 2,
+          "min_s": 0.003633279999974093,
+          "median_s": 0.0037024444999929074,
+          "mean_s": 0.0037024444999929074,
+          "max_s": 0.003771609000011722,
+          "observed_query_p90_s": 0.003771609000011722,
+          "observed_query_p95_s": 0.003771609000011722
+        },
+        "_publish_item": {
+          "n": 50,
+          "min_s": 0.0028489579999586567,
+          "median_s": 0.003195946499999991,
+          "mean_s": 0.003764493959996571,
+          "max_s": 0.006761155999981838,
+          "observed_query_p90_s": 0.006160621999981686,
+          "observed_query_p95_s": 0.006563633999974172
+        },
+        "normalize_item_transactions": {
+          "n": 2640,
+          "min_s": 0.002800238000020272,
+          "median_s": 0.003140379999962306,
+          "mean_s": 0.0031769125060609475,
+          "max_s": 0.012382236999997076,
+          "observed_query_p90_s": 0.0033382350000010774,
+          "observed_query_p95_s": 0.003417090000027656
+        },
+        "_assert_lock_owner": {
+          "n": 2,
+          "min_s": 0.0018912880000243604,
+          "median_s": 0.0027876345000379388,
+          "mean_s": 0.0027876345000379388,
+          "max_s": 0.003683981000051517,
+          "observed_query_p90_s": 0.003683981000051517,
+          "observed_query_p95_s": 0.003683981000051517
+        },
+        "classify_active_transactions": {
+          "n": 2618,
+          "min_s": 0.00277432199999339,
+          "median_s": 0.003141391000013982,
+          "mean_s": 0.0032565054052712196,
+          "max_s": 0.15320822000001044,
+          "observed_query_p90_s": 0.003338176999989173,
+          "observed_query_p95_s": 0.003428024000015739
+        }
+      },
+      "sql_total_s": 17.392494545001,
+      "engine_checkout_peak": 3,
+      "engine_checked_out_after": 0,
+      "observer_checkout_bound": 1,
+      "observed_peaks": {
+        "samples": 44,
+        "database_backends": 11,
+        "jobs_backends": 4,
+        "active_jobs_backends": 1,
+        "rss_sampled_peak_mib": 116.109375
+      },
+      "sdk_calls": 5,
+      "synthetic_sdk_request_bytes": 330,
+      "synthetic_sdk_response_bytes": 785,
+      "http_request_body_bytes": 30,
+      "application_deadline_s": 210,
+      "cancellation": null,
+      "locks_released": true
+    }
+  },
+  {
+    "timestamp_utc": "2026-10-01T20:05:55.823688+00:00",
+    "deployment_id": "dpl_8rCoZKyQ7S9vJgk2sL2FBotTbyXB",
+    "scale": 2610,
+    "action": "noop",
+    "http_status": 200,
+    "client_wall_s": 28.16025986999739,
+    "http_request_body_bytes": 30,
+    "http_request_header_value_bytes": 202,
+    "http_response_body_bytes": 3996,
+    "http_response_header_bytes": 318,
+    "result": {
+      "kind": "real_cloud_shared_sync_benchmark",
+      "scale": 2610,
+      "action": "noop",
+      "instance_id": "40ac5c8528494bf88c90d47898c2f198",
+      "first_benchmark_in_process": false,
+      "process_benchmark_ordinal": 5,
+      "status": "success",
+      "published": true,
+      "shared_sync_result": {
+        "status": "success",
+        "run_id": "b0acb083-e950-429a-af2d-dd09115a1837",
+        "published": true,
+        "classification_duration_ms": 12590,
+        "items": {
+          "item-0": {
+            "status": "success",
+            "error_category": null
+          },
+          "item-1": {
+            "status": "success",
+            "error_category": null
+          },
+          "item-2": {
+            "status": "success",
+            "error_category": null
+          },
+          "item-3": {
+            "status": "success",
+            "error_category": null
+          },
+          "item-4": {
+            "status": "success",
+            "error_category": null
+          }
+        }
+      },
+      "handler_wall_s": 27.807090691999974,
+      "shared_sync_wall_s": 27.570834898000044,
+      "process_cpu_s": 7.563694405,
+      "import_s": 6.797000025926536e-06,
+      "initial_rss_high_water_mib": 116.109375,
+      "rss_high_water_mib": 116.44140625,
+      "connection_identity_guard_s": 0.13442647700003363,
+      "connection_samples_s": [
+        0.07706211900000426,
+        0.07375926200001004,
+        0.0498188160000268
+      ],
+      "stage_s": {
+        "acquire_session_lock": 0.015227143000004162,
+        "_fetch_item": 0.0014292599999521372,
+        "normalize_item_transactions": 14.136914344000047,
+        "_publish_item": 14.415488923999987,
+        "_assert_lock_owner": 0.009400926000012078,
+        "classify_active_transactions": 12.58991064700001
+      },
+      "transaction_exits": [
+        {
+          "wall_s": 0.004226741000024958,
+          "nested": false,
+          "exception": false
+        },
+        {
+          "wall_s": 0.00434106900002007,
+          "nested": false,
+          "exception": false
+        },
+        {
+          "wall_s": 0.008030247000021973,
+          "nested": true,
+          "exception": false
+        },
+        {
+          "wall_s": 0.008315958999958184,
+          "nested": true,
+          "exception": false
+        },
+        {
+          "wall_s": 0.008487924999997176,
+          "nested": true,
+          "exception": false
+        },
+        {
+          "wall_s": 0.008112489999973604,
+          "nested": true,
+          "exception": false
+        },
+        {
+          "wall_s": 0.008227217000012388,
+          "nested": true,
+          "exception": false
+        },
+        {
+          "wall_s": 0.013720863000003192,
+          "nested": false,
+          "exception": false
+        }
+      ],
+      "last_outer_transaction_exit_s": 0.013720863000003192,
+      "cleanup_s": 0.00783565599999747,
+      "sql_attempts": 5361,
+      "sql_observed": {
+        "n": 5361,
+        "min_s": 0.002962647999993351,
+        "median_s": 0.004030156999988321,
+        "mean_s": 0.00411265699048622,
+        "max_s": 0.041146533000016916,
+        "observed_query_p90_s": 0.00425052200000664,
+        "observed_query_p95_s": 0.004348391999997148
+      },
+      "sql_by_phase": {
+        "sync": {
+          "n": 49,
+          "min_s": 0.003854153999952814,
+          "median_s": 0.006280305999950997,
+          "mean_s": 0.006516602448974547,
+          "max_s": 0.011996635000002698,
+          "observed_query_p90_s": 0.008777677000011863,
+          "observed_query_p95_s": 0.011694272999989153
+        },
+        "acquire_session_lock": {
+          "n": 2,
+          "min_s": 0.005655004999994162,
+          "median_s": 0.005913122000009707,
+          "mean_s": 0.005913122000009707,
+          "max_s": 0.006171239000025253,
+          "observed_query_p90_s": 0.006171239000025253,
+          "observed_query_p95_s": 0.006171239000025253
+        },
+        "_publish_item": {
+          "n": 50,
+          "min_s": 0.0038855140000464417,
+          "median_s": 0.004131320500022184,
+          "mean_s": 0.004869160779994672,
+          "max_s": 0.008047189000023991,
+          "observed_query_p90_s": 0.007901440000011917,
+          "observed_query_p95_s": 0.007960359000037442
+        },
+        "normalize_item_transactions": {
+          "n": 2640,
+          "min_s": 0.003699331000007078,
+          "median_s": 0.004032249500028229,
+          "mean_s": 0.004087727390151421,
+          "max_s": 0.0295541739999976,
+          "observed_query_p90_s": 0.00424856400002227,
+          "observed_query_p95_s": 0.004333858999984841
+        },
+        "_assert_lock_owner": {
+          "n": 2,
+          "min_s": 0.002962647999993351,
+          "median_s": 0.004430533499999001,
+          "mean_s": 0.004430533499999001,
+          "max_s": 0.005898419000004651,
+          "observed_query_p90_s": 0.005898419000004651,
+          "observed_query_p95_s": 0.005898419000004651
+        },
+        "classify_active_transactions": {
+          "n": 2618,
+          "min_s": 0.0036740520000080323,
+          "median_s": 0.004022426999995332,
+          "mean_s": 0.00407673603743215,
+          "max_s": 0.041146533000016916,
+          "observed_query_p90_s": 0.004234256000017922,
+          "observed_query_p95_s": 0.0043073120000372
+        }
+      },
+      "sql_total_s": 22.047954125996625,
+      "engine_checkout_peak": 3,
+      "engine_checked_out_after": 0,
+      "observer_checkout_bound": 1,
+      "observed_peaks": {
+        "samples": 55,
+        "database_backends": 10,
+        "jobs_backends": 4,
+        "active_jobs_backends": 2,
+        "rss_sampled_peak_mib": 116.44140625
+      },
+      "sdk_calls": 5,
+      "synthetic_sdk_request_bytes": 330,
+      "synthetic_sdk_response_bytes": 785,
+      "http_request_body_bytes": 30,
+      "application_deadline_s": 210,
+      "cancellation": null,
+      "locks_released": true
+    }
+  },
+  {
+    "timestamp_utc": "2026-10-01T20:13:16.056912+00:00",
+    "deployment_id": "dpl_Ea8nMxHw3xcE5ZZ2fq9WdJDpHu9Q",
+    "scale": 35600,
+    "action": "noop",
+    "http_status": 200,
+    "client_wall_s": 215.42271297899424,
+    "http_request_body_bytes": 31,
+    "http_request_header_value_bytes": 202,
+    "http_response_body_bytes": 6277,
+    "http_response_header_bytes": 318,
+    "result": {
+      "kind": "real_cloud_shared_sync_benchmark",
+      "scale": 35600,
+      "action": "noop",
+      "instance_id": "97c0d5796ecc49c3a4d511176d984c27",
+      "first_benchmark_in_process": true,
+      "process_benchmark_ordinal": 1,
+      "status": "timeout",
+      "published": false,
+      "shared_sync_result": {
+        "error_type": "TimeoutError"
+      },
+      "handler_wall_s": 213.60858179099995,
+      "shared_sync_wall_s": 210.188847689,
+      "process_cpu_s": 63.29271285800001,
+      "import_s": 0.876733564999995,
+      "initial_rss_high_water_mib": 95.8359375,
+      "rss_high_water_mib": 126.63671875,
+      "connection_identity_guard_s": 0.18859461200003125,
+      "connection_samples_s": [
+        0.10286029799999596,
+        0.061802330000034544,
+        0.07332370799997534,
+        0.061425965000012184
+      ],
+      "stage_s": {
+        "acquire_session_lock": 0.015933085000028768,
+        "_fetch_item": 0.0033726449998994212,
+        "normalize_item_transactions": 209.24121624100002,
+        "_publish_item": 209.56205768200005,
+        "_assert_lock_owner": 0.007785863999970388,
+        "_finalize_failure": 0.11863790100005644
+      },
+      "transaction_exits": [
+        {
+          "wall_s": 0.004620006999971338,
+          "nested": false,
+          "exception": false
+        },
+        {
+          "wall_s": 0.005170345999999881,
+          "nested": false,
+          "exception": false
+        },
+        {
+          "wall_s": 0.010046811999984584,
+          "nested": true,
+          "exception": false
+        },
+        {
+          "wall_s": 0.009405386000025828,
+          "nested": true,
+          "exception": false
+        },
+        {
+          "wall_s": 0.009384462000014082,
+          "nested": true,
+          "exception": false
+        },
+        {
+          "wall_s": 0.009802889000070536,
+          "nested": true,
+          "exception": false
+        },
+        {
+          "wall_s": 0.0031746309999789446,
+          "nested": true,
+          "exception": true
+        },
+        {
+          "wall_s": 0.031180611999957364,
+          "nested": false,
+          "exception": true
+        },
+        {
+          "wall_s": 0.008913243999927545,
+          "nested": false,
+          "exception": false
+        }
+      ],
+      "last_outer_transaction_exit_s": 0.008913243999927545,
+      "cleanup_s": 0.00627922400008174,
+      "sql_attempts": 34449,
+      "sql_observed": {
+        "n": 34449,
+        "min_s": 0.000736399000061283,
+        "median_s": 0.004536419000032765,
+        "mean_s": 0.004728054985079265,
+        "max_s": 0.217870224999956,
+        "observed_query_p90_s": 0.004816720999997415,
+        "observed_query_p95_s": 0.004945732000010139
+      },
+      "sql_by_phase": {
+        "sync": {
+          "n": 29,
+          "min_s": 0.004475262000028124,
+          "median_s": 0.008779410000045118,
+          "mean_s": 0.008109656482760925,
+          "max_s": 0.019213899999954265,
+          "observed_query_p90_s": 0.01290818100000024,
+          "observed_query_p95_s": 0.013930352999977913
+        },
+        "acquire_session_lock": {
+          "n": 2,
+          "min_s": 0.005876331000024493,
+          "median_s": 0.006019836500001929,
+          "mean_s": 0.006019836500001929,
+          "max_s": 0.006163341999979366,
+          "observed_query_p90_s": 0.006163341999979366,
+          "observed_query_p95_s": 0.006163341999979366
+        },
+        "_publish_item": {
+          "n": 50,
+          "min_s": 0.004266995000023144,
+          "median_s": 0.004685342999977138,
+          "mean_s": 0.005551514819994736,
+          "max_s": 0.01034542299998975,
+          "observed_query_p90_s": 0.009147464999955446,
+          "observed_query_p95_s": 0.00947127099999534
+        },
+        "normalize_item_transactions": {
+          "n": 34358,
+          "min_s": 0.000736399000061283,
+          "median_s": 0.004536107999996375,
+          "mean_s": 0.004723915391553528,
+          "max_s": 0.217870224999956,
+          "observed_query_p90_s": 0.004815101000019695,
+          "observed_query_p95_s": 0.004941366000025482
+        },
+        "_assert_lock_owner": {
+          "n": 1,
+          "min_s": 0.0074788219999391,
+          "median_s": 0.0074788219999391,
+          "mean_s": 0.0074788219999391,
+          "max_s": 0.0074788219999391,
+          "observed_query_p90_s": 0.0074788219999391,
+          "observed_query_p95_s": 0.0074788219999391
+        },
+        "_finalize_failure": {
+          "n": 9,
+          "min_s": 0.0021479189999809023,
+          "median_s": 0.004530961000000389,
+          "mean_s": 0.004467431555528694,
+          "max_s": 0.010672560999978487,
+          "observed_query_p90_s": 0.010672560999978487,
+          "observed_query_p95_s": 0.010672560999978487
+        }
+      },
+      "sql_total_s": 162.87676618099562,
+      "engine_checkout_peak": 3,
+      "engine_checked_out_after": 0,
+      "observer_checkout_bound": 1,
+      "observed_peaks": {
+        "samples": 414,
+        "database_backends": 10,
+        "jobs_backends": 4,
+        "active_jobs_backends": 2,
+        "rss_sampled_peak_mib": 126.63671875
+      },
+      "sdk_calls": 5,
+      "synthetic_sdk_request_bytes": 330,
+      "synthetic_sdk_response_bytes": 785,
+      "http_request_body_bytes": 31,
+      "application_deadline_s": 210,
+      "cancellation": null,
+      "failed_noop_preservation": {
+        "state_unchanged": true,
+        "before": {
+          "legacy_consumer_rows": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "accounts": {
+            "rows": 13,
+            "full_row_hash": "4b029f71f90170cd754db3e34ceb1ada"
+          },
+          "statement_import_batches": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "statement_import_rows": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "raw_transactions": {
+            "rows": 35600,
+            "full_row_hash": "c52d702b57eede836cbd23855b81e19c"
+          },
+          "transactions": {
+            "rows": 35600,
+            "full_row_hash": "abb196115c19720a7b704b91f9fc42ca"
+          },
+          "manual_benefit_category_overrides": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "manual_category_overrides": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "manual_classification_overrides": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "manual_transaction_label_overrides": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "cursors_and_success": [
+            [
+              "item-0",
+              "synthetic-start",
+              null,
+              null
+            ],
+            [
+              "item-1",
+              "synthetic-start",
+              null,
+              null
+            ],
+            [
+              "item-2",
+              "synthetic-start",
+              null,
+              null
+            ],
+            [
+              "item-3",
+              "synthetic-start",
+              null,
+              null
+            ],
+            [
+              "item-4",
+              "synthetic-start",
+              null,
+              null
+            ]
+          ],
+          "publication_marker": []
+        },
+        "after": {
+          "legacy_consumer_rows": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "accounts": {
+            "rows": 13,
+            "full_row_hash": "4b029f71f90170cd754db3e34ceb1ada"
+          },
+          "statement_import_batches": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "statement_import_rows": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "raw_transactions": {
+            "rows": 35600,
+            "full_row_hash": "c52d702b57eede836cbd23855b81e19c"
+          },
+          "transactions": {
+            "rows": 35600,
+            "full_row_hash": "abb196115c19720a7b704b91f9fc42ca"
+          },
+          "manual_benefit_category_overrides": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "manual_category_overrides": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "manual_classification_overrides": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "manual_transaction_label_overrides": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "cursors_and_success": [
+            [
+              "item-0",
+              "synthetic-start",
+              null,
+              null
+            ],
+            [
+              "item-1",
+              "synthetic-start",
+              null,
+              null
+            ],
+            [
+              "item-2",
+              "synthetic-start",
+              null,
+              null
+            ],
+            [
+              "item-3",
+              "synthetic-start",
+              null,
+              null
+            ],
+            [
+              "item-4",
+              "synthetic-start",
+              null,
+              null
+            ]
+          ],
+          "publication_marker": []
+        },
+        "immediate_run": {
+          "run_id": "e98fb19a-3bec-43fc-b7bd-3be494e2c4ab",
+          "status": "failed",
+          "published_at": null,
+          "classification_status": "not_run",
+          "error_category": "publication_failed"
+        },
+        "after_next_owner_reconciliation": null,
+        "locks_released": true,
+        "sdk_thread_finished": true
+      },
+      "locks_released": true
+    }
+  },
+  {
+    "timestamp_utc": "2026-10-01T20:16:50.097242+00:00",
+    "deployment_id": "dpl_Ea8nMxHw3xcE5ZZ2fq9WdJDpHu9Q",
+    "scale": 35600,
+    "action": "noop",
+    "http_status": 200,
+    "client_wall_s": 213.78306533399154,
+    "http_request_body_bytes": 31,
+    "http_request_header_value_bytes": 202,
+    "http_response_body_bytes": 6605,
+    "http_response_header_bytes": 318,
+    "result": {
+      "kind": "real_cloud_shared_sync_benchmark",
+      "scale": 35600,
+      "action": "noop",
+      "instance_id": "97c0d5796ecc49c3a4d511176d984c27",
+      "first_benchmark_in_process": false,
+      "process_benchmark_ordinal": 2,
+      "status": "timeout",
+      "published": false,
+      "shared_sync_result": {
+        "error_type": "TimeoutError"
+      },
+      "handler_wall_s": 212.07201154099994,
+      "shared_sync_wall_s": 210.149941065,
+      "process_cpu_s": 69.67472938899999,
+      "import_s": 6.2559998923461535e-06,
+      "initial_rss_high_water_mib": 127.14453125,
+      "rss_high_water_mib": 196.421875,
+      "connection_identity_guard_s": 0.1768755229999215,
+      "connection_samples_s": [
+        0.09836978399994223,
+        0.04412660900004539,
+        0.0504257540000026,
+        0.06629365600008441
+      ],
+      "stage_s": {
+        "acquire_session_lock": 0.01490463200002523,
+        "_fetch_item": 0.0013733800000181873,
+        "normalize_item_transactions": 196.84473829299998,
+        "_publish_item": 197.11947916200018,
+        "_assert_lock_owner": 0.011983094000015626,
+        "classify_active_transactions": 12.499189548000004,
+        "_finalize_failure": 0.13283903499996086
+      },
+      "transaction_exits": [
+        {
+          "wall_s": 0.0041993859999820415,
+          "nested": false,
+          "exception": false
+        },
+        {
+          "wall_s": 0.004672336999988147,
+          "nested": false,
+          "exception": false
+        },
+        {
+          "wall_s": 0.008482840999931796,
+          "nested": true,
+          "exception": false
+        },
+        {
+          "wall_s": 0.00903135300006852,
+          "nested": true,
+          "exception": false
+        },
+        {
+          "wall_s": 0.007890982000049007,
+          "nested": true,
+          "exception": false
+        },
+        {
+          "wall_s": 0.008498283999983869,
+          "nested": true,
+          "exception": false
+        },
+        {
+          "wall_s": 0.008899839999912729,
+          "nested": true,
+          "exception": false
+        },
+        {
+          "wall_s": 0.00023591300009684346,
+          "nested": false,
+          "exception": true
+        },
+        {
+          "wall_s": 0.011333744000012302,
+          "nested": false,
+          "exception": false
+        }
+      ],
+      "last_outer_transaction_exit_s": 0.011333744000012302,
+      "cleanup_s": 0.006513806000043587,
+      "sql_attempts": 37832,
+      "sql_observed": {
+        "n": 37832,
+        "min_s": 0.0028990349999276077,
+        "median_s": 0.004008986500025458,
+        "mean_s": 0.004160374818434124,
+        "max_s": 0.40039716900002986,
+        "observed_query_p90_s": 0.0042594999999892025,
+        "observed_query_p95_s": 0.004369820999954754
+      },
+      "sql_by_phase": {
+        "sync": {
+          "n": 30,
+          "min_s": 0.0038105500000256143,
+          "median_s": 0.0077294929999993656,
+          "mean_s": 0.006911602333339791,
+          "max_s": 0.013511816999994153,
+          "observed_query_p90_s": 0.009544282000092608,
+          "observed_query_p95_s": 0.011621721999972578
+        },
+        "acquire_session_lock": {
+          "n": 2,
+          "min_s": 0.005636302999960208,
+          "median_s": 0.005738751499961836,
+          "mean_s": 0.005738751499961836,
+          "max_s": 0.0058411999999634645,
+          "observed_query_p90_s": 0.0058411999999634645,
+          "observed_query_p95_s": 0.0058411999999634645
+        },
+        "_publish_item": {
+          "n": 50,
+          "min_s": 0.0036786179999808155,
+          "median_s": 0.004023606500027199,
+          "mean_s": 0.004775287299999036,
+          "max_s": 0.008580912000070384,
+          "observed_query_p90_s": 0.007843678999961412,
+          "observed_query_p95_s": 0.007885905999955867
+        },
+        "normalize_item_transactions": {
+          "n": 35630,
+          "min_s": 0.003563913999983015,
+          "median_s": 0.00400388949998387,
+          "mean_s": 0.004142240190794298,
+          "max_s": 0.2168579450000152,
+          "observed_query_p90_s": 0.004250710999940566,
+          "observed_query_p95_s": 0.004359322000027532
+        },
+        "_assert_lock_owner": {
+          "n": 2,
+          "min_s": 0.003061617999946975,
+          "median_s": 0.005732750999925429,
+          "mean_s": 0.005732750999925429,
+          "max_s": 0.008403883999903883,
+          "observed_query_p90_s": 0.008403883999903883,
+          "observed_query_p95_s": 0.008403883999903883
+        },
+        "classify_active_transactions": {
+          "n": 2109,
+          "min_s": 0.0036788870000918905,
+          "median_s": 0.004095855000059601,
+          "mean_s": 0.004404919059743503,
+          "max_s": 0.40039716900002986,
+          "observed_query_p90_s": 0.004344414999991386,
+          "observed_query_p95_s": 0.004473232000009375
+        },
+        "_finalize_failure": {
+          "n": 9,
+          "min_s": 0.0028990349999276077,
+          "median_s": 0.0059767249999822525,
+          "mean_s": 0.005361377333328064,
+          "max_s": 0.010834797000029539,
+          "observed_query_p90_s": 0.010834797000029539,
+          "observed_query_p95_s": 0.010834797000029539
+        }
+      },
+      "sql_total_s": 157.39530013099977,
+      "engine_checkout_peak": 3,
+      "engine_checked_out_after": 0,
+      "observer_checkout_bound": 1,
+      "observed_peaks": {
+        "samples": 413,
+        "database_backends": 11,
+        "jobs_backends": 4,
+        "active_jobs_backends": 2,
+        "rss_sampled_peak_mib": 196.421875
+      },
+      "sdk_calls": 5,
+      "synthetic_sdk_request_bytes": 330,
+      "synthetic_sdk_response_bytes": 785,
+      "http_request_body_bytes": 31,
+      "application_deadline_s": 210,
+      "cancellation": null,
+      "failed_noop_preservation": {
+        "state_unchanged": true,
+        "before": {
+          "legacy_consumer_rows": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "accounts": {
+            "rows": 13,
+            "full_row_hash": "4b029f71f90170cd754db3e34ceb1ada"
+          },
+          "statement_import_batches": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "statement_import_rows": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "raw_transactions": {
+            "rows": 35600,
+            "full_row_hash": "c52d702b57eede836cbd23855b81e19c"
+          },
+          "transactions": {
+            "rows": 35600,
+            "full_row_hash": "abb196115c19720a7b704b91f9fc42ca"
+          },
+          "manual_benefit_category_overrides": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "manual_category_overrides": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "manual_classification_overrides": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "manual_transaction_label_overrides": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "cursors_and_success": [
+            [
+              "item-0",
+              "synthetic-start",
+              null,
+              null
+            ],
+            [
+              "item-1",
+              "synthetic-start",
+              null,
+              null
+            ],
+            [
+              "item-2",
+              "synthetic-start",
+              null,
+              null
+            ],
+            [
+              "item-3",
+              "synthetic-start",
+              null,
+              null
+            ],
+            [
+              "item-4",
+              "synthetic-start",
+              null,
+              null
+            ]
+          ],
+          "publication_marker": []
+        },
+        "after": {
+          "legacy_consumer_rows": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "accounts": {
+            "rows": 13,
+            "full_row_hash": "4b029f71f90170cd754db3e34ceb1ada"
+          },
+          "statement_import_batches": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "statement_import_rows": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "raw_transactions": {
+            "rows": 35600,
+            "full_row_hash": "c52d702b57eede836cbd23855b81e19c"
+          },
+          "transactions": {
+            "rows": 35600,
+            "full_row_hash": "abb196115c19720a7b704b91f9fc42ca"
+          },
+          "manual_benefit_category_overrides": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "manual_category_overrides": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "manual_classification_overrides": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "manual_transaction_label_overrides": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "cursors_and_success": [
+            [
+              "item-0",
+              "synthetic-start",
+              null,
+              null
+            ],
+            [
+              "item-1",
+              "synthetic-start",
+              null,
+              null
+            ],
+            [
+              "item-2",
+              "synthetic-start",
+              null,
+              null
+            ],
+            [
+              "item-3",
+              "synthetic-start",
+              null,
+              null
+            ],
+            [
+              "item-4",
+              "synthetic-start",
+              null,
+              null
+            ]
+          ],
+          "publication_marker": []
+        },
+        "immediate_run": {
+          "run_id": "0b95043e-0dc9-4bf4-a671-4e20c317d2bf",
+          "status": "failed",
+          "published_at": null,
+          "classification_status": "not_run",
+          "error_category": "publication_failed"
+        },
+        "after_next_owner_reconciliation": null,
+        "locks_released": true,
+        "sdk_thread_finished": true
+      },
+      "locks_released": true
+    }
+  },
+  {
+    "timestamp_utc": "2026-10-01T20:20:22.500820+00:00",
+    "deployment_id": "dpl_Ea8nMxHw3xcE5ZZ2fq9WdJDpHu9Q",
+    "scale": 35600,
+    "action": "noop",
+    "http_status": 200,
+    "client_wall_s": 213.9419280810107,
+    "http_request_body_bytes": 31,
+    "http_request_header_value_bytes": 202,
+    "http_response_body_bytes": 6596,
+    "http_response_header_bytes": 318,
+    "result": {
+      "kind": "real_cloud_shared_sync_benchmark",
+      "scale": 35600,
+      "action": "noop",
+      "instance_id": "97c0d5796ecc49c3a4d511176d984c27",
+      "first_benchmark_in_process": false,
+      "process_benchmark_ordinal": 3,
+      "status": "timeout",
+      "published": false,
+      "shared_sync_result": {
+        "error_type": "TimeoutError"
+      },
+      "handler_wall_s": 212.22278400999994,
+      "shared_sync_wall_s": 210.17107897699998,
+      "process_cpu_s": 78.06140324100002,
+      "import_s": 7.473999971807643e-06,
+      "initial_rss_high_water_mib": 196.421875,
+      "rss_high_water_mib": 198.01171875,
+      "connection_identity_guard_s": 0.15501386999994793,
+      "connection_samples_s": [
+        0.07333579499993448,
+        0.05403423899997506,
+        0.04331316200000401,
+        0.05988537799998994
+      ],
+      "stage_s": {
+        "acquire_session_lock": 0.020743635000030736,
+        "_fetch_item": 0.0012368420001394043,
+        "normalize_item_transactions": 163.18603273899998,
+        "_publish_item": 163.459721425,
+        "_assert_lock_owner": 0.08437604699986423,
+        "classify_active_transactions": 46.15064733500003,
+        "_finalize_failure": 0.11680146399999103
+      },
+      "transaction_exits": [
+        {
+          "wall_s": 0.002961224000046059,
+          "nested": false,
+          "exception": false
+        },
+        {
+          "wall_s": 0.004840693999994983,
+          "nested": false,
+          "exception": false
+        },
+        {
+          "wall_s": 0.006640052000079777,
+          "nested": true,
+          "exception": false
+        },
+        {
+          "wall_s": 0.0075324819999877946,
+          "nested": true,
+          "exception": false
+        },
+        {
+          "wall_s": 0.007462729000053514,
+          "nested": true,
+          "exception": false
+        },
+        {
+          "wall_s": 0.011630920000015976,
+          "nested": true,
+          "exception": false
+        },
+        {
+          "wall_s": 0.006341924999901494,
+          "nested": true,
+          "exception": false
+        },
+        {
+          "wall_s": 0.0002960859999348031,
+          "nested": false,
+          "exception": true
+        },
+        {
+          "wall_s": 0.009007508999957281,
+          "nested": false,
+          "exception": false
+        }
+      ],
+      "last_outer_transaction_exit_s": 0.009007508999957281,
+      "cleanup_s": 0.039390535000052296,
+      "sql_attempts": 47195,
+      "sql_observed": {
+        "n": 47195,
+        "min_s": 0.001778329999979178,
+        "median_s": 0.0030874729999368355,
+        "mean_s": 0.0032030631304161327,
+        "max_s": 0.5305026360000511,
+        "observed_query_p90_s": 0.003384192999988045,
+        "observed_query_p95_s": 0.003548321000039323
+      },
+      "sql_by_phase": {
+        "sync": {
+          "n": 30,
+          "min_s": 0.0027370529999188875,
+          "median_s": 0.005906677499979196,
+          "mean_s": 0.0061867335333355795,
+          "max_s": 0.021825506000027417,
+          "observed_query_p90_s": 0.010130702000083147,
+          "observed_query_p95_s": 0.012374664000049052
+        },
+        "acquire_session_lock": {
+          "n": 2,
+          "min_s": 0.00801294300003974,
+          "median_s": 0.00813366750003297,
+          "mean_s": 0.00813366750003297,
+          "max_s": 0.0082543920000262,
+          "observed_query_p90_s": 0.0082543920000262,
+          "observed_query_p95_s": 0.0082543920000262
+        },
+        "_publish_item": {
+          "n": 50,
+          "min_s": 0.0028178809999417354,
+          "median_s": 0.0032421055000213528,
+          "mean_s": 0.004743912039991756,
+          "max_s": 0.028814722999982223,
+          "observed_query_p90_s": 0.006573422999963441,
+          "observed_query_p95_s": 0.007013248000021122
+        },
+        "normalize_item_transactions": {
+          "n": 35630,
+          "min_s": 0.0026535289999856104,
+          "median_s": 0.003106214500007809,
+          "mean_s": 0.0032168620144817878,
+          "max_s": 0.21270637800000713,
+          "observed_query_p90_s": 0.003405983999982709,
+          "observed_query_p95_s": 0.0035747189999710827
+        },
+        "_assert_lock_owner": {
+          "n": 2,
+          "min_s": 0.006389638000086961,
+          "median_s": 0.04189518250001356,
+          "mean_s": 0.04189518250001356,
+          "max_s": 0.07740072699994016,
+          "observed_query_p90_s": 0.07740072699994016,
+          "observed_query_p95_s": 0.07740072699994016
+        },
+        "classify_active_transactions": {
+          "n": 11472,
+          "min_s": 0.001778329999979178,
+          "median_s": 0.003030365000029178,
+          "mean_s": 0.0031370345054047653,
+          "max_s": 0.5305026360000511,
+          "observed_query_p90_s": 0.0032969130000992664,
+          "observed_query_p95_s": 0.0034251470000299378
+        },
+        "_finalize_failure": {
+          "n": 9,
+          "min_s": 0.0022579769999993005,
+          "median_s": 0.004692950999924506,
+          "mean_s": 0.004539523333341499,
+          "max_s": 0.010338744000023325,
+          "observed_query_p90_s": 0.010338744000023325,
+          "observed_query_p95_s": 0.010338744000023325
+        }
+      },
+      "sql_total_s": 151.16856443998938,
+      "engine_checkout_peak": 3,
+      "engine_checked_out_after": 0,
+      "observer_checkout_bound": 1,
+      "observed_peaks": {
+        "samples": 413,
+        "database_backends": 11,
+        "jobs_backends": 4,
+        "active_jobs_backends": 2,
+        "rss_sampled_peak_mib": 197.81640625
+      },
+      "sdk_calls": 5,
+      "synthetic_sdk_request_bytes": 330,
+      "synthetic_sdk_response_bytes": 785,
+      "http_request_body_bytes": 31,
+      "application_deadline_s": 210,
+      "cancellation": null,
+      "failed_noop_preservation": {
+        "state_unchanged": true,
+        "before": {
+          "legacy_consumer_rows": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "accounts": {
+            "rows": 13,
+            "full_row_hash": "4b029f71f90170cd754db3e34ceb1ada"
+          },
+          "statement_import_batches": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "statement_import_rows": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "raw_transactions": {
+            "rows": 35600,
+            "full_row_hash": "c52d702b57eede836cbd23855b81e19c"
+          },
+          "transactions": {
+            "rows": 35600,
+            "full_row_hash": "abb196115c19720a7b704b91f9fc42ca"
+          },
+          "manual_benefit_category_overrides": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "manual_category_overrides": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "manual_classification_overrides": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "manual_transaction_label_overrides": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "cursors_and_success": [
+            [
+              "item-0",
+              "synthetic-start",
+              null,
+              null
+            ],
+            [
+              "item-1",
+              "synthetic-start",
+              null,
+              null
+            ],
+            [
+              "item-2",
+              "synthetic-start",
+              null,
+              null
+            ],
+            [
+              "item-3",
+              "synthetic-start",
+              null,
+              null
+            ],
+            [
+              "item-4",
+              "synthetic-start",
+              null,
+              null
+            ]
+          ],
+          "publication_marker": []
+        },
+        "after": {
+          "legacy_consumer_rows": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "accounts": {
+            "rows": 13,
+            "full_row_hash": "4b029f71f90170cd754db3e34ceb1ada"
+          },
+          "statement_import_batches": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "statement_import_rows": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "raw_transactions": {
+            "rows": 35600,
+            "full_row_hash": "c52d702b57eede836cbd23855b81e19c"
+          },
+          "transactions": {
+            "rows": 35600,
+            "full_row_hash": "abb196115c19720a7b704b91f9fc42ca"
+          },
+          "manual_benefit_category_overrides": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "manual_category_overrides": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "manual_classification_overrides": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "manual_transaction_label_overrides": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "cursors_and_success": [
+            [
+              "item-0",
+              "synthetic-start",
+              null,
+              null
+            ],
+            [
+              "item-1",
+              "synthetic-start",
+              null,
+              null
+            ],
+            [
+              "item-2",
+              "synthetic-start",
+              null,
+              null
+            ],
+            [
+              "item-3",
+              "synthetic-start",
+              null,
+              null
+            ],
+            [
+              "item-4",
+              "synthetic-start",
+              null,
+              null
+            ]
+          ],
+          "publication_marker": []
+        },
+        "immediate_run": {
+          "run_id": "13b570dd-cacf-423f-b43d-763810b0fa27",
+          "status": "failed",
+          "published_at": null,
+          "classification_status": "not_run",
+          "error_category": "publication_failed"
+        },
+        "after_next_owner_reconciliation": null,
+        "locks_released": true,
+        "sdk_thread_finished": true
+      },
+      "locks_released": true
+    }
+  },
+  {
+    "timestamp_utc": "2026-10-01T20:23:55.061063+00:00",
+    "deployment_id": "dpl_Ea8nMxHw3xcE5ZZ2fq9WdJDpHu9Q",
+    "scale": 35600,
+    "action": "noop",
+    "http_status": 200,
+    "client_wall_s": 214.42893812499824,
+    "http_request_body_bytes": 31,
+    "http_request_header_value_bytes": 202,
+    "http_response_body_bytes": 6596,
+    "http_response_header_bytes": 318,
+    "result": {
+      "kind": "real_cloud_shared_sync_benchmark",
+      "scale": 35600,
+      "action": "noop",
+      "instance_id": "97c0d5796ecc49c3a4d511176d984c27",
+      "first_benchmark_in_process": false,
+      "process_benchmark_ordinal": 4,
+      "status": "timeout",
+      "published": false,
+      "shared_sync_result": {
+        "error_type": "TimeoutError"
+      },
+      "handler_wall_s": 212.33040830100003,
+      "shared_sync_wall_s": 210.190683584,
+      "process_cpu_s": 79.61645929,
+      "import_s": 6.350000035126868e-06,
+      "initial_rss_high_water_mib": 198.01171875,
+      "rss_high_water_mib": 201.4375,
+      "connection_identity_guard_s": 0.18227179899997736,
+      "connection_samples_s": [
+        0.08701327599999331,
+        0.05262679999998454,
+        0.05176096000002417,
+        0.06947025099998427
+      ],
+      "stage_s": {
+        "acquire_session_lock": 0.0241449279999415,
+        "_fetch_item": 0.0011812019999979384,
+        "normalize_item_transactions": 164.55193790399971,
+        "_publish_item": 164.7828632420002,
+        "_assert_lock_owner": 0.014696178000122018,
+        "classify_active_transactions": 44.873318605999884,
+        "_finalize_failure": 0.15441509799984487
+      },
+      "transaction_exits": [
+        {
+          "wall_s": 0.003085858000076769,
+          "nested": false,
+          "exception": false
+        },
+        {
+          "wall_s": 0.00411761399993793,
+          "nested": false,
+          "exception": false
+        },
+        {
+          "wall_s": 0.006713327999932517,
+          "nested": true,
+          "exception": false
+        },
+        {
+          "wall_s": 0.0067258550000133255,
+          "nested": true,
+          "exception": false
+        },
+        {
+          "wall_s": 0.006612205000010363,
+          "nested": true,
+          "exception": false
+        },
+        {
+          "wall_s": 0.007311057000151777,
+          "nested": true,
+          "exception": false
+        },
+        {
+          "wall_s": 0.0064725020001787925,
+          "nested": true,
+          "exception": false
+        },
+        {
+          "wall_s": 0.0003024580000783317,
+          "nested": false,
+          "exception": true
+        },
+        {
+          "wall_s": 0.014935336000007737,
+          "nested": false,
+          "exception": false
+        }
+      ],
+      "last_outer_transaction_exit_s": 0.014935336000007737,
+      "cleanup_s": 0.008021798000072522,
+      "sql_attempts": 46646,
+      "sql_observed": {
+        "n": 46646,
+        "min_s": 0.001342889999932595,
+        "median_s": 0.003118434000043635,
+        "mean_s": 0.0032228891215542433,
+        "max_s": 0.39635660800013284,
+        "observed_query_p90_s": 0.0034060089999456977,
+        "observed_query_p95_s": 0.0035676960001183033
+      },
+      "sql_by_phase": {
+        "sync": {
+          "n": 30,
+          "min_s": 0.003033877999996548,
+          "median_s": 0.006079730500118785,
+          "mean_s": 0.005951964600012616,
+          "max_s": 0.017988796000054208,
+          "observed_query_p90_s": 0.008740507999846159,
+          "observed_query_p95_s": 0.010589718999995057
+        },
+        "acquire_session_lock": {
+          "n": 2,
+          "min_s": 0.009201069999903666,
+          "median_s": 0.009242395999933706,
+          "mean_s": 0.009242395999933706,
+          "max_s": 0.009283721999963745,
+          "observed_query_p90_s": 0.009283721999963745,
+          "observed_query_p95_s": 0.009283721999963745
+        },
+        "_publish_item": {
+          "n": 50,
+          "min_s": 0.0028624010001294664,
+          "median_s": 0.0032590879999361277,
+          "mean_s": 0.003890246579996983,
+          "max_s": 0.0069754959999954735,
+          "observed_query_p90_s": 0.006113900000059402,
+          "observed_query_p95_s": 0.006620408999992833
+        },
+        "normalize_item_transactions": {
+          "n": 35630,
+          "min_s": 0.0026649290000477777,
+          "median_s": 0.003135467999868524,
+          "mean_s": 0.0032345166039015136,
+          "max_s": 0.21135359400000198,
+          "observed_query_p90_s": 0.0034272549999059265,
+          "observed_query_p95_s": 0.003596990000005462
+        },
+        "_assert_lock_owner": {
+          "n": 2,
+          "min_s": 0.0044040519999271055,
+          "median_s": 0.0070473570000331165,
+          "mean_s": 0.0070473570000331165,
+          "max_s": 0.009690662000139127,
+          "observed_query_p90_s": 0.009690662000139127,
+          "observed_query_p95_s": 0.009690662000139127
+        },
+        "classify_active_transactions": {
+          "n": 10923,
+          "min_s": 0.001342889999932595,
+          "median_s": 0.0030629269999735698,
+          "mean_s": 0.003169149620526274,
+          "max_s": 0.39635660800013284,
+          "observed_query_p90_s": 0.00331337300008272,
+          "observed_query_p95_s": 0.0034291770000436372
+        },
+        "_finalize_failure": {
+          "n": 9,
+          "min_s": 0.004214258000047266,
+          "median_s": 0.008403291999911744,
+          "mean_s": 0.007420809888849867,
+          "max_s": 0.01463907300012579,
+          "observed_query_p90_s": 0.01463907300012579,
+          "observed_query_p95_s": 0.01463907300012579
+        }
+      },
+      "sql_total_s": 150.33488596401924,
+      "engine_checkout_peak": 3,
+      "engine_checked_out_after": 0,
+      "observer_checkout_bound": 1,
+      "observed_peaks": {
+        "samples": 412,
+        "database_backends": 10,
+        "jobs_backends": 4,
+        "active_jobs_backends": 2,
+        "rss_sampled_peak_mib": 201.4375
+      },
+      "sdk_calls": 5,
+      "synthetic_sdk_request_bytes": 330,
+      "synthetic_sdk_response_bytes": 785,
+      "http_request_body_bytes": 31,
+      "application_deadline_s": 210,
+      "cancellation": null,
+      "failed_noop_preservation": {
+        "state_unchanged": true,
+        "before": {
+          "legacy_consumer_rows": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "accounts": {
+            "rows": 13,
+            "full_row_hash": "4b029f71f90170cd754db3e34ceb1ada"
+          },
+          "statement_import_batches": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "statement_import_rows": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "raw_transactions": {
+            "rows": 35600,
+            "full_row_hash": "c52d702b57eede836cbd23855b81e19c"
+          },
+          "transactions": {
+            "rows": 35600,
+            "full_row_hash": "abb196115c19720a7b704b91f9fc42ca"
+          },
+          "manual_benefit_category_overrides": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "manual_category_overrides": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "manual_classification_overrides": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "manual_transaction_label_overrides": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "cursors_and_success": [
+            [
+              "item-0",
+              "synthetic-start",
+              null,
+              null
+            ],
+            [
+              "item-1",
+              "synthetic-start",
+              null,
+              null
+            ],
+            [
+              "item-2",
+              "synthetic-start",
+              null,
+              null
+            ],
+            [
+              "item-3",
+              "synthetic-start",
+              null,
+              null
+            ],
+            [
+              "item-4",
+              "synthetic-start",
+              null,
+              null
+            ]
+          ],
+          "publication_marker": []
+        },
+        "after": {
+          "legacy_consumer_rows": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "accounts": {
+            "rows": 13,
+            "full_row_hash": "4b029f71f90170cd754db3e34ceb1ada"
+          },
+          "statement_import_batches": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "statement_import_rows": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "raw_transactions": {
+            "rows": 35600,
+            "full_row_hash": "c52d702b57eede836cbd23855b81e19c"
+          },
+          "transactions": {
+            "rows": 35600,
+            "full_row_hash": "abb196115c19720a7b704b91f9fc42ca"
+          },
+          "manual_benefit_category_overrides": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "manual_category_overrides": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "manual_classification_overrides": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "manual_transaction_label_overrides": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "cursors_and_success": [
+            [
+              "item-0",
+              "synthetic-start",
+              null,
+              null
+            ],
+            [
+              "item-1",
+              "synthetic-start",
+              null,
+              null
+            ],
+            [
+              "item-2",
+              "synthetic-start",
+              null,
+              null
+            ],
+            [
+              "item-3",
+              "synthetic-start",
+              null,
+              null
+            ],
+            [
+              "item-4",
+              "synthetic-start",
+              null,
+              null
+            ]
+          ],
+          "publication_marker": []
+        },
+        "immediate_run": {
+          "run_id": "b8c0a507-c6f5-4c23-8fd0-18d679c17204",
+          "status": "failed",
+          "published_at": null,
+          "classification_status": "not_run",
+          "error_category": "publication_failed"
+        },
+        "after_next_owner_reconciliation": null,
+        "locks_released": true,
+        "sdk_thread_finished": true
+      },
+      "locks_released": true
+    }
+  },
+  {
+    "timestamp_utc": "2026-10-01T20:27:27.509455+00:00",
+    "deployment_id": "dpl_Ea8nMxHw3xcE5ZZ2fq9WdJDpHu9Q",
+    "scale": 35600,
+    "action": "noop",
+    "http_status": 200,
+    "client_wall_s": 213.75498787901597,
+    "http_request_body_bytes": 31,
+    "http_request_header_value_bytes": 202,
+    "http_response_body_bytes": 6593,
+    "http_response_header_bytes": 318,
+    "result": {
+      "kind": "real_cloud_shared_sync_benchmark",
+      "scale": 35600,
+      "action": "noop",
+      "instance_id": "97c0d5796ecc49c3a4d511176d984c27",
+      "first_benchmark_in_process": false,
+      "process_benchmark_ordinal": 5,
+      "status": "timeout",
+      "published": false,
+      "shared_sync_result": {
+        "error_type": "TimeoutError"
+      },
+      "handler_wall_s": 212.064285424,
+      "shared_sync_wall_s": 210.14923912200015,
+      "process_cpu_s": 74.95023019199999,
+      "import_s": 5.734999831474852e-06,
+      "initial_rss_high_water_mib": 201.4375,
+      "rss_high_water_mib": 203.0078125,
+      "connection_identity_guard_s": 0.13091833399994357,
+      "connection_samples_s": [
+        0.0704738859999452,
+        0.04116354300003877,
+        0.04450455000005604,
+        0.06186213299997689
+      ],
+      "stage_s": {
+        "acquire_session_lock": 0.011474038999949698,
+        "_fetch_item": 0.0022769760000755923,
+        "normalize_item_transactions": 169.7820382479997,
+        "_publish_item": 170.015661529,
+        "_assert_lock_owner": 0.011732205000043905,
+        "classify_active_transactions": 39.64705641400019,
+        "_finalize_failure": 0.12443435799991676
+      },
+      "transaction_exits": [
+        {
+          "wall_s": 0.0034697670000696235,
+          "nested": false,
+          "exception": false
+        },
+        {
+          "wall_s": 0.004553302000203985,
+          "nested": false,
+          "exception": false
+        },
+        {
+          "wall_s": 0.0070287459998326085,
+          "nested": true,
+          "exception": false
+        },
+        {
+          "wall_s": 0.007286677999900348,
+          "nested": true,
+          "exception": false
+        },
+        {
+          "wall_s": 0.007330065999894941,
+          "nested": true,
+          "exception": false
+        },
+        {
+          "wall_s": 0.007445489000019734,
+          "nested": true,
+          "exception": false
+        },
+        {
+          "wall_s": 0.0076071789999332395,
+          "nested": true,
+          "exception": false
+        },
+        {
+          "wall_s": 0.00035155799992026004,
+          "nested": false,
+          "exception": true
+        },
+        {
+          "wall_s": 0.009506073000011384,
+          "nested": false,
+          "exception": false
+        }
+      ],
+      "last_outer_transaction_exit_s": 0.009506073000011384,
+      "cleanup_s": 0.014162113999873327,
+      "sql_attempts": 44032,
+      "sql_observed": {
+        "n": 44032,
+        "min_s": 0.0025473010000496288,
+        "median_s": 0.0033064149998836,
+        "mean_s": 0.0034897732636719496,
+        "max_s": 0.3966535530000783,
+        "observed_query_p90_s": 0.0035797269999875425,
+        "observed_query_p95_s": 0.003707749000113836
+      },
+      "sql_by_phase": {
+        "sync": {
+          "n": 30,
+          "min_s": 0.003183656999908635,
+          "median_s": 0.006506939999894712,
+          "mean_s": 0.007177326733320418,
+          "max_s": 0.036417848999917624,
+          "observed_query_p90_s": 0.010221576000049026,
+          "observed_query_p95_s": 0.014380199000015637
+        },
+        "acquire_session_lock": {
+          "n": 2,
+          "min_s": 0.004221500000085143,
+          "median_s": 0.004236029000026065,
+          "mean_s": 0.004236029000026065,
+          "max_s": 0.004250557999966986,
+          "observed_query_p90_s": 0.004250557999966986,
+          "observed_query_p95_s": 0.004250557999966986
+        },
+        "_publish_item": {
+          "n": 50,
+          "min_s": 0.002960939999866241,
+          "median_s": 0.0033323075000453173,
+          "mean_s": 0.003997235439996984,
+          "max_s": 0.00787432499987517,
+          "observed_query_p90_s": 0.006649047000109931,
+          "observed_query_p95_s": 0.0069921619999604445
+        },
+        "normalize_item_transactions": {
+          "n": 35630,
+          "min_s": 0.0028932840000379656,
+          "median_s": 0.0032817155000657294,
+          "mean_s": 0.0034310647944990795,
+          "max_s": 0.2144278820001091,
+          "observed_query_p90_s": 0.0035299480000503536,
+          "observed_query_p95_s": 0.0036429020001378376
+        },
+        "_assert_lock_owner": {
+          "n": 2,
+          "min_s": 0.002552479999849311,
+          "median_s": 0.005561963499872036,
+          "mean_s": 0.005561963499872036,
+          "max_s": 0.00857144699989476,
+          "observed_query_p90_s": 0.00857144699989476,
+          "observed_query_p95_s": 0.00857144699989476
+        },
+        "classify_active_transactions": {
+          "n": 8309,
+          "min_s": 0.0029407950000859273,
+          "median_s": 0.0034216090000427357,
+          "mean_s": 0.003722860049946035,
+          "max_s": 0.3966535530000783,
+          "observed_query_p90_s": 0.0037243229999148753,
+          "observed_query_p95_s": 0.003914117000022088
+        },
+        "_finalize_failure": {
+          "n": 9,
+          "min_s": 0.0025473010000496288,
+          "median_s": 0.00477362800006631,
+          "mean_s": 0.004981778222246349,
+          "max_s": 0.010530933000154619,
+          "observed_query_p90_s": 0.010530933000154619,
+          "observed_query_p95_s": 0.010530933000154619
+        }
+      },
+      "sql_total_s": 153.66169634600328,
+      "engine_checkout_peak": 3,
+      "engine_checked_out_after": 0,
+      "observer_checkout_bound": 1,
+      "observed_peaks": {
+        "samples": 407,
+        "database_backends": 11,
+        "jobs_backends": 4,
+        "active_jobs_backends": 2,
+        "rss_sampled_peak_mib": 167.03125
+      },
+      "sdk_calls": 5,
+      "synthetic_sdk_request_bytes": 330,
+      "synthetic_sdk_response_bytes": 785,
+      "http_request_body_bytes": 31,
+      "application_deadline_s": 210,
+      "cancellation": null,
+      "failed_noop_preservation": {
+        "state_unchanged": true,
+        "before": {
+          "legacy_consumer_rows": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "accounts": {
+            "rows": 13,
+            "full_row_hash": "4b029f71f90170cd754db3e34ceb1ada"
+          },
+          "statement_import_batches": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "statement_import_rows": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "raw_transactions": {
+            "rows": 35600,
+            "full_row_hash": "c52d702b57eede836cbd23855b81e19c"
+          },
+          "transactions": {
+            "rows": 35600,
+            "full_row_hash": "abb196115c19720a7b704b91f9fc42ca"
+          },
+          "manual_benefit_category_overrides": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "manual_category_overrides": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "manual_classification_overrides": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "manual_transaction_label_overrides": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "cursors_and_success": [
+            [
+              "item-0",
+              "synthetic-start",
+              null,
+              null
+            ],
+            [
+              "item-1",
+              "synthetic-start",
+              null,
+              null
+            ],
+            [
+              "item-2",
+              "synthetic-start",
+              null,
+              null
+            ],
+            [
+              "item-3",
+              "synthetic-start",
+              null,
+              null
+            ],
+            [
+              "item-4",
+              "synthetic-start",
+              null,
+              null
+            ]
+          ],
+          "publication_marker": []
+        },
+        "after": {
+          "legacy_consumer_rows": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "accounts": {
+            "rows": 13,
+            "full_row_hash": "4b029f71f90170cd754db3e34ceb1ada"
+          },
+          "statement_import_batches": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "statement_import_rows": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "raw_transactions": {
+            "rows": 35600,
+            "full_row_hash": "c52d702b57eede836cbd23855b81e19c"
+          },
+          "transactions": {
+            "rows": 35600,
+            "full_row_hash": "abb196115c19720a7b704b91f9fc42ca"
+          },
+          "manual_benefit_category_overrides": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "manual_category_overrides": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "manual_classification_overrides": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "manual_transaction_label_overrides": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "cursors_and_success": [
+            [
+              "item-0",
+              "synthetic-start",
+              null,
+              null
+            ],
+            [
+              "item-1",
+              "synthetic-start",
+              null,
+              null
+            ],
+            [
+              "item-2",
+              "synthetic-start",
+              null,
+              null
+            ],
+            [
+              "item-3",
+              "synthetic-start",
+              null,
+              null
+            ],
+            [
+              "item-4",
+              "synthetic-start",
+              null,
+              null
+            ]
+          ],
+          "publication_marker": []
+        },
+        "immediate_run": {
+          "run_id": "0b92cf29-24d0-41dc-9dd7-3223f7358000",
+          "status": "failed",
+          "published_at": null,
+          "classification_status": "not_run",
+          "error_category": "publication_failed"
+        },
+        "after_next_owner_reconciliation": null,
+        "locks_released": true,
+        "sdk_thread_finished": true
+      },
+      "locks_released": true
+    }
+  },
+  {
+    "timestamp_utc": "2026-10-01T20:32:31.558682+00:00",
+    "deployment_id": "dpl_Ea8nMxHw3xcE5ZZ2fq9WdJDpHu9Q",
+    "scale": 2610,
+    "action": "timeout_publication",
+    "http_status": 200,
+    "client_wall_s": 21.372642778995214,
+    "http_request_body_bytes": 45,
+    "http_request_header_value_bytes": 202,
+    "http_response_body_bytes": 7073,
+    "http_response_header_bytes": 318,
+    "result": {
+      "kind": "real_cloud_shared_sync_benchmark",
+      "scale": 2610,
+      "action": "timeout_publication",
+      "instance_id": "97c0d5796ecc49c3a4d511176d984c27",
+      "first_benchmark_in_process": false,
+      "process_benchmark_ordinal": 6,
+      "status": "timeout",
+      "published": false,
+      "shared_sync_result": {
+        "error_type": "TimeoutError"
+      },
+      "handler_wall_s": 20.917086715999858,
+      "shared_sync_wall_s": 20.092717193999988,
+      "process_cpu_s": 1.2858333949999974,
+      "import_s": 5.767000175183057e-06,
+      "initial_rss_high_water_mib": 203.0078125,
+      "rss_high_water_mib": 203.0078125,
+      "connection_identity_guard_s": 0.20970322199991642,
+      "connection_samples_s": [
+        0.11071833600021819,
+        0.07029067300004499,
+        0.06121048399995743
+      ],
+      "stage_s": {
+        "acquire_session_lock": 0.021091679999926782,
+        "_fetch_item": 0.0012540689997422305,
+        "normalize_item_transactions": 2.070027366999966,
+        "_publish_item": 19.704183850999925,
+        "_assert_lock_owner": 0.008699085999978706,
+        "_finalize_failure": 0.06056809200003954
+      },
+      "transaction_exits": [
+        {
+          "wall_s": 0.0024615940001240233,
+          "nested": false,
+          "exception": false
+        },
+        {
+          "wall_s": 0.004234966000012719,
+          "nested": false,
+          "exception": false
+        },
+        {
+          "wall_s": 0.006316921000006914,
+          "nested": true,
+          "exception": true
+        },
+        {
+          "wall_s": 0.0025375179998263775,
+          "nested": false,
+          "exception": true
+        },
+        {
+          "wall_s": 0.009348009999939677,
+          "nested": false,
+          "exception": false
+        }
+      ],
+      "last_outer_transaction_exit_s": 0.009348009999939677,
+      "cleanup_s": 0.007213173000081952,
+      "sql_attempts": 580,
+      "sql_observed": {
+        "n": 580,
+        "min_s": 0.0022005109999554406,
+        "median_s": 0.0025648315000807997,
+        "mean_s": 0.0028526176982699453,
+        "max_s": 0.015885113999956957,
+        "observed_query_p90_s": 0.0029186420001678925,
+        "observed_query_p95_s": 0.005073991000017486
+      },
+      "sql_by_phase": {
+        "sync": {
+          "n": 26,
+          "min_s": 0.0024651700000504206,
+          "median_s": 0.0050617950000741985,
+          "mean_s": 0.005008108076935969,
+          "max_s": 0.012264635000065027,
+          "observed_query_p90_s": 0.008017697000013868,
+          "observed_query_p95_s": 0.012225626999907035
+        },
+        "acquire_session_lock": {
+          "n": 2,
+          "min_s": 0.00815754899986132,
+          "median_s": 0.008207702499930747,
+          "mean_s": 0.008207702499930747,
+          "max_s": 0.008257856000000174,
+          "observed_query_p90_s": 0.008257856000000174,
+          "observed_query_p95_s": 0.008257856000000174
+        },
+        "_publish_item": {
+          "n": 13,
+          "min_s": 0.00241023600005974,
+          "median_s": 0.005457610000121349,
+          "mean_s": 0.005108983769245102,
+          "max_s": 0.00852565000013783,
+          "observed_query_p90_s": 0.007651186999964921,
+          "observed_query_p95_s": 0.00852565000013783
+        },
+        "normalize_item_transactions": {
+          "n": 529,
+          "min_s": 0.0022005109999554406,
+          "median_s": 0.002551692000224648,
+          "mean_s": 0.0026386643780644146,
+          "max_s": 0.015885113999956957,
+          "observed_query_p90_s": 0.002812508000033631,
+          "observed_query_p95_s": 0.0029473259999122092
+        },
+        "_assert_lock_owner": {
+          "n": 1,
+          "min_s": 0.008405406999827392,
+          "median_s": 0.008405406999827392,
+          "mean_s": 0.008405406999827392,
+          "max_s": 0.008405406999827392,
+          "observed_query_p90_s": 0.008405406999827392,
+          "observed_query_p95_s": 0.008405406999827392
+        },
+        "_finalize_failure": {
+          "n": 9,
+          "min_s": 0.0023642379999273544,
+          "median_s": 0.004667587000085405,
+          "mean_s": 0.004135155333364714,
+          "max_s": 0.007153297000058956,
+          "observed_query_p90_s": 0.007153297000058956,
+          "observed_query_p95_s": 0.007153297000058956
+        }
+      },
+      "sql_total_s": 1.6545182649965682,
+      "engine_checkout_peak": 3,
+      "engine_checked_out_after": 0,
+      "observer_checkout_bound": 1,
+      "observed_peaks": {
+        "samples": 40,
+        "database_backends": 15,
+        "jobs_backends": 8,
+        "active_jobs_backends": 1,
+        "rss_sampled_peak_mib": 167.0390625
+      },
+      "sdk_calls": 5,
+      "synthetic_sdk_request_bytes": 330,
+      "synthetic_sdk_response_bytes": 1178,
+      "http_request_body_bytes": 45,
+      "application_deadline_s": 20,
+      "cancellation": {
+        "state_unchanged": true,
+        "before": {
+          "legacy_consumer_rows": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "accounts": {
+            "rows": 13,
+            "full_row_hash": "4b029f71f90170cd754db3e34ceb1ada"
+          },
+          "statement_import_batches": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "statement_import_rows": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "raw_transactions": {
+            "rows": 2610,
+            "full_row_hash": "eef150112572e33db0ff717ed9b47ef1"
+          },
+          "transactions": {
+            "rows": 2610,
+            "full_row_hash": "69c300c5e60bdf0ea9778a22ed55df96"
+          },
+          "manual_benefit_category_overrides": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "manual_category_overrides": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "manual_classification_overrides": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "manual_transaction_label_overrides": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "cursors_and_success": [
+            [
+              "item-0",
+              "synthetic-start",
+              "2026-10-01T20:06:23.180388+00:00",
+              null
+            ],
+            [
+              "item-1",
+              "synthetic-start",
+              "2026-10-01T20:06:23.180388+00:00",
+              null
+            ],
+            [
+              "item-2",
+              "synthetic-start",
+              "2026-10-01T20:06:23.180388+00:00",
+              null
+            ],
+            [
+              "item-3",
+              "synthetic-start",
+              "2026-10-01T20:06:23.180388+00:00",
+              null
+            ],
+            [
+              "item-4",
+              "synthetic-start",
+              "2026-10-01T20:06:23.180388+00:00",
+              null
+            ]
+          ],
+          "publication_marker": [
+            {
+              "user_id": "synthetic-cloud-2610",
+              "published_at": "2026-10-01T20:06:23.180388+00:00",
+              "last_backup_at": null,
+              "handled_sequence": 0,
+              "running_item_ids": null,
+              "running_sequence": null,
+              "jobs_heartbeat_at": null,
+              "last_backup_error": null,
+              "requested_item_ids": null,
+              "requested_sequence": 0,
+              "last_published_run_id": "b0acb083-e950-429a-af2d-dd09115a1837",
+              "last_backup_attempt_at": null
+            }
+          ]
+        },
+        "after": {
+          "legacy_consumer_rows": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "accounts": {
+            "rows": 13,
+            "full_row_hash": "4b029f71f90170cd754db3e34ceb1ada"
+          },
+          "statement_import_batches": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "statement_import_rows": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "raw_transactions": {
+            "rows": 2610,
+            "full_row_hash": "eef150112572e33db0ff717ed9b47ef1"
+          },
+          "transactions": {
+            "rows": 2610,
+            "full_row_hash": "69c300c5e60bdf0ea9778a22ed55df96"
+          },
+          "manual_benefit_category_overrides": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "manual_category_overrides": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "manual_classification_overrides": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "manual_transaction_label_overrides": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "cursors_and_success": [
+            [
+              "item-0",
+              "synthetic-start",
+              "2026-10-01T20:06:23.180388+00:00",
+              null
+            ],
+            [
+              "item-1",
+              "synthetic-start",
+              "2026-10-01T20:06:23.180388+00:00",
+              null
+            ],
+            [
+              "item-2",
+              "synthetic-start",
+              "2026-10-01T20:06:23.180388+00:00",
+              null
+            ],
+            [
+              "item-3",
+              "synthetic-start",
+              "2026-10-01T20:06:23.180388+00:00",
+              null
+            ],
+            [
+              "item-4",
+              "synthetic-start",
+              "2026-10-01T20:06:23.180388+00:00",
+              null
+            ]
+          ],
+          "publication_marker": [
+            {
+              "user_id": "synthetic-cloud-2610",
+              "published_at": "2026-10-01T20:06:23.180388+00:00",
+              "last_backup_at": null,
+              "handled_sequence": 0,
+              "running_item_ids": null,
+              "running_sequence": null,
+              "jobs_heartbeat_at": null,
+              "last_backup_error": null,
+              "requested_item_ids": null,
+              "requested_sequence": 0,
+              "last_published_run_id": "b0acb083-e950-429a-af2d-dd09115a1837",
+              "last_backup_attempt_at": null
+            }
+          ]
+        },
+        "immediate_run": {
+          "run_id": "3e688313-45b0-43fc-bb70-b6d3c08e699a",
+          "status": "failed",
+          "published_at": null,
+          "classification_status": "not_run",
+          "error_category": "publication_failed"
+        },
+        "after_next_owner_reconciliation": null,
+        "locks_released": true,
+        "sdk_thread_finished": true
+      },
+      "failed_noop_preservation": null,
+      "locks_released": true
+    }
+  },
+  {
+    "timestamp_utc": "2026-10-01T20:33:45.294511+00:00",
+    "deployment_id": "dpl_Ea8nMxHw3xcE5ZZ2fq9WdJDpHu9Q",
+    "scale": 2610,
+    "action": "cancel_publication",
+    "http_status": 200,
+    "client_wall_s": 3.3559853059996385,
+    "http_request_body_bytes": 44,
+    "http_request_header_value_bytes": 202,
+    "http_response_body_bytes": 6595,
+    "http_response_header_bytes": 318,
+    "result": {
+      "kind": "real_cloud_shared_sync_benchmark",
+      "scale": 2610,
+      "action": "cancel_publication",
+      "instance_id": "97c0d5796ecc49c3a4d511176d984c27",
+      "first_benchmark_in_process": false,
+      "process_benchmark_ordinal": 7,
+      "status": "cancelled",
+      "published": false,
+      "shared_sync_result": null,
+      "handler_wall_s": 3.134034048000103,
+      "shared_sync_wall_s": 2.3520903450000787,
+      "process_cpu_s": 1.1444215759999565,
+      "import_s": 6.858000006104703e-06,
+      "initial_rss_high_water_mib": 203.0078125,
+      "rss_high_water_mib": 203.0078125,
+      "connection_identity_guard_s": 0.15889458600008766,
+      "connection_samples_s": [
+        0.08527256499996838,
+        0.04673846700006834,
+        0.04154769699994176,
+        0.06516154600012669
+      ],
+      "stage_s": {
+        "acquire_session_lock": 0.016073112999947625,
+        "_fetch_item": 0.0012437150001005648,
+        "normalize_item_transactions": 1.9822523819998423,
+        "_publish_item": 2.0524116459998822
+      },
+      "transaction_exits": [
+        {
+          "wall_s": 0.0028751879999617813,
+          "nested": false,
+          "exception": false
+        },
+        {
+          "wall_s": 0.003180152000140879,
+          "nested": false,
+          "exception": false
+        },
+        {
+          "wall_s": 0.012461562999988018,
+          "nested": true,
+          "exception": false
+        },
+        {
+          "wall_s": 0.00011591299994506699,
+          "nested": false,
+          "exception": true
+        }
+      ],
+      "last_outer_transaction_exit_s": 0.00011591299994506699,
+      "cleanup_s": 0.0066240730000117765,
+      "sql_attempts": 570,
+      "sql_observed": {
+        "n": 570,
+        "min_s": 0.0003065949999836448,
+        "median_s": 0.0025058909999415846,
+        "mean_s": 0.0027298859052631054,
+        "max_s": 0.015277027000138332,
+        "observed_query_p90_s": 0.0029627420001361315,
+        "observed_query_p95_s": 0.003924872999959916
+      },
+      "sql_by_phase": {
+        "sync": {
+          "n": 26,
+          "min_s": 0.0003065949999836448,
+          "median_s": 0.004016734000060751,
+          "mean_s": 0.00513069669228536,
+          "max_s": 0.015277027000138332,
+          "observed_query_p90_s": 0.011216053999987707,
+          "observed_query_p95_s": 0.013081881999823963
+        },
+        "acquire_session_lock": {
+          "n": 2,
+          "min_s": 0.006138024999927438,
+          "median_s": 0.006204029999935301,
+          "mean_s": 0.006204029999935301,
+          "max_s": 0.006270034999943164,
+          "observed_query_p90_s": 0.006270034999943164,
+          "observed_query_p95_s": 0.006270034999943164
+        },
+        "_publish_item": {
+          "n": 13,
+          "min_s": 0.0023518630000580742,
+          "median_s": 0.004771108999875651,
+          "mean_s": 0.004268303461528306,
+          "max_s": 0.0064831459999368235,
+          "observed_query_p90_s": 0.005146165000041947,
+          "observed_query_p95_s": 0.0064831459999368235
+        },
+        "normalize_item_transactions": {
+          "n": 529,
+          "min_s": 0.0020887610000954737,
+          "median_s": 0.0024870049999208277,
+          "mean_s": 0.0025609467807198717,
+          "max_s": 0.011837492000040584,
+          "observed_query_p90_s": 0.0028270660000089265,
+          "observed_query_p95_s": 0.0030491580000671092
+        }
+      },
+      "sql_total_s": 1.5560349659999702,
+      "engine_checkout_peak": 3,
+      "engine_checked_out_after": 0,
+      "observer_checkout_bound": 1,
+      "observed_peaks": {
+        "samples": 6,
+        "database_backends": 10,
+        "jobs_backends": 4,
+        "active_jobs_backends": 1,
+        "rss_sampled_peak_mib": 167.0625
+      },
+      "sdk_calls": 5,
+      "synthetic_sdk_request_bytes": 330,
+      "synthetic_sdk_response_bytes": 1178,
+      "http_request_body_bytes": 44,
+      "application_deadline_s": 210,
+      "cancellation": {
+        "state_unchanged": true,
+        "before": {
+          "legacy_consumer_rows": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "accounts": {
+            "rows": 13,
+            "full_row_hash": "4b029f71f90170cd754db3e34ceb1ada"
+          },
+          "statement_import_batches": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "statement_import_rows": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "raw_transactions": {
+            "rows": 2610,
+            "full_row_hash": "eef150112572e33db0ff717ed9b47ef1"
+          },
+          "transactions": {
+            "rows": 2610,
+            "full_row_hash": "69c300c5e60bdf0ea9778a22ed55df96"
+          },
+          "manual_benefit_category_overrides": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "manual_category_overrides": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "manual_classification_overrides": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "manual_transaction_label_overrides": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "cursors_and_success": [
+            [
+              "item-0",
+              "synthetic-start",
+              "2026-10-01T20:06:23.180388+00:00",
+              null
+            ],
+            [
+              "item-1",
+              "synthetic-start",
+              "2026-10-01T20:06:23.180388+00:00",
+              null
+            ],
+            [
+              "item-2",
+              "synthetic-start",
+              "2026-10-01T20:06:23.180388+00:00",
+              null
+            ],
+            [
+              "item-3",
+              "synthetic-start",
+              "2026-10-01T20:06:23.180388+00:00",
+              null
+            ],
+            [
+              "item-4",
+              "synthetic-start",
+              "2026-10-01T20:06:23.180388+00:00",
+              null
+            ]
+          ],
+          "publication_marker": [
+            {
+              "user_id": "synthetic-cloud-2610",
+              "published_at": "2026-10-01T20:06:23.180388+00:00",
+              "last_backup_at": null,
+              "handled_sequence": 0,
+              "running_item_ids": null,
+              "running_sequence": null,
+              "jobs_heartbeat_at": null,
+              "last_backup_error": null,
+              "requested_item_ids": null,
+              "requested_sequence": 0,
+              "last_published_run_id": "b0acb083-e950-429a-af2d-dd09115a1837",
+              "last_backup_attempt_at": null
+            }
+          ]
+        },
+        "after": {
+          "legacy_consumer_rows": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "accounts": {
+            "rows": 13,
+            "full_row_hash": "4b029f71f90170cd754db3e34ceb1ada"
+          },
+          "statement_import_batches": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "statement_import_rows": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "raw_transactions": {
+            "rows": 2610,
+            "full_row_hash": "eef150112572e33db0ff717ed9b47ef1"
+          },
+          "transactions": {
+            "rows": 2610,
+            "full_row_hash": "69c300c5e60bdf0ea9778a22ed55df96"
+          },
+          "manual_benefit_category_overrides": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "manual_category_overrides": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "manual_classification_overrides": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "manual_transaction_label_overrides": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "cursors_and_success": [
+            [
+              "item-0",
+              "synthetic-start",
+              "2026-10-01T20:06:23.180388+00:00",
+              null
+            ],
+            [
+              "item-1",
+              "synthetic-start",
+              "2026-10-01T20:06:23.180388+00:00",
+              null
+            ],
+            [
+              "item-2",
+              "synthetic-start",
+              "2026-10-01T20:06:23.180388+00:00",
+              null
+            ],
+            [
+              "item-3",
+              "synthetic-start",
+              "2026-10-01T20:06:23.180388+00:00",
+              null
+            ],
+            [
+              "item-4",
+              "synthetic-start",
+              "2026-10-01T20:06:23.180388+00:00",
+              null
+            ]
+          ],
+          "publication_marker": [
+            {
+              "user_id": "synthetic-cloud-2610",
+              "published_at": "2026-10-01T20:06:23.180388+00:00",
+              "last_backup_at": null,
+              "handled_sequence": 0,
+              "running_item_ids": null,
+              "running_sequence": null,
+              "jobs_heartbeat_at": null,
+              "last_backup_error": null,
+              "requested_item_ids": null,
+              "requested_sequence": 0,
+              "last_published_run_id": "b0acb083-e950-429a-af2d-dd09115a1837",
+              "last_backup_attempt_at": null
+            }
+          ]
+        },
+        "immediate_run": {
+          "run_id": "6e445644-49f6-4585-81b0-4235e6019a5e",
+          "status": "running",
+          "published_at": null,
+          "classification_status": "not_run",
+          "error_category": null
+        },
+        "after_next_owner_reconciliation": {
+          "run_id": "6e445644-49f6-4585-81b0-4235e6019a5e",
+          "status": "interrupted",
+          "published_at": null,
+          "classification_status": "not_run",
+          "error_category": "interrupted"
+        },
+        "locks_released": true,
+        "sdk_thread_finished": true
+      },
+      "failed_noop_preservation": null,
+      "locks_released": true
+    }
+  },
+  {
+    "timestamp_utc": "2026-10-01T20:34:19.661160+00:00",
+    "deployment_id": "dpl_Ea8nMxHw3xcE5ZZ2fq9WdJDpHu9Q",
+    "scale": 2610,
+    "action": "cancel_fetch",
+    "http_status": 200,
+    "client_wall_s": 2.075276050978573,
+    "http_request_body_bytes": 38,
+    "http_request_header_value_bytes": 202,
+    "http_response_body_bytes": 5861,
+    "http_response_header_bytes": 318,
+    "result": {
+      "kind": "real_cloud_shared_sync_benchmark",
+      "scale": 2610,
+      "action": "cancel_fetch",
+      "instance_id": "97c0d5796ecc49c3a4d511176d984c27",
+      "first_benchmark_in_process": false,
+      "process_benchmark_ordinal": 8,
+      "status": "cancelled",
+      "published": false,
+      "shared_sync_result": null,
+      "handler_wall_s": 1.8865514789999906,
+      "shared_sync_wall_s": 0.257006046000015,
+      "process_cpu_s": 0.2885621849999893,
+      "import_s": 6.1830000959162135e-06,
+      "initial_rss_high_water_mib": 203.0078125,
+      "rss_high_water_mib": 203.0078125,
+      "connection_identity_guard_s": 0.11146250899992083,
+      "connection_samples_s": [
+        0.06549941899993428,
+        0.04425887200000034,
+        0.045211003000076744
+      ],
+      "stage_s": {
+        "acquire_session_lock": 0.012114079999946625,
+        "_fetch_item": 0.005363901000009719
+      },
+      "transaction_exits": [
+        {
+          "wall_s": 0.00352904800001852,
+          "nested": false,
+          "exception": false
+        },
+        {
+          "wall_s": 0.004284255999891684,
+          "nested": false,
+          "exception": false
+        }
+      ],
+      "last_outer_transaction_exit_s": 0.004284255999891684,
+      "cleanup_s": 0.009902044000000387,
+      "sql_attempts": 23,
+      "sql_observed": {
+        "n": 23,
+        "min_s": 0.0031223529999806487,
+        "median_s": 0.0038152279998939775,
+        "mean_s": 0.0064437236521232835,
+        "max_s": 0.03462322400014273,
+        "observed_query_p90_s": 0.010231004999923243,
+        "observed_query_p95_s": 0.010352337999847805
+      },
+      "sql_by_phase": {
+        "sync": {
+          "n": 21,
+          "min_s": 0.0031223529999806487,
+          "median_s": 0.0037695519999942917,
+          "mean_s": 0.006621589714227195,
+          "max_s": 0.03462322400014273,
+          "observed_query_p90_s": 0.010231004999923243,
+          "observed_query_p95_s": 0.010352337999847805
+        },
+        "acquire_session_lock": {
+          "n": 2,
+          "min_s": 0.004295406999972329,
+          "median_s": 0.004576130000032208,
+          "mean_s": 0.004576130000032208,
+          "max_s": 0.004856853000092087,
+          "observed_query_p90_s": 0.004856853000092087,
+          "observed_query_p95_s": 0.004856853000092087
+        }
+      },
+      "sql_total_s": 0.1482056439988355,
+      "engine_checkout_peak": 3,
+      "engine_checked_out_after": 0,
+      "observer_checkout_bound": 1,
+      "observed_peaks": {
+        "samples": 3,
+        "database_backends": 10,
+        "jobs_backends": 4,
+        "active_jobs_backends": 2,
+        "rss_sampled_peak_mib": 169.80859375
+      },
+      "sdk_calls": 1,
+      "synthetic_sdk_request_bytes": 66,
+      "synthetic_sdk_response_bytes": 442,
+      "http_request_body_bytes": 38,
+      "application_deadline_s": 210,
+      "cancellation": {
+        "state_unchanged": true,
+        "before": {
+          "legacy_consumer_rows": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "accounts": {
+            "rows": 13,
+            "full_row_hash": "4b029f71f90170cd754db3e34ceb1ada"
+          },
+          "statement_import_batches": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "statement_import_rows": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "raw_transactions": {
+            "rows": 2610,
+            "full_row_hash": "eef150112572e33db0ff717ed9b47ef1"
+          },
+          "transactions": {
+            "rows": 2610,
+            "full_row_hash": "69c300c5e60bdf0ea9778a22ed55df96"
+          },
+          "manual_benefit_category_overrides": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "manual_category_overrides": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "manual_classification_overrides": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "manual_transaction_label_overrides": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "cursors_and_success": [
+            [
+              "item-0",
+              "synthetic-start",
+              "2026-10-01T20:06:23.180388+00:00",
+              null
+            ],
+            [
+              "item-1",
+              "synthetic-start",
+              "2026-10-01T20:06:23.180388+00:00",
+              null
+            ],
+            [
+              "item-2",
+              "synthetic-start",
+              "2026-10-01T20:06:23.180388+00:00",
+              null
+            ],
+            [
+              "item-3",
+              "synthetic-start",
+              "2026-10-01T20:06:23.180388+00:00",
+              null
+            ],
+            [
+              "item-4",
+              "synthetic-start",
+              "2026-10-01T20:06:23.180388+00:00",
+              null
+            ]
+          ],
+          "publication_marker": [
+            {
+              "user_id": "synthetic-cloud-2610",
+              "published_at": "2026-10-01T20:06:23.180388+00:00",
+              "last_backup_at": null,
+              "handled_sequence": 0,
+              "running_item_ids": null,
+              "running_sequence": null,
+              "jobs_heartbeat_at": null,
+              "last_backup_error": null,
+              "requested_item_ids": null,
+              "requested_sequence": 0,
+              "last_published_run_id": "b0acb083-e950-429a-af2d-dd09115a1837",
+              "last_backup_attempt_at": null
+            }
+          ]
+        },
+        "after": {
+          "legacy_consumer_rows": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "accounts": {
+            "rows": 13,
+            "full_row_hash": "4b029f71f90170cd754db3e34ceb1ada"
+          },
+          "statement_import_batches": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "statement_import_rows": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "raw_transactions": {
+            "rows": 2610,
+            "full_row_hash": "eef150112572e33db0ff717ed9b47ef1"
+          },
+          "transactions": {
+            "rows": 2610,
+            "full_row_hash": "69c300c5e60bdf0ea9778a22ed55df96"
+          },
+          "manual_benefit_category_overrides": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "manual_category_overrides": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "manual_classification_overrides": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "manual_transaction_label_overrides": {
+            "rows": 0,
+            "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+          },
+          "cursors_and_success": [
+            [
+              "item-0",
+              "synthetic-start",
+              "2026-10-01T20:06:23.180388+00:00",
+              null
+            ],
+            [
+              "item-1",
+              "synthetic-start",
+              "2026-10-01T20:06:23.180388+00:00",
+              null
+            ],
+            [
+              "item-2",
+              "synthetic-start",
+              "2026-10-01T20:06:23.180388+00:00",
+              null
+            ],
+            [
+              "item-3",
+              "synthetic-start",
+              "2026-10-01T20:06:23.180388+00:00",
+              null
+            ],
+            [
+              "item-4",
+              "synthetic-start",
+              "2026-10-01T20:06:23.180388+00:00",
+              null
+            ]
+          ],
+          "publication_marker": [
+            {
+              "user_id": "synthetic-cloud-2610",
+              "published_at": "2026-10-01T20:06:23.180388+00:00",
+              "last_backup_at": null,
+              "handled_sequence": 0,
+              "running_item_ids": null,
+              "running_sequence": null,
+              "jobs_heartbeat_at": null,
+              "last_backup_error": null,
+              "requested_item_ids": null,
+              "requested_sequence": 0,
+              "last_published_run_id": "b0acb083-e950-429a-af2d-dd09115a1837",
+              "last_backup_attempt_at": null
+            }
+          ]
+        },
+        "immediate_run": {
+          "run_id": "c5e57742-fe64-4bc1-8cdf-17a16a978ad0",
+          "status": "running",
+          "published_at": null,
+          "classification_status": "not_run",
+          "error_category": null
+        },
+        "after_next_owner_reconciliation": {
+          "run_id": "c5e57742-fe64-4bc1-8cdf-17a16a978ad0",
+          "status": "interrupted",
+          "published_at": null,
+          "classification_status": "not_run",
+          "error_category": "interrupted"
+        },
+        "locks_released": true,
+        "sdk_thread_finished": true
+      },
+      "failed_noop_preservation": null,
+      "locks_released": true
+    }
+  }
+]

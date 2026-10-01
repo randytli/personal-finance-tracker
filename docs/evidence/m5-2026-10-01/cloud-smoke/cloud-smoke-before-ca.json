@@ -1,0 +1,266 @@
+[
+  {
+    "timestamp_utc": "2026-10-01T18:55:48.314733+00:00",
+    "role": "reader",
+    "deployment_id": "dpl_4Xc9zFprrbjhGzMdPJFRM93RgAeb",
+    "path": "/probe/runtime",
+    "authorization": "missing",
+    "http_status": "401",
+    "client_wall_s": 1.9704741059977096,
+    "cli_returncode": 0,
+    "response": {
+      "detail": "Probe capability required"
+    }
+  },
+  {
+    "timestamp_utc": "2026-10-01T18:55:49.980132+00:00",
+    "role": "reader",
+    "deployment_id": "dpl_4Xc9zFprrbjhGzMdPJFRM93RgAeb",
+    "path": "/probe/runtime",
+    "authorization": "wrong",
+    "http_status": "401",
+    "client_wall_s": 1.6646198499947786,
+    "cli_returncode": 0,
+    "response": {
+      "detail": "Probe capability required"
+    }
+  },
+  {
+    "timestamp_utc": "2026-10-01T18:55:51.343014+00:00",
+    "role": "reader",
+    "deployment_id": "dpl_4Xc9zFprrbjhGzMdPJFRM93RgAeb",
+    "path": "/probe/runtime",
+    "authorization": "valid",
+    "http_status": "200",
+    "client_wall_s": 1.3627480290015228,
+    "cli_returncode": 0,
+    "response": {
+      "kind": "runtime_probe",
+      "instance_id": "9fd493e0e29b4bb6b6ac41ae59e87212",
+      "python": "3.12.14",
+      "role": "reader",
+      "elapsed_s": 0.0007618399999955727,
+      "temporary_free_bytes": 538324992,
+      "private_write_hardlink_cleanup": true,
+      "pg_dump_present": false,
+      "dependencies": {
+        "fastapi": "0.141.1",
+        "SQLAlchemy": "2.0.52",
+        "asyncpg": "0.31.0",
+        "plaid-python": "42.0.0",
+        "cryptography": "41.0.7"
+      }
+    }
+  },
+  {
+    "timestamp_utc": "2026-10-01T18:55:53.016003+00:00",
+    "role": "reader",
+    "deployment_id": "dpl_4Xc9zFprrbjhGzMdPJFRM93RgAeb",
+    "path": "/probe/imports",
+    "authorization": "valid",
+    "http_status": "200",
+    "client_wall_s": 1.6728268990118522,
+    "cli_returncode": 0,
+    "response": {
+      "kind": "import_probe",
+      "instance_id": "9fd493e0e29b4bb6b6ac41ae59e87212",
+      "role": "reader",
+      "all_ok": true,
+      "modules": [
+        {
+          "module": "api.models",
+          "ok": true,
+          "already_loaded": false,
+          "import_s": 0.08000703199996906,
+          "error": null
+        },
+        {
+          "module": "api.statement_semantics",
+          "ok": true,
+          "already_loaded": false,
+          "import_s": 0.0002798240000174701,
+          "error": null
+        },
+        {
+          "module": "api.services.derivation",
+          "ok": true,
+          "already_loaded": false,
+          "import_s": 0.005001008999954593,
+          "error": null
+        },
+        {
+          "module": "statement_imports",
+          "ok": true,
+          "already_loaded": false,
+          "import_s": 0.0026425110000332097,
+          "error": null
+        },
+        {
+          "module": "statement_imports.persistence",
+          "ok": true,
+          "already_loaded": false,
+          "import_s": 0.0010450999999989108,
+          "error": null
+        },
+        {
+          "module": "api.routes.analytics",
+          "ok": true,
+          "already_loaded": false,
+          "import_s": 0.06279956400004494,
+          "error": null
+        },
+        {
+          "module": "api.routes.review",
+          "ok": true,
+          "already_loaded": false,
+          "import_s": 0.016505258999984562,
+          "error": null
+        }
+      ],
+      "api_main_loaded": false,
+      "global_engine": {
+        "pool": "AsyncAdaptedQueuePool",
+        "checked_out": 0
+      }
+    }
+  },
+  {
+    "timestamp_utc": "2026-10-01T18:55:54.708035+00:00",
+    "role": "jobs",
+    "deployment_id": "dpl_Hw9zGy23arPkdAYo9UDrxDdhc5d6",
+    "path": "/probe/runtime",
+    "authorization": "missing",
+    "http_status": "401",
+    "client_wall_s": 1.6914699469925836,
+    "cli_returncode": 0,
+    "response": {
+      "detail": "Probe capability required"
+    }
+  },
+  {
+    "timestamp_utc": "2026-10-01T18:55:56.062972+00:00",
+    "role": "jobs",
+    "deployment_id": "dpl_Hw9zGy23arPkdAYo9UDrxDdhc5d6",
+    "path": "/probe/runtime",
+    "authorization": "wrong",
+    "http_status": "401",
+    "client_wall_s": 1.3547356160124764,
+    "cli_returncode": 0,
+    "response": {
+      "detail": "Probe capability required"
+    }
+  },
+  {
+    "timestamp_utc": "2026-10-01T18:55:57.298510+00:00",
+    "role": "jobs",
+    "deployment_id": "dpl_Hw9zGy23arPkdAYo9UDrxDdhc5d6",
+    "path": "/probe/runtime",
+    "authorization": "valid",
+    "http_status": "200",
+    "client_wall_s": 1.235335612000199,
+    "cli_returncode": 0,
+    "response": {
+      "kind": "runtime_probe",
+      "instance_id": "c26946a471354966b5993ef7d7cbef7e",
+      "python": "3.12.14",
+      "role": "jobs",
+      "elapsed_s": 0.0007902629999989585,
+      "temporary_free_bytes": 538324992,
+      "private_write_hardlink_cleanup": true,
+      "pg_dump_present": false,
+      "dependencies": {
+        "fastapi": "0.141.1",
+        "SQLAlchemy": "2.0.52",
+        "asyncpg": "0.31.0",
+        "plaid-python": "42.0.0",
+        "cryptography": "41.0.7"
+      }
+    }
+  },
+  {
+    "timestamp_utc": "2026-10-01T18:56:00.301313+00:00",
+    "role": "jobs",
+    "deployment_id": "dpl_Hw9zGy23arPkdAYo9UDrxDdhc5d6",
+    "path": "/probe/imports",
+    "authorization": "valid",
+    "http_status": "200",
+    "client_wall_s": 3.0025765010213945,
+    "cli_returncode": 0,
+    "response": {
+      "kind": "import_probe",
+      "instance_id": "c26946a471354966b5993ef7d7cbef7e",
+      "role": "jobs",
+      "all_ok": true,
+      "modules": [
+        {
+          "module": "api.models",
+          "ok": true,
+          "already_loaded": false,
+          "import_s": 0.07969101100002263,
+          "error": null
+        },
+        {
+          "module": "api.statement_semantics",
+          "ok": true,
+          "already_loaded": false,
+          "import_s": 0.00028206000001773646,
+          "error": null
+        },
+        {
+          "module": "api.services.derivation",
+          "ok": true,
+          "already_loaded": false,
+          "import_s": 0.006234308999978566,
+          "error": null
+        },
+        {
+          "module": "statement_imports",
+          "ok": true,
+          "already_loaded": false,
+          "import_s": 0.0034289690000264272,
+          "error": null
+        },
+        {
+          "module": "statement_imports.persistence",
+          "ok": true,
+          "already_loaded": false,
+          "import_s": 0.0004474020000202472,
+          "error": null
+        },
+        {
+          "module": "api.services.sync_all",
+          "ok": true,
+          "already_loaded": false,
+          "import_s": 0.9254767649999849,
+          "error": null
+        },
+        {
+          "module": "api.jobs",
+          "ok": true,
+          "already_loaded": false,
+          "import_s": 0.00039034700000684097,
+          "error": null
+        },
+        {
+          "module": "api.backup",
+          "ok": true,
+          "already_loaded": false,
+          "import_s": 0.002458410000031108,
+          "error": null
+        },
+        {
+          "module": "api.backup_crypto",
+          "ok": true,
+          "already_loaded": false,
+          "import_s": 0.00279677300000003,
+          "error": null
+        }
+      ],
+      "api_main_loaded": false,
+      "global_engine": {
+        "pool": "AsyncAdaptedQueuePool",
+        "checked_out": 0
+      }
+    }
+  }
+]

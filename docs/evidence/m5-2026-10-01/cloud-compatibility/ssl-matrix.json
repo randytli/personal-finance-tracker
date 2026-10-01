@@ -1,0 +1,53 @@
+[
+  {
+    "mode": "verified",
+    "timestamp_utc": "2026-10-01T19:16:23.407849+00:00",
+    "connected": true,
+    "client_tls": true,
+    "client_verify_mode": 2,
+    "client_hostname_check": true,
+    "tls_version": "TLSv1.3",
+    "cipher": "TLS_AES_256_GCM_SHA384",
+    "database": "postgres",
+    "role": "pft_m5_reader",
+    "backend_ssl": true,
+    "wall_s": 0.5124477529898286
+  },
+  {
+    "mode": "plaintext",
+    "timestamp_utc": "2026-10-01T19:16:23.920589+00:00",
+    "connected": false,
+    "error_type": "InternalServerError",
+    "reason": "SSL connection is required",
+    "wall_s": 0.09696601500036195
+  },
+  {
+    "mode": "unverified",
+    "timestamp_utc": "2026-10-01T19:16:24.017547+00:00",
+    "connected": true,
+    "client_tls": true,
+    "client_verify_mode": 0,
+    "client_hostname_check": false,
+    "tls_version": "TLSv1.3",
+    "cipher": "TLS_AES_256_GCM_SHA384",
+    "database": "postgres",
+    "role": "pft_m5_reader",
+    "backend_ssl": true,
+    "wall_s": 0.28862103799474426
+  },
+  {
+    "mode": "wrong_ca",
+    "timestamp_utc": "2026-10-01T19:16:24.306306+00:00",
+    "connected": false,
+    "error_type": "SSLCertVerificationError",
+    "verify_message": "self-signed certificate in certificate chain",
+    "wall_s": 0.10437970497878268
+  },
+  {
+    "mode": "wrong_hostname",
+    "timestamp_utc": "2026-10-01T19:16:24.410702+00:00",
+    "handshake_succeeded": false,
+    "error_type": "SSLCertVerificationError",
+    "verify_message": "Hostname mismatch, certificate is not valid for 'wrong.synthetic.invalid'."
+  }
+]

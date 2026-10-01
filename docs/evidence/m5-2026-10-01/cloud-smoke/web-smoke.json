@@ -1,0 +1,42 @@
+[
+  {
+    "timestamp_utc": "2026-10-01T19:07:39.707576+00:00",
+    "deployment_id": "dpl_43ikb59rwcf3ywebShoiT3d5H6Lx",
+    "operation": "runtime",
+    "authorization": "missing",
+    "status": "401",
+    "client_wall_s": 1.2632267609878909,
+    "response": {
+      "error": "Probe capability required"
+    }
+  },
+  {
+    "timestamp_utc": "2026-10-01T19:07:40.925805+00:00",
+    "deployment_id": "dpl_43ikb59rwcf3ywebShoiT3d5H6Lx",
+    "operation": "unknown",
+    "authorization": "valid",
+    "status": "422",
+    "client_wall_s": 1.2179586190031841,
+    "response": {
+      "error": "Unknown probe"
+    }
+  },
+  {
+    "timestamp_utc": "2026-10-01T19:07:42.114634+00:00",
+    "deployment_id": "dpl_43ikb59rwcf3ywebShoiT3d5H6Lx",
+    "operation": "runtime",
+    "authorization": "valid",
+    "status": "502",
+    "client_wall_s": 1.1885603279806674,
+    "response": {
+      "error": "Reader request unavailable"
+    }
+  },
+  {
+    "kind": "direct_reader_without_vercel_bypass",
+    "deployment_id": "dpl_59puPXsPtgK7nRyb5GuRxthFo5eD",
+    "service_capability": "valid",
+    "status": 302,
+    "redirect_followed": false
+  }
+]

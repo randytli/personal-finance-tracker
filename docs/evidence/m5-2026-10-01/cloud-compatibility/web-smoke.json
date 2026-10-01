@@ -1,0 +1,61 @@
+[
+  {
+    "timestamp_utc": "2026-10-01T19:28:27.999117+00:00",
+    "deployment_id": "dpl_6iLXs6XhNKYjy5L5zxsuHQ7ZEVJY",
+    "operation": "runtime",
+    "authorization": "missing",
+    "status": "401",
+    "client_wall_s": 1.568734716012841,
+    "response": {
+      "error": "Probe capability required"
+    }
+  },
+  {
+    "timestamp_utc": "2026-10-01T19:28:29.274867+00:00",
+    "deployment_id": "dpl_6iLXs6XhNKYjy5L5zxsuHQ7ZEVJY",
+    "operation": "unknown",
+    "authorization": "valid",
+    "status": "422",
+    "client_wall_s": 1.2754518410074525,
+    "response": {
+      "error": "Unknown probe"
+    }
+  },
+  {
+    "timestamp_utc": "2026-10-01T19:28:30.656571+00:00",
+    "deployment_id": "dpl_6iLXs6XhNKYjy5L5zxsuHQ7ZEVJY",
+    "operation": "runtime",
+    "authorization": "valid",
+    "status": "200",
+    "client_wall_s": 1.381467294995673,
+    "response": {
+      "kind": "web_routing_probe",
+      "operation": "runtime",
+      "wall_ms": 101.1543529999908,
+      "upstream": {
+        "kind": "runtime_probe",
+        "instance_id": "95bdbe7849504561881ad15734045526",
+        "python": "3.12.14",
+        "role": "reader",
+        "elapsed_s": 0.0003284229999849231,
+        "temporary_free_bytes": 538324992,
+        "private_write_hardlink_cleanup": true,
+        "pg_dump_present": false,
+        "dependencies": {
+          "fastapi": "0.141.1",
+          "SQLAlchemy": "2.0.52",
+          "asyncpg": "0.31.0",
+          "plaid-python": "42.0.0",
+          "cryptography": "41.0.7"
+        }
+      }
+    }
+  },
+  {
+    "kind": "direct_reader_without_vercel_bypass",
+    "deployment_id": "dpl_UBs7eXg9GNWZ6H6ku4xPgtThNWZy",
+    "service_capability": "valid",
+    "status": 302,
+    "redirect_followed": false
+  }
+]

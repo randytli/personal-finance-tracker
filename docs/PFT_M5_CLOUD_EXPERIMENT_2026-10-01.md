@@ -1,8 +1,10 @@
 # M5 approved cloud experiment: access preflight and B2 gate
 
-**Decision: WITHHELD. Cloud execution is not complete.** No cloud resources created, no deployment, no provider SQL call, no cron job and no backup upload. Production was not accessed or modified. No Production data, exports, Plaid credentials/tokens or secrets were read/copied. No domain optimization or financial semantics changed.
+**Decision: WITHHELD. Cloud execution is not complete.** The historical preflight below preceded provider access. The subsequent [fresh-session cloud smoke execution](PFT_M5_CLOUD_RUN_2026-10-01.md) created the approved disposable Supabase/Vercel resources and measured runtime/connection failures. No cron or backup upload has started. The later owner-approved [bounded real-cloud benchmark](PFT_M5_REAL_CLOUD_LATENCY_2026-10-01.md) is complete: current-scale no-op succeeds, while the 35.6k growth envelope fails. Production was not accessed or modified; no Production data/secrets or financial semantics changed. B2 remains unapproved.
 
 The owner approved the disposable Supabase/Vercel experiment described in [the first-pass report](PFT_M5_FEASIBILITY_2026-10-01.md), then explicitly retained a separate B2 approval gate. That authorization persists; missing authentication is not a request to reapprove the experiment. [Phase 2 plan §12](PFT_PHASE_2_ARCHITECTURE_PLAN.md#12-m5--zero-cost-serverless-feasibility) and AGENTS.md govern execution. Current HEAD remains `5dbca0667eba5e305f6ad12925af46b01842d6ee`; unrelated working changes preserved.
+
+The subsequent [cloud compatibility follow-up](PFT_M5_CLOUD_COMPATIBILITY_2026-10-01.md) resolves initial SSL/connection/routing blockers and proves native client packaging; the subsequent bounded benchmark is recorded above, and SERVERLESS_GO remains withheld.
 
 ## Access preflight — measured local facts
 

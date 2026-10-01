@@ -1,0 +1,24 @@
+{
+  "project_ref": "acyghoemtdrilsdszolq",
+  "server_version": "17.11",
+  "server_version_num": 170011,
+  "database_bytes": 10892979,
+  "identity_rows": 1,
+  "advisory_locks": 0,
+  "pooler_backends": [
+    {
+      "role": "pft_m5_reader",
+      "state": "idle",
+      "count": 1,
+      "backend_tls": true,
+      "open_transactions": 0
+    },
+    {
+      "role": "pft_m5_jobs",
+      "state": "idle",
+      "count": 2,
+      "backend_tls": true,
+      "open_transactions": 0
+    }
+  ]
+}

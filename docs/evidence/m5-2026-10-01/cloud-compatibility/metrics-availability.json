@@ -1,0 +1,21 @@
+{
+  "vercel_billing_cost": "UNKNOWN: usage endpoint unavailable for selected dates",
+  "vercel_observability_schema": "available",
+  "vercel_observability_query": {
+    "code": "payment_required",
+    "reason": "Observability Plus required; not purchased or enabled"
+  },
+  "supabase_billing_storage_egress_mau": "UNKNOWN: no callable aggregate usage tool",
+  "measurable": [
+    "SQL database bytes, server version, grants, current backend sessions/TLS and advisory locks",
+    "probe runtime/dependency versions, wall durations, temporary free space",
+    "request statuses and sample counts",
+    "client package bytes and hashes",
+    "project plans/regions, deployment state/configuration and source upload bytes"
+  ],
+  "not_proved": [
+    "account monthly billed CPU/memory time, transfer, builds, invocations",
+    "Supabase monthly egress and Auth aggregate",
+    "complete workload monthly free-capacity envelope"
+  ]
+}

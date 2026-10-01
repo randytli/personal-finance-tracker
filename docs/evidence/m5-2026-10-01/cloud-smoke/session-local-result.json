@@ -1,0 +1,16 @@
+{
+  "kind": "local_client_session_endpoint_probe",
+  "host": "aws-0-us-east-1.pooler.supabase.com",
+  "cloud_runtime_evidence": false,
+  "tls_validation": "default CA context plus owner-supplied Supabase root; certificate and hostname required",
+  "address_families": [
+    "IPv4"
+  ],
+  "connection": {
+    "database": "postgres",
+    "role": "pft_m5_reader",
+    "ssl": false
+  },
+  "identity_matches": true,
+  "elapsed_s": 0.4446520770143252
+}

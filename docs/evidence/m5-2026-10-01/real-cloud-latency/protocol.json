@@ -1,0 +1,31 @@
+{
+  "project_ref": "acyghoemtdrilsdszolq",
+  "jobs_project": "prj_T8mZTCne3EfvSAS1y7DvmNcJ17Kb",
+  "scales": [
+    2610,
+    35600
+  ],
+  "planned_noop_samples_per_scale": 5,
+  "negative_tests": [
+    "timeout_publication",
+    "cancel_publication",
+    "cancel_fetch"
+  ],
+  "verified_configured_direct_runtime_s": 300,
+  "shared_sync_deadline_s": 210,
+  "outer_sync_join_deadline_s": 240,
+  "client_timeout_s": 285,
+  "headroom_targets_s": {
+    "normal": 150,
+    "worst": 210,
+    "reserve": 60
+  },
+  "schema_size_stop_bytes": 200000000,
+  "invocation_limit_per_schema": 16,
+  "pool_size": 4,
+  "observer_pool_size": 1,
+  "query_path_optimized": false,
+  "sdk_network": "synthetic only; no real Plaid",
+  "cold_definition": "first benchmark invocation in fresh observed process; provider startup duration unavailable",
+  "statistics": "5 runs per scale: observed min/median/max, no reliable run-level p95; timeouts right-censored"
+}

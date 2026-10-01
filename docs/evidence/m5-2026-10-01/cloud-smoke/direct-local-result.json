@@ -1,0 +1,12 @@
+{
+  "kind": "local_client_direct_endpoint_probe",
+  "host": "db.acyghoemtdrilsdszolq.supabase.co",
+  "cloud_runtime_evidence": false,
+  "tls_validation": "default CA and hostname",
+  "address_families": [
+    "IPv6"
+  ],
+  "error_type": "OSError",
+  "errno": 101,
+  "elapsed_s": 0.08527529702405445
+}

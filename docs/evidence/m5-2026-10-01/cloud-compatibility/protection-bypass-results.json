@@ -1,0 +1,22 @@
+[
+  {
+    "case": "without_bypass",
+    "http_status": 302,
+    "reader_runtime_reached": false
+  },
+  {
+    "case": "bypass_missing_app_auth",
+    "http_status": 401,
+    "reader_runtime_reached": false
+  },
+  {
+    "case": "bypass_wrong_app_auth",
+    "http_status": 401,
+    "reader_runtime_reached": false
+  },
+  {
+    "case": "bypass_valid_app_auth",
+    "http_status": 200,
+    "reader_runtime_reached": true
+  }
+]

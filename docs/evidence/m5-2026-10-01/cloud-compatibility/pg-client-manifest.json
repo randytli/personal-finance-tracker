@@ -1,0 +1,98 @@
+{
+  "image": "postgres:17.11-alpine",
+  "image_digest": "sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24",
+  "files": [
+    {
+      "path": "bin/pg_dump",
+      "bytes": 525096,
+      "sha256": "8e114bd76190f3b99a181e6d67762cc395515324de6d44f315a68bc182e9d76c"
+    },
+    {
+      "path": "bin/pg_restore",
+      "bytes": 286888,
+      "sha256": "a9cd3c9353c683c574319665bda246912198f1dc96d77feda0040f2912074e82"
+    },
+    {
+      "path": "lib/ld-musl-x86_64.so.1",
+      "bytes": 670312,
+      "sha256": "38d022ce7425ff105ccfb53598f606e6e5f5f0a34bfbc793d65e6f34c9d72806"
+    },
+    {
+      "path": "lib/libcom_err.so.2",
+      "bytes": 18112,
+      "sha256": "d424b938a88d14c5626a7f153aeb8f5941d95358f9355b23e3ace5f52ce0a109"
+    },
+    {
+      "path": "lib/libcrypto.so.3",
+      "bytes": 4989712,
+      "sha256": "b737ff6c1e585ba6be514d17c84e2d8347921558c13db2fdb5513578797d8413"
+    },
+    {
+      "path": "lib/libgssapi_krb5.so.2",
+      "bytes": 274624,
+      "sha256": "6964728663e40ea0989c654ed1b137558badacaac3f550cb2225f162f3cc5e58"
+    },
+    {
+      "path": "lib/libk5crypto.so.3",
+      "bytes": 165936,
+      "sha256": "6b184c829aed8b828dff6b54fea34b2fb71954596426fa2846f32d778a23ed65"
+    },
+    {
+      "path": "lib/libkeyutils.so.1",
+      "bytes": 18192,
+      "sha256": "3bf4dbce722052c967ea148ece373beba2ca478cb09ba2c95e2f4af8074b157c"
+    },
+    {
+      "path": "lib/libkrb5.so.3",
+      "bytes": 710840,
+      "sha256": "f2220d87a771dd624d13f0726b554743ce30396b9699379b243a5e7d3b9fea02"
+    },
+    {
+      "path": "lib/libkrb5support.so.0",
+      "bytes": 43064,
+      "sha256": "57a225959b184a88a34016a8dfbff761afe7c20a29314f10cf0fa3fa15d7c25a"
+    },
+    {
+      "path": "lib/liblber.so.2",
+      "bytes": 51224,
+      "sha256": "379f5028f44c7bd8ff0ed1a32770cdc5d6559c64292a8193af3e84bcc70c4369"
+    },
+    {
+      "path": "lib/libldap.so.2",
+      "bytes": 322496,
+      "sha256": "3de9fe7edd9ef421f8feff3f58410a3c42b49a8da8b16037b281547bc3bd4914"
+    },
+    {
+      "path": "lib/liblz4.so.1",
+      "bytes": 169664,
+      "sha256": "5de41e45e4994d0ab396c9a43c7337bdf44b58443b16a1e494ad747f9850b10e"
+    },
+    {
+      "path": "lib/libpq.so.5",
+      "bytes": 402160,
+      "sha256": "45fa955e9b6cb87a84067be8caad74c6b60716c7a30bc2afdfa031f5b28b6b22"
+    },
+    {
+      "path": "lib/libsasl2.so.3",
+      "bytes": 100920,
+      "sha256": "fb05edf23d10cf7a3a85526fc5593c7cef356c9a17117d582c50fa39adcae8fb"
+    },
+    {
+      "path": "lib/libssl.so.3",
+      "bytes": 839544,
+      "sha256": "3bb7fa63a3d6fb71884976bcda01c2fb2cf4145774cfa480ee8a509103c7093a"
+    },
+    {
+      "path": "lib/libz.so.1",
+      "bytes": 108376,
+      "sha256": "a1e2c03dcdedba98a06a00cadfb67a0e0b1cd93986860ec0c5ce66e789c44e57"
+    },
+    {
+      "path": "lib/libzstd.so.1",
+      "bytes": 714432,
+      "sha256": "a0a285da817a61e65d9e89bbfd38243cf8a4798cc429adc2772b5931f1d4fbb6"
+    }
+  ],
+  "bytes": 10411592,
+  "dump_attempted": false
+}

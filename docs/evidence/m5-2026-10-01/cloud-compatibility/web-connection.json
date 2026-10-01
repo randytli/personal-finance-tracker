@@ -1,0 +1,19 @@
+{
+  "status": 200,
+  "response": {
+    "kind": "web_routing_probe",
+    "operation": "connection",
+    "wall_ms": 2649.907855,
+    "upstream": {
+      "kind": "connection_probe",
+      "instance_id": "bb9fe72b6d2b4ed28c394cf9ae6ae0e8",
+      "pool": "null",
+      "wall_s": 0.25978007499999833,
+      "backend_pid": 13971,
+      "pid_stable_after_commit": true,
+      "prepared_query_result": 42,
+      "verified_tls_context": true
+    }
+  },
+  "reader_target": "pft-m5-reader-20261001-5agig1o4a-pft2.vercel.app"
+}

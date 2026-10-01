@@ -1,0 +1,207 @@
+{
+  "2610": {
+    "financial_state_preserved_after_all_failures_and_reconciliations": true,
+    "final_state": {
+      "legacy_consumer_rows": {
+        "rows": 0,
+        "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+      },
+      "accounts": {
+        "rows": 13,
+        "full_row_hash": "4b029f71f90170cd754db3e34ceb1ada"
+      },
+      "statement_import_batches": {
+        "rows": 0,
+        "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+      },
+      "statement_import_rows": {
+        "rows": 0,
+        "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+      },
+      "raw_transactions": {
+        "rows": 2610,
+        "full_row_hash": "eef150112572e33db0ff717ed9b47ef1"
+      },
+      "transactions": {
+        "rows": 2610,
+        "full_row_hash": "69c300c5e60bdf0ea9778a22ed55df96"
+      },
+      "manual_benefit_category_overrides": {
+        "rows": 0,
+        "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+      },
+      "manual_category_overrides": {
+        "rows": 0,
+        "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+      },
+      "manual_classification_overrides": {
+        "rows": 0,
+        "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+      },
+      "manual_transaction_label_overrides": {
+        "rows": 0,
+        "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+      },
+      "cursors_and_success": [
+        [
+          "item-0",
+          "synthetic-start",
+          "2026-10-01T20:06:23.180388+00:00",
+          null
+        ],
+        [
+          "item-1",
+          "synthetic-start",
+          "2026-10-01T20:06:23.180388+00:00",
+          null
+        ],
+        [
+          "item-2",
+          "synthetic-start",
+          "2026-10-01T20:06:23.180388+00:00",
+          null
+        ],
+        [
+          "item-3",
+          "synthetic-start",
+          "2026-10-01T20:06:23.180388+00:00",
+          null
+        ],
+        [
+          "item-4",
+          "synthetic-start",
+          "2026-10-01T20:06:23.180388+00:00",
+          null
+        ]
+      ],
+      "publication_marker": [
+        {
+          "user_id": "synthetic-cloud-2610",
+          "published_at": "2026-10-01T20:06:23.180388+00:00",
+          "last_backup_at": null,
+          "handled_sequence": 0,
+          "running_item_ids": null,
+          "running_sequence": null,
+          "jobs_heartbeat_at": null,
+          "last_backup_error": null,
+          "requested_item_ids": null,
+          "requested_sequence": 0,
+          "last_published_run_id": "b0acb083-e950-429a-af2d-dd09115a1837",
+          "last_backup_attempt_at": null
+        }
+      ]
+    },
+    "runs": [
+      {
+        "status": "failed",
+        "published": false,
+        "runs": 1
+      },
+      {
+        "status": "interrupted",
+        "published": false,
+        "runs": 2
+      },
+      {
+        "status": "success",
+        "published": true,
+        "runs": 5
+      }
+    ],
+    "running_run_rows": 0,
+    "running_item_run_rows": 0,
+    "database_bytes": 40515251,
+    "relations_bytes": 4808704,
+    "advisory_locks": 0
+  },
+  "35600": {
+    "financial_state_preserved_after_all_failures_and_reconciliations": true,
+    "final_state": {
+      "legacy_consumer_rows": {
+        "rows": 0,
+        "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+      },
+      "accounts": {
+        "rows": 13,
+        "full_row_hash": "4b029f71f90170cd754db3e34ceb1ada"
+      },
+      "statement_import_batches": {
+        "rows": 0,
+        "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+      },
+      "statement_import_rows": {
+        "rows": 0,
+        "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+      },
+      "raw_transactions": {
+        "rows": 35600,
+        "full_row_hash": "c52d702b57eede836cbd23855b81e19c"
+      },
+      "transactions": {
+        "rows": 35600,
+        "full_row_hash": "abb196115c19720a7b704b91f9fc42ca"
+      },
+      "manual_benefit_category_overrides": {
+        "rows": 0,
+        "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+      },
+      "manual_category_overrides": {
+        "rows": 0,
+        "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+      },
+      "manual_classification_overrides": {
+        "rows": 0,
+        "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+      },
+      "manual_transaction_label_overrides": {
+        "rows": 0,
+        "full_row_hash": "d41d8cd98f00b204e9800998ecf8427e"
+      },
+      "cursors_and_success": [
+        [
+          "item-0",
+          "synthetic-start",
+          null,
+          null
+        ],
+        [
+          "item-1",
+          "synthetic-start",
+          null,
+          null
+        ],
+        [
+          "item-2",
+          "synthetic-start",
+          null,
+          null
+        ],
+        [
+          "item-3",
+          "synthetic-start",
+          null,
+          null
+        ],
+        [
+          "item-4",
+          "synthetic-start",
+          null,
+          null
+        ]
+      ],
+      "publication_marker": []
+    },
+    "runs": [
+      {
+        "status": "failed",
+        "published": false,
+        "runs": 5
+      }
+    ],
+    "running_run_rows": 0,
+    "running_item_run_rows": 0,
+    "database_bytes": 40515251,
+    "relations_bytes": 24248320,
+    "advisory_locks": 0
+  }
+}
