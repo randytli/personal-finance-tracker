@@ -1,0 +1,165 @@
+{
+  "kind": "local_not_vercel",
+  "python": "3.12.3",
+  "dependencies": {
+    "cryptography": {
+      "version": "41.0.7",
+      "installed_file_bytes": 15160733
+    },
+    "cffi": {
+      "version": "2.1.1",
+      "installed_file_bytes": 1159468
+    },
+    "pycparser": {
+      "version": "3.0",
+      "installed_file_bytes": 433492
+    },
+    "plaid-python": {
+      "version": "42.0.0",
+      "installed_file_bytes": 56502661
+    },
+    "nulltype": {
+      "version": "2.3.1",
+      "installed_file_bytes": 30021
+    },
+    "python-dateutil": {
+      "version": "2.9.0.post0",
+      "installed_file_bytes": 743631
+    },
+    "six": {
+      "version": "1.17.0",
+      "installed_file_bytes": 79523
+    },
+    "urllib3": {
+      "version": "2.7.0",
+      "installed_file_bytes": 896252
+    },
+    "asyncpg": {
+      "version": "0.31.0",
+      "installed_file_bytes": 13410598
+    },
+    "sqlalchemy": {
+      "version": "2.0.52",
+      "installed_file_bytes": 22515311
+    },
+    "typing-extensions": {
+      "version": "4.16.0",
+      "installed_file_bytes": 349585
+    },
+    "greenlet": {
+      "version": "3.5.5",
+      "installed_file_bytes": 2320881
+    },
+    "uvicorn": {
+      "version": "0.52.4",
+      "installed_file_bytes": 616612
+    },
+    "h11": {
+      "version": "0.16.0",
+      "installed_file_bytes": 185874
+    },
+    "click": {
+      "version": "8.4.2",
+      "installed_file_bytes": 915579
+    },
+    "fastapi": {
+      "version": "0.141.1",
+      "installed_file_bytes": 1410041
+    },
+    "annotated-doc": {
+      "version": "0.0.5",
+      "installed_file_bytes": 11903
+    },
+    "typing-inspection": {
+      "version": "0.4.4",
+      "installed_file_bytes": 90329
+    },
+    "pydantic": {
+      "version": "2.13.4",
+      "installed_file_bytes": 3787703
+    },
+    "pydantic-core": {
+      "version": "2.46.4",
+      "installed_file_bytes": 5252656
+    },
+    "annotated-types": {
+      "version": "0.8.0",
+      "installed_file_bytes": 67456
+    },
+    "starlette": {
+      "version": "1.6.0",
+      "installed_file_bytes": 623674
+    },
+    "anyio": {
+      "version": "4.14.2",
+      "installed_file_bytes": 1219189
+    },
+    "idna": {
+      "version": "3.19",
+      "installed_file_bytes": 508450
+    }
+  },
+  "installed_closure_bytes": 128291622,
+  "fresh_process_import_s": [
+    0.6820792549988255,
+    0.4519542309863027,
+    0.45126934998552315,
+    0.4406738780089654,
+    0.4376156489888672
+  ],
+  "pool4": {
+    "samples_s": [
+      0.017212691018357873,
+      0.0006389699992723763,
+      0.0005591230001300573,
+      0.0005070920160505921,
+      0.000534922000952065,
+      0.0005277479940559715,
+      0.0005260870093479753,
+      0.0006302349793259054,
+      0.0005365209945011884,
+      0.00048086600145325065,
+      0.000580843014176935,
+      0.0005317940085660666,
+      0.0004856669984292239,
+      0.0004795019922312349,
+      0.00045722100185230374,
+      0.0007781349995639175,
+      0.0005388600111473352,
+      0.00047903400263749063,
+      0.00046022998867556453,
+      0.0004531599988695234
+    ],
+    "max_s": 0.017212691018357873,
+    "mean_s": 0.0013699350514798426,
+    "four_concurrent_reads": "PASS"
+  },
+  "nullpool": {
+    "samples_s": [
+      0.005663209012709558,
+      0.004426455998327583,
+      0.0039720850181765854,
+      0.004038137994939461,
+      0.003875731985317543,
+      0.004562104004435241,
+      0.004428724001627415,
+      0.0043224920227658,
+      0.004213933978462592,
+      0.004428073007147759,
+      0.004272149002645165,
+      0.004142827005125582,
+      0.0038235950050875545,
+      0.004181697004241869,
+      0.003954624000471085,
+      0.003843576996587217,
+      0.004740738979307935,
+      0.005076702014775947,
+      0.0044058680068701506,
+      0.00489616600680165
+    ],
+    "max_s": 0.005663209012709558,
+    "mean_s": 0.004363444552291184,
+    "four_concurrent_reads": "PASS"
+  },
+  "limitations": "Installed sizes are not a deploy artifact. Imports do not run lifespan. No TLS, remote latency, event-loop reuse, SDK transport or provider cold start."
+}

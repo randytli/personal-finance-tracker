@@ -1,0 +1,76 @@
+{
+  "kind": "local_synthetic_recovery_no_upload",
+  "timings": {
+    "dump_s": 0.11038042200380005,
+    "encrypt_s": 0.07758562499657273,
+    "decrypt_s": 0.05836817898671143,
+    "create_restore_db_s": 0.027572293998673558,
+    "restore_s": 0.3902032200130634,
+    "source_schema_s": 0.03438330901553854,
+    "restored_schema_s": 0.03463371400721371
+  },
+  "archive_bytes": 397917,
+  "encrypted_bytes": 398156,
+  "artifact_bytes": 1250904,
+  "tables": {
+    "accounts": {
+      "count": 13,
+      "sha256": "dd8bc24409c65d5b041a83875a720f9d79632ee304e198acbfdf1f2c193174e4"
+    },
+    "items": {
+      "count": 5,
+      "sha256": "93e8680426a1ac55d405cade0cfa1346a4f4b77d52b9b299a0581788183dfe2f"
+    },
+    "legacy_consumer_rows": {
+      "count": 0,
+      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    "manual_benefit_category_overrides": {
+      "count": 0,
+      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    "manual_category_overrides": {
+      "count": 0,
+      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    "manual_classification_overrides": {
+      "count": 0,
+      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    "manual_transaction_label_overrides": {
+      "count": 0,
+      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    "raw_transactions": {
+      "count": 35619,
+      "sha256": "d43e7f338f53837a2f3255957029bd7f0406d20d3d3ff05ee6ab9c85ad0ae537"
+    },
+    "statement_import_batches": {
+      "count": 0,
+      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    "statement_import_rows": {
+      "count": 0,
+      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    "sync_item_runs": {
+      "count": 445,
+      "sha256": "72f429656138619d908926ea68404bfa71913d99e9820d2a2d18e0d45c29f474"
+    },
+    "sync_runs": {
+      "count": 89,
+      "sha256": "abcaf8958c06396340cbad4085f3999f69b8e39d20dc8b0a95b9c8e30e09165d"
+    },
+    "sync_runtime_state": {
+      "count": 1,
+      "sha256": "0d30f15bd4611e7ae0df05d75764a12f4773561e0c5dbdb4afc6e3f9a0d399ff"
+    },
+    "transactions": {
+      "count": 35619,
+      "sha256": "c120e00dd12dc0afa06c87aea6834bd857ba7fb7fd32df26c59deca0fbc30bf1"
+    }
+  },
+  "schema_equal_after_literal_cast_normalization": true,
+  "rows_equal": true,
+  "restore_database": "pft_restore_m5_c8fabc76fca544989c534f59e13ad245"
+}

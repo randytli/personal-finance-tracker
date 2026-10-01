@@ -1,0 +1,20 @@
+{
+  "kind": "injected_query_latency_not_cloud",
+  "delay_ms_per_query": 1,
+  "wall_s": 127.38804526301101,
+  "queries": 71379,
+  "identity_connection_s": 0.0065117010090034455,
+  "transaction_exit_samples_s": [
+    0.00018958101281896234,
+    0.0008911170007195324,
+    0.0018043619929812849,
+    0.00176698001450859,
+    0.0015371230256278068,
+    0.0017494260100647807,
+    0.0014738939935341477,
+    0.0038323640183079988
+  ],
+  "transaction_exit_total_s": 0.013244847068563104,
+  "status": "success",
+  "checked_out_after": 0
+}

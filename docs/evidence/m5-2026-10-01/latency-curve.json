@@ -1,0 +1,95 @@
+{
+  "kind": "injected_query_latency_curve_not_cloud",
+  "date": "2026-10-01",
+  "workload": "grown no-op fetched sync_all, 5 Items, 35,619 retained raw+normalized rows, local PG16 loopback",
+  "sleep_overshoot_ms_median": {
+    "3": 0.124,
+    "4": 0.151,
+    "5": 0.071
+  },
+  "runs": [
+    {
+      "delay_ms": 0,
+      "status": "success",
+      "wall_s": 49.6,
+      "queries": 71379,
+      "run_duration_ms": 49367,
+      "classification_ms": 20832
+    },
+    {
+      "delay_ms": 3,
+      "status": "success",
+      "wall_s": 289.3,
+      "queries": 71379,
+      "run_duration_ms": 287348,
+      "classification_ms": 140530,
+      "effective_ms_per_query": 3.358
+    },
+    {
+      "delay_ms": 4,
+      "status": "TimeoutError at existing MAX_RUN_SECONDS=300",
+      "run_duration_ms": 297707,
+      "sync_run_status": "failed",
+      "error_category": "publication_failed",
+      "classification_status": "not_run"
+    },
+    {
+      "delay_ms": 5,
+      "status": "TimeoutError at existing MAX_RUN_SECONDS=300",
+      "run_duration_ms": 298062,
+      "sync_run_status": "failed",
+      "error_category": "publication_failed",
+      "classification_status": "not_run"
+    }
+  ],
+  "post_timeout_state": {
+    "cursors_unchanged": true,
+    "raw_rows_unchanged": 35619,
+    "advisory_locks_held": 0,
+    "running_sync_runs": 0,
+    "checked_out_after": 0
+  },
+  "linear_projection_from_0ms_baseline": {
+    "1": {
+      "ms_per_retained_row": 3.4,
+      "rows_at_150s": 44161,
+      "today_2610_rows_s": 8.9,
+      "years_to_150s_at_1300_rows_per_year": 32.0
+    },
+    "2": {
+      "ms_per_retained_row": 5.4,
+      "rows_at_150s": 27774,
+      "today_2610_rows_s": 14.1,
+      "years_to_150s_at_1300_rows_per_year": 19.4
+    },
+    "3": {
+      "ms_per_retained_row": 7.4,
+      "rows_at_150s": 20257,
+      "today_2610_rows_s": 19.3,
+      "years_to_150s_at_1300_rows_per_year": 13.6
+    },
+    "4": {
+      "ms_per_retained_row": 9.41,
+      "rows_at_150s": 15943,
+      "today_2610_rows_s": 24.6,
+      "years_to_150s_at_1300_rows_per_year": 10.3
+    },
+    "5": {
+      "ms_per_retained_row": 11.41,
+      "rows_at_150s": 13143,
+      "today_2610_rows_s": 29.8,
+      "years_to_150s_at_1300_rows_per_year": 8.1
+    }
+  },
+  "limitations": "Sleep in before_cursor_execute blocks the event loop and approximates serial round trips only; no TLS, Supavisor, CPU contention, bank latency or cold start. Projection is linear in retained rows and assumes ~2 queries per retained row. Baseline 49.6 s is a cold-cache restart; earlier warm median was 40.5 s.",
+  "growth_assumption": "~1,300 retained rows/year: rough estimate from 2,610 rows over the ~730-day backfill, not a measured Production growth rate",
+  "interpretation": {
+    "evidence_class": "local injected-latency sensitivity test; not evidence of actual Vercel-to-Supabase performance",
+    "current_workload": "~2,610 retained rows has substantial modeled headroom (~9-30 s no-op cycle at 1-5 ms)",
+    "query_amplification": "~2.0 statements per retained row on every cycle including no-op; approximately linear with retained history; remains an architectural risk",
+    "application_deadline": "MAX_RUN_SECONDS=300 is not acceptable at a 300 s platform hard limit; unchanged for now",
+    "deadline_candidate": "~240 s bounded deadline is a candidate only, pending validation of actual cloud cancellation/termination/finalization/unlock",
+    "optimization": "no query-amplification optimization in M5",
+    "next_decisive_measurement": "actual Vercel-to-Supabase DB round-trip latency and total sync_all wall time on the disposable synthetic cloud environment"
+  }
+}
