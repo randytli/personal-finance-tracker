@@ -1,7 +1,7 @@
 'use client'
 
 import { apiFetch } from '@/lib/api'
-import { Amount, ChartLegend, ChartMonthlyTotals, ChipRow, ControlField, DayGroup, LoadingState, MoreTags, PageHeader, PageNavigation, Pagination, SectionCard, SectionHeader, SelectAllBar, Sparkline, StatButton, TransactionRow, chartAxisTick, chartTooltipStyle, compactMoney, fieldClassName, groupByDay, pageClassName, quietLinkClassName, trackingCallout, trackingColor, trackingGradient, trackingText, trendTracking, useNarrowViewport } from '@/components/page-presentation'
+import { Amount, ChartLegend, ChartMonthlyTotals, ChipRow, ControlField, DayGroup, LoadingState, MoreTags, PageHeader, PageNavigation, Pagination, SectionCard, SectionHeader, SelectAllBar, Sparkline, SummaryCard, TransactionRow, chartAxisTick, chartTooltipStyle, compactMoney, fieldClassName, groupByDay, pageClassName, quietLinkClassName, signedDisplay, trackingCallout, trackingCaption, trackingColor, trackingGradient, trackingText, trendTracking, useNarrowViewport } from '@/components/page-presentation'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowDownRight, ArrowUpRight, ChevronRight, CircleAlert, CircleCheck } from 'lucide-react'
 import {
@@ -57,7 +57,18 @@ type Monthly = {
   category_net_breakdown?: NetCategory[]
 }
 
-type TrendMonth = { month: string; net_spending: string; income: string; net_savings: string }
+type TrendMonth = { month: string; net_spending: string; income: string; net_savings: string; reimbursements?: string }
+type MonthlyField = 'net_spending' | 'gross_spending' | 'refunds' | 'reimbursements' | 'card_benefits'
+
+// Summary cards in display order. Net Spending and Reimbursements have 12-month values in the
+// trend payload; the other components read the existing monthly summaries when selected.
+const SUMMARY_METRICS: Array<{ key: SpendingComponent; label: string; field: MonthlyField; trendKey?: 'net_spending' | 'reimbursements'; higherIsBetter: boolean }> = [
+  { key: 'net', label: 'Net Spending', field: 'net_spending', trendKey: 'net_spending', higherIsBetter: false },
+  { key: 'gross', label: 'Gross Spending', field: 'gross_spending', higherIsBetter: false },
+  { key: 'refunds', label: 'Refunds', field: 'refunds', higherIsBetter: true },
+  { key: 'reimbursements', label: 'Reimbursements', field: 'reimbursements', trendKey: 'reimbursements', higherIsBetter: true },
+  { key: 'card_benefits', label: 'Card Benefits', field: 'card_benefits', higherIsBetter: true },
+]
 type BreakdownGroup = {
   institution_id: string
   institution_name: string
@@ -290,16 +301,42 @@ export default function HomePage() {
     { value: 'expense' as const, label: 'Expense', eligibleCount: selectedDetailsRows.filter(detail => Number(detail.amount) < 0 && detail.is_internal_transfer !== true).length },
   ]
 
-  const tracking = useMemo(() => trendTracking(trend.map(value => Number(value.net_spending))), [trend])
-  const chartData = useMemo(() => trend.map((value) => ({
+  const selectedMetric = SUMMARY_METRICS.find(option => option.key === categoryMode)!
+  const metricTrendKey = selectedMetric.trendKey
+  const [componentHistory, setComponentHistory] = useState<{ trend: TrendMonth[]; months: Record<string, Monthly> } | null>(null)
+  const [historyError, setHistoryError] = useState(false)
+  const [historyRetry, setHistoryRetry] = useState(0)
+
+  // Components without trend values load the same months' summaries from the monthly endpoint,
+  // only while one of them is selected. Failures stay inside the trend card.
+  useEffect(() => {
+    if (metricTrendKey || trend.length === 0 || componentHistory?.trend === trend) return
+    let active = true
+    setHistoryError(false)
+    const months = trend.map(value => value.month)
+    consistentJson(months.map(value => `/api/pft/analytics/monthly?month=${value}`), sync.check)
+      .then(data => { if (active) setComponentHistory({ trend, months: Object.fromEntries(months.map((value, index) => [value, data[index]])) }) })
+      .catch(() => { if (active) setHistoryError(true) })
+    return () => { active = false }
+  }, [metricTrendKey, trend, componentHistory, historyRetry, sync.check])
+
+  const series = useMemo(() => trend.map(value => metricTrendKey
+    ? Number(value[metricTrendKey] ?? NaN)
+    : componentHistory?.trend === trend ? Number(componentHistory.months[value.month]?.[selectedMetric.field] ?? NaN) : NaN),
+  [trend, metricTrendKey, componentHistory, selectedMetric.field])
+  const seriesReady = series.length > 0 && series.every(Number.isFinite)
+  const tracking = useMemo(() => seriesReady ? trendTracking(series, selectedMetric.higherIsBetter) : null, [series, seriesReady, selectedMetric.higherIsBetter])
+  const chartData = useMemo(() => trend.map((value, index) => ({
     month: value.month,
+    value: series[index],
     netSpending: Number(value.net_spending),
     income: Number(value.income),
     netSavings: Number(value.net_savings),
     average: tracking?.average ?? 0,
-  })), [trend, tracking])
+  })), [trend, series, tracking])
   // The trend ends at the selected month, so the entry before it is last month.
-  const lastMonth = trend.length > 1 && trend.at(-1)?.month === month ? trend.at(-2) : undefined
+  const lastMonthIndex = trend.length > 1 && trend.at(-1)?.month === month ? trend.length - 2 : -1
+  const lastMonth = lastMonthIndex >= 0 ? trend[lastMonthIndex] : undefined
   function selectCategoryMode(mode: SpendingComponent) {
     setCategoryMode(mode)
     setDetailFilter(null)
@@ -321,6 +358,7 @@ export default function HomePage() {
 
   const filterChip = 'capitalize'
   const netSavings = Number(monthly?.net_savings ?? 0)
+  const totalsColumns = [{ key: 'netSpending', label: 'Net Spending' }, { key: 'income', label: 'Income' }, { key: 'netSavings', label: 'Net Savings' }]
   return (
     <>
     <PageNavigation current="Overview" />
@@ -344,46 +382,52 @@ export default function HomePage() {
 
       {monthly && !loading && (
         <>
-          <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-[minmax(0,1.7fr)_minmax(0,1fr)]">
-            <SectionCard aria-label="Monthly financial summary" className="min-w-0 sm:col-span-2 lg:col-span-1 lg:row-span-2">
-              <SectionHeader title="Monthly spending" actions={<button type="button" className={quietLinkClassName}
+          <section aria-label="Monthly financial summary" className="mt-6">
+            <div className="grid grid-cols-1 gap-3 min-[380px]:grid-cols-2 md:grid-cols-4 min-[1400px]:grid-cols-[minmax(0,1.45fr)_repeat(4,minmax(0,1fr))]">
+              {SUMMARY_METRICS.map(option => <SummaryCard key={option.key} label={option.label} value={money(monthly[option.field])}
+                selected={categoryMode === option.key} onClick={() => selectCategoryMode(option.key)} primary={option.key === 'net'}
+                className={option.key === 'net' ? 'min-[380px]:col-span-2 md:col-span-4 min-[1400px]:col-span-1' : undefined} />)}
+            </div>
+            <p className="mt-2 text-xs text-muted-foreground">Net Spending = Gross Spending − Refunds − Reimbursements − Card Benefits.</p>
+          </section>
+
+          <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-[minmax(0,1.7fr)_minmax(0,1fr)]">
+            <SectionCard aria-label="12-month trend" className="min-w-0 sm:col-span-2 lg:col-span-1 lg:row-span-2">
+              <SectionHeader title={`${selectedMetric.label} trend`} description="Last 12 months" actions={<button type="button" className={quietLinkClassName}
                 onClick={() => setDetailFilter({ transactionType: 'unclassified' })}>Needs Review ({monthly.unclassified_count})<ChevronRight aria-hidden="true" /></button>} />
               <div className="flex flex-col items-center px-4 text-center">
-                <button type="button" aria-pressed={categoryMode === 'net'} onClick={() => selectCategoryMode('net')}
-                  className={cn('flex max-w-full flex-col items-center rounded-2xl px-4 py-1.5 transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring', categoryMode === 'net' && 'bg-primary/10')}>
-                  <span className="order-2 text-sm font-semibold text-muted-foreground">Net Spending</span>{' '}
-                  <span className="money order-1 text-[26px] font-bold leading-tight tracking-tight min-[380px]:text-[30px] sm:text-[34px]">{money(monthly.net_spending)}</span>
-                </button>
-                {lastMonth && <p className="mt-1 text-sm font-medium text-info"><span className="money">{money(lastMonth.net_spending)}</span> last month</p>}
+                <p className="money text-[26px] font-bold leading-tight tracking-tight min-[380px]:text-[30px]">{money(monthly[selectedMetric.field])}</p>
+                <p className="text-sm font-semibold text-muted-foreground">{selectedMetric.label} this month</p>
+                {lastMonthIndex >= 0 && Number.isFinite(series[lastMonthIndex]) && <p className="mt-1 text-sm font-medium text-info"><span className="money">{money(String(series[lastMonthIndex]))}</span> last month</p>}
               </div>
               <div className="px-2 pt-2 sm:px-4">
                 <div className="h-48 min-w-0 sm:h-56">
                   {chartData.length > 0 && tracking ? <ResponsiveContainer width="100%" height="100%">
                     <LineChart accessibilityLayer data={chartData} margin={{ top: 16, right: 12, bottom: 0, left: 0 }}>
-                      {trackingGradient('net-spending-tracking', tracking)}
+                      {trackingGradient(`${categoryMode}-tracking`, tracking)}
                       <XAxis dataKey="month" tickLine={false} axisLine={false} tick={chartAxisTick} minTickGap={narrowViewport ? 40 : 18} tickFormatter={value => value.slice(5)} />
                       <YAxis hide domain={['auto', 'auto']} />
                       <Tooltip trigger={narrowViewport ? 'click' : 'hover'} position={narrowViewport ? { x: 4, y: 4 } : undefined} wrapperStyle={{ maxWidth: 'calc(100% - 8px)' }} formatter={(value) => money(String(value))} contentStyle={chartTooltipStyle} cursor={{ stroke: 'hsl(var(--border))' }} />
                       <Line type="monotone" dataKey="average" name="12-month average" stroke="hsl(var(--muted-foreground))" strokeOpacity={0.6} strokeWidth={1.5} strokeDasharray="4 5" dot={false} activeDot={false} tooltipType="none" isAnimationActive={false} />
-                      <Line type="monotone" dataKey="netSpending" name="Net Spending" stroke={tracking.flat ? trackingColor[tracking.tone] : 'url(#net-spending-tracking)'} strokeWidth={3} strokeLinecap="round"
+                      <Line type="monotone" dataKey="value" name={selectedMetric.label} stroke={tracking.flat ? trackingColor[tracking.tone] : `url(#${categoryMode}-tracking)`} strokeWidth={3} strokeLinecap="round"
                         dot={trackingCallout(chartData.length - 1, tracking)} activeDot={{ r: 5 }} isAnimationActive={false} />
                     </LineChart>
-                  </ResponsiveContainer> : <p className="flex h-full items-center justify-center text-sm text-muted-foreground">No trend data for this period.</p>}
+                  </ResponsiveContainer> : <div className="flex h-full flex-col items-center justify-center gap-2 text-sm text-muted-foreground">
+                    {chartData.length === 0 ? 'No trend data for this period.'
+                      : historyError ? <>
+                        <span>The 12-month {selectedMetric.label} history could not be loaded.</span>
+                        <Button type="button" variant="outline" size="sm" onClick={() => { setComponentHistory(null); setHistoryRetry(value => value + 1) }}>Retry history</Button>
+                      </> : <span role="status">Loading 12-month {selectedMetric.label} history…</span>}
+                  </div>}
                 </div>
                 <div className="mt-2 flex flex-wrap items-center justify-between gap-x-4 gap-y-1 px-2">
-                  <ChartLegend items={[{ label: 'Net Spending', color: tracking ? trackingColor[tracking.tone] : 'hsl(var(--chart-1))' }, { label: '12-month average', color: 'hsl(var(--muted-foreground))', dashed: true }]} />
+                  <ChartLegend items={[{ label: selectedMetric.label, color: tracking ? trackingColor[tracking.tone] : 'hsl(var(--chart-1))' }, { label: '12-month average', color: 'hsl(var(--muted-foreground))', dashed: true }]} />
                   {tracking && <p className="text-xs font-semibold" style={{ color: trackingColor[tracking.tone] }}>Latest month: {trackingText(tracking).replace(' avg', ' average')}</p>}
                 </div>
-                <p className="mt-1 px-2 text-xs text-muted-foreground">The line runs green below the average and red above it.</p>
-                <div className="px-2"><ChartMonthlyTotals rows={chartData} columns={[{ key: 'netSpending', label: 'Net Spending' }, { key: 'income', label: 'Income' }, { key: 'netSavings', label: 'Net Savings' }]} money={money} /></div>
+                {tracking && <p className="mt-1 px-2 text-xs text-muted-foreground">{trackingCaption(tracking)}</p>}
+                <div className="px-2 pb-4"><ChartMonthlyTotals rows={chartData}
+                  columns={selectedMetric.key !== 'net' && seriesReady ? [{ key: 'value', label: selectedMetric.label }, ...totalsColumns] : totalsColumns} money={money} /></div>
               </div>
-              <div role="group" aria-label="Spending components" className="mt-3 grid grid-cols-1 gap-1 border-t p-2 min-[380px]:grid-cols-2 md:grid-cols-4 sm:p-3">
-                <StatButton label="Gross Spending" value={money(monthly.gross_spending)} selected={categoryMode === 'gross'} onClick={() => selectCategoryMode('gross')} />
-                <StatButton label="Refunds" operator="−" value={money(monthly.refunds)} selected={categoryMode === 'refunds'} onClick={() => selectCategoryMode('refunds')} />
-                <StatButton label="Reimbursements" operator="−" value={money(monthly.reimbursements)} selected={categoryMode === 'reimbursements'} onClick={() => selectCategoryMode('reimbursements')} />
-                <StatButton label="Card Benefits" operator="−" value={money(monthly.card_benefits)} selected={categoryMode === 'card_benefits'} onClick={() => selectCategoryMode('card_benefits')} />
-              </div>
-              <p className="px-4 pb-4 text-xs text-muted-foreground sm:px-5">Net Spending = Gross Spending − Refunds − Reimbursements − Card Benefits.</p>
             </SectionCard>
 
             <SectionCard aria-label="Income" className="flex min-w-0 flex-col p-4 sm:p-5">
@@ -405,9 +449,9 @@ export default function HomePage() {
                   {netSavings >= 0 ? 'Saved' : 'Overspent'}
                 </span>
               </div>
-              <p className={cn('money mt-3 text-2xl font-bold tracking-tight', netSavings >= 0 ? 'text-success' : 'text-destructive')}>{money(monthly.net_savings)}</p>
+              <p className={cn('money mt-3 text-2xl font-bold tracking-tight', netSavings >= 0 ? 'text-success' : 'text-destructive')}>{signedDisplay(money(monthly.net_savings))}</p>
               <Sparkline values={trend.map(value => Number(value.net_savings))} color="hsl(var(--chart-1))" />
-              {lastMonth && <p className="mt-1 text-sm font-medium text-info"><span className="money">{money(lastMonth.net_savings)}</span> last month</p>}
+              {lastMonth && <p className="mt-1 text-sm font-medium text-info"><span className="money">{signedDisplay(money(lastMonth.net_savings))}</span> last month</p>}
               <p className="mt-auto pt-3 text-xs text-muted-foreground">12-month trend. Income − Net Spending.</p>
             </SectionCard>
           </div>
@@ -415,7 +459,8 @@ export default function HomePage() {
           <div className="mt-4 grid items-start gap-4 lg:grid-cols-2">
             <SpendingCategoryView categories={monthly.category_net_breakdown || []} metric={categoryMode}
               selectedCategory={detailFilter?.canonicalCategory} selectedComponent={detailFilter?.spendingComponent}
-              onSelect={(category, component) => setDetailFilter({ canonicalCategory: category, spendingComponent: component })}
+              onSelect={(category, component) => setDetailFilter(current => current?.canonicalCategory === category && current.spendingComponent === component
+                ? null : { canonicalCategory: category, spendingComponent: component })}
               money={money} detailsId="overview-transaction-details" />
 
           <SectionCard className="min-w-0">

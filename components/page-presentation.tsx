@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { useEffect, useId, useState, type HTMLAttributes, type ReactNode } from 'react'
-import { ChevronDown, ChevronLeft, ChevronRight, CircleAlert, LayoutGrid, ListChecks, Repeat } from 'lucide-react'
+import { ChevronDown, ChevronLeft, ChevronRight, CircleAlert, CircleCheck, LayoutGrid, ListChecks, Repeat } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
@@ -213,6 +213,26 @@ export function StatButton({ label, value, operator, selected, onClick, color }:
   </button>
 }
 
+// Selectable summary figure; exactly one in a group is pressed. The check icon marks the
+// selection without relying on the accent colour alone.
+export function SummaryCard({ label, value, selected, onClick, primary = false, className }: {
+  label: string; value: string; selected: boolean; onClick: () => void; primary?: boolean; className?: string
+}) {
+  return <button type="button" aria-pressed={selected} onClick={onClick}
+    className={cn(cardClassName, 'relative flex min-w-0 flex-col items-start gap-1 p-3 text-left transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:p-4',
+      selected && 'border-info/80 bg-primary/15 ring-1 ring-inset ring-info/60 hover:bg-primary/20', className)}>
+    <span className="flex w-full items-center justify-between gap-2 text-[13px] font-semibold text-muted-foreground">
+      {label}{selected && <CircleCheck aria-hidden="true" className="size-4 shrink-0 text-info" />}
+    </span>{' '}
+    <span className={cn('money font-bold tracking-tight', primary ? 'text-[26px] leading-tight min-[380px]:text-[30px]' : 'text-base min-[1280px]:text-lg')}>{value}</span>
+  </button>
+}
+
+// Signed display with a true minus sign (U+2212) for figures shown on their own.
+export function signedDisplay(formatted: string) {
+  return formatted.startsWith('-') ? `−${formatted.slice(1)}` : formatted
+}
+
 export function LoadingState({ label, rows = 3 }: { label: string; rows?: number }) {
   return <div aria-busy="true" className="mt-6 flex flex-col gap-3">
     <span className="sr-only">{label}</span>
@@ -317,10 +337,11 @@ export const chartTooltipStyle = {
 
 export const chartAxisTick = { fontSize: 11, fill: 'hsl(var(--muted-foreground))' }
 
-export type Tracking = { average: number; latest: number; difference: number; flat: boolean; averageOffset: number; tone: 'good' | 'on' | 'bad' }
+export type Tracking = { average: number; latest: number; difference: number; flat: boolean; averageOffset: number; tone: 'good' | 'on' | 'bad'; higherIsBetter: boolean }
 
-// Where the latest month sits against the period average. Lower spending is good.
-export function trendTracking(values: number[]): Tracking | null {
+// Where the latest month sits against the period average. Lower spending is good; for credits
+// (refunds, reimbursements, card benefits) higher is good.
+export function trendTracking(values: number[], higherIsBetter = false): Tracking | null {
   const finite = values.filter(Number.isFinite)
   if (finite.length === 0) return null
   const average = finite.reduce((total, value) => total + value, 0) / finite.length
@@ -330,8 +351,8 @@ export function trendTracking(values: number[]): Tracking | null {
   const flat = max - min <= Math.max(Math.abs(max), 1) * 1e-6
   // "On average" means within a tenth of the period's own range, so the callout agrees with the line colour.
   const tolerance = Math.max((max - min) * 0.1, 0.005)
-  const tone = flat || Math.abs(difference) <= tolerance ? 'on' : difference < 0 ? 'good' : 'bad'
-  return { average, latest, difference, flat, averageOffset: flat ? 0.5 : (max - average) / (max - min), tone }
+  const tone = flat || Math.abs(difference) <= tolerance ? 'on' : (difference > 0) === higherIsBetter ? 'good' : 'bad'
+  return { average, latest, difference, flat, averageOffset: flat ? 0.5 : (max - average) / (max - min), tone, higherIsBetter }
 }
 
 export const trackingColor = { good: 'hsl(var(--success))', on: 'hsl(var(--warning))', bad: 'hsl(var(--destructive))' }
@@ -341,14 +362,18 @@ export function trackingText(tracking: Tracking) {
   return `${tracking.difference < 0 ? '↓' : '↑'} ${compactMoney(Math.abs(tracking.difference))} ${tracking.difference < 0 ? 'under' : 'over'} avg`
 }
 
-// Vertical gradient for the tracking line: red above the average, amber at it, green below.
+export function trackingCaption(tracking: Tracking) {
+  return tracking.higherIsBetter ? 'The line runs green above the average and red below it.' : 'The line runs green below the average and red above it.'
+}
+
+// Vertical gradient for the tracking line: amber at the average, red on the bad side, green on the good side.
 // Called as a function so the chart receives a literal <defs> child (Recharts drops unknown components).
 export function trackingGradient(id: string, tracking: Tracking) {
   return <defs>
     <linearGradient id={id} x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stopColor={trackingColor.bad} />
+      <stop offset="0" stopColor={tracking.higherIsBetter ? trackingColor.good : trackingColor.bad} />
       <stop offset={Math.min(1, Math.max(0, tracking.averageOffset))} stopColor={trackingColor.on} />
-      <stop offset="1" stopColor={trackingColor.good} />
+      <stop offset="1" stopColor={tracking.higherIsBetter ? trackingColor.bad : trackingColor.good} />
     </linearGradient>
   </defs>
 }

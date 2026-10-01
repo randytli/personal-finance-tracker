@@ -185,7 +185,7 @@ async function overviewFlow(page, data, width) {
  if (width < 768) {
   await page.getByRole('button', { name: 'View full breakdown' }).click()
   const dialog = page.getByRole('dialog'); await dialog.waitFor()
-  await dialog.locator('summary').filter({ hasText: 'Dining' }).click()
+  await dialog.getByRole('button', { name: 'Breakdown for Dining', exact: true }).click()
   await dialog.getByRole('button', { name: /^Card Benefits transactions for Dining:/ }).click(); await idle(page)
   await page.getByRole('dialog').waitFor({ state: 'detached' })
   await page.waitForFunction(() => document.activeElement?.id === 'overview-transaction-details', null, { timeout: 5000 })
