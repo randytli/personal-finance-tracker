@@ -4,48 +4,37 @@
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
-    --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
-    --primary: 221.2 83.2% 53.3%;
-    --primary-foreground: 210 40% 98%;
-    --secondary: 210 40% 96%;
-    --secondary-foreground: 222.2 84% 4.9%;
-    --muted: 210 40% 96%;
-    --muted-foreground: 215.4 16.3% 46.9%;
-    --accent: 210 40% 96%;
-    --accent-foreground: 222.2 84% 4.9%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 221.2 83.2% 53.3%;
-    --radius: 0.5rem;
-  }
-
-  .dark {
-    --background: 222.2 84% 4.9%;
-    --foreground: 210 40% 98%;
-    --card: 222.2 84% 4.9%;
-    --card-foreground: 210 40% 98%;
-    --popover: 222.2 84% 4.9%;
-    --popover-foreground: 210 40% 98%;
-    --primary: 217.2 91.2% 59.8%;
-    --primary-foreground: 222.2 84% 4.9%;
-    --secondary: 217.2 32.6% 17.5%;
-    --secondary-foreground: 210 40% 98%;
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
-    --accent: 217.2 32.6% 17.5%;
-    --accent-foreground: 210 40% 98%;
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
-    --ring: 224.3 76.3% 94.1%;
+    /* Night ledger: dark-first navy, cards one step lighter, signal colours for tracking. */
+    color-scheme: dark;
+    --background: 222 54% 5%;
+    --foreground: 220 45% 93%;
+    --card: 222 50% 9%;
+    --card-foreground: 220 45% 93%;
+    --popover: 222 46% 12%;
+    --popover-foreground: 220 45% 93%;
+    --primary: 223 69% 53%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 222 46% 13%;
+    --secondary-foreground: 220 45% 93%;
+    --muted: 222 46% 13%;
+    --muted-foreground: 222 23% 65%;
+    --accent: 222 44% 14%;
+    --accent-foreground: 220 45% 93%;
+    --destructive: 0 84% 67%;
+    --destructive-foreground: 222 54% 5%;
+    --border: 222 40% 17%;
+    --input: 222 33% 25%;
+    --ring: 223 89% 70%;
+    --radius: 0.75rem;
+    --success: 151 65% 54%;
+    --success-soft: 152 45% 12%;
+    --warning: 40 89% 60%;
+    --warning-soft: 38 50% 12%;
+    --info: 223 89% 72%;
+    --info-soft: 223 50% 15%;
+    --chart-1: 223 89% 66%;
+    --chart-2: 151 65% 54%;
+    --chart-4: 268 80% 74%;
   }
 }
 
@@ -54,7 +43,33 @@
     @apply border-border;
   }
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background font-sans text-foreground antialiased;
+  }
+  h1, h2, h3 {
+    @apply tracking-tight;
+  }
+  /* Category emoji come from data-emoji so they stay out of text content and accessible names.
+     Colour emoji fonts first; Windows uses Segoe UI Emoji, phones their system emoji. */
+  .category-emoji::before {
+    content: attr(data-emoji);
+    font-family: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", "Twemoji Mozilla", sans-serif;
+    font-style: normal;
+    font-weight: 400;
+    line-height: 1;
+    letter-spacing: 0;
+    text-transform: none;
+  }
+  /* Money: tabular figures so amounts align, and never broken across lines. */
+  .money {
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+}
+
+@layer base {
+  .pft-app input[type="checkbox"],
+  .pft-app input[type="radio"] {
+    accent-color: hsl(var(--primary));
   }
 }
 
@@ -96,5 +111,22 @@
   }
   .pft-app label:has(> input[type="radio"]) {
     min-height: 44px;
+  }
+  /* Keep the 44px row checkbox hit area while aligning the box with the row title and gutter. */
+  .pft-app [data-row-select] {
+    padding-top: 0;
+    margin: -10px -12px 0;
+  }
+  .pft-app [data-row-select] > label {
+    justify-content: center;
+  }
+}
+
+/* Desktop shell: the navigation becomes a left sidebar beside the page content. */
+@media (min-width: 1024px) {
+  .pft-app:has(> [data-app-nav]) {
+    display: grid;
+    grid-template-columns: 15rem minmax(0, 1fr);
+    align-items: start;
   }
 }

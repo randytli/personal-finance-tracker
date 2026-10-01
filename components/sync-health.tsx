@@ -1,6 +1,8 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { ChevronDown, TriangleAlert } from 'lucide-react'
+import { cn } from '@/lib/utils'
 
 export type SyncStatus = {
   last_published_run_id: string | null
@@ -108,16 +110,22 @@ export function SyncHealth({ status, error, onRetry }: { status: SyncStatus | nu
     ]),
   ].filter((warning): warning is string => Boolean(warning)) : []
 
-  return <section aria-label="Sync and backup health" className="break-words rounded-lg border bg-card px-4 py-3 text-sm shadow-sm [overflow-wrap:anywhere]">
-    <details>
-      <summary className="cursor-pointer font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-        <span className="ml-2">Sync and backup health</span>
-        <span className="ml-2 block text-xs font-normal text-muted-foreground sm:inline sm:text-sm">
+  const tone = error ? 'bg-destructive' : !status ? 'bg-muted-foreground/40 animate-pulse' : warnings.length ? 'bg-warning' : 'bg-success'
+  return <section aria-label="Sync and backup health" className={cn('overflow-hidden break-words rounded-2xl border bg-card text-sm [overflow-wrap:anywhere]', warnings.length > 0 && 'border-warning/30')}>
+    <details className="group px-3 py-2 sm:px-4">
+      <summary className="flex cursor-pointer list-none flex-wrap items-center gap-x-2 gap-y-0.5 rounded-md font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
+        <span aria-hidden="true" className={cn('size-2 shrink-0 rounded-full', tone)} />
+        <span>Sync and backup health</span>
+        {warnings.length > 0 && <span className="rounded-full bg-warning/15 px-2 py-0.5 text-xs font-bold text-warning">
+          {warnings.length} {warnings.length === 1 ? 'warning' : 'warnings'}
+        </span>}
+        <ChevronDown aria-hidden="true" className="ml-auto size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180 sm:order-last" />
+        <span className="basis-full pl-4 text-xs font-normal text-muted-foreground sm:basis-auto sm:pl-0 sm:text-sm">
           {status ? `· Last published ${time(status.published_at)}` : '· Checking status…'}
         </span>
-        {!error && status && warnings.length === 0 && <span className="ml-2 font-normal text-muted-foreground">· All clear</span>}
+        {!error && status && warnings.length === 0 && <span className="font-normal text-success">· All clear</span>}
       </summary>
-      {status && <div className="mt-3 border-t pt-3">
+      {status && <div className="mt-2.5 border-t pt-2.5 text-[13px]">
         <p className="mb-2 text-xs text-muted-foreground">{error ? 'Last reported status. API reachability could not be verified.' : 'API reachable. Bank freshness is shown separately for each institution.'}</p>
         <p>Latest run: {status.current_run?.status || 'None'}</p>
         <p>Jobs: {status.jobs.status} · Last heartbeat: {time(status.jobs.heartbeat_at)}</p>
@@ -126,17 +134,17 @@ export function SyncHealth({ status, error, onRetry }: { status: SyncStatus | nu
         {status.institutions.map(item => <li key={item.item_id} className="border-t pt-2">
           <details>
           <summary className="cursor-pointer rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-          <strong>{item.institution_name}</strong> ({item.status}{item.sync_paused ? ', paused' : ''})
+          <strong className="inline-block max-w-full truncate align-bottom font-semibold" title={item.institution_name}>{item.institution_name}</strong> ({item.status}{item.sync_paused ? ', paused' : ''})
           <span className="block text-xs text-muted-foreground">Last bank check: {time(item.last_success_at)}</span>
           </summary>
-          <div className="py-2 text-xs">
+          <div className="py-2 text-xs text-muted-foreground">
           Last attempt: {time(item.last_attempt_at)}
           {' · '}Last change: {time(item.last_change_at)}
-          {item.metadata_warning && <span className="text-amber-700">
+          {item.metadata_warning && <span className="text-warning">
             {' · '}Metadata warning: {item.metadata_warning} ({time(item.metadata_warning_at || null)})
           </span>}
           {item.latest_outcome && <> · {item.latest_outcome.status}
-            {item.latest_outcome.error_category && <span className="text-amber-700">
+            {item.latest_outcome.error_category && <span className="text-warning">
               {' · '}{item.latest_outcome.phase}: {item.latest_outcome.error_category}
             </span>}
             {' · '}Added {item.latest_outcome.counts.added_count}, modified {item.latest_outcome.counts.modified_count}, removed {item.latest_outcome.counts.removed_count}
@@ -148,11 +156,13 @@ export function SyncHealth({ status, error, onRetry }: { status: SyncStatus | nu
         </ul>
       </div>}
     </details>
-    {error && <p role="alert" className="mt-2 text-destructive">Status unavailable. {status ? 'Last reported values are shown; bank freshness could not be verified.' : 'Bank freshness could not be verified.'}
-      {onRetry && <button type="button" className="ml-2 rounded-md px-2 underline" onClick={onRetry}>Retry status</button>}
+    {error && <p role="alert" className="border-t bg-destructive/5 px-4 py-2.5 text-destructive">Status unavailable. {status ? 'Last reported values are shown; bank freshness could not be verified.' : 'Bank freshness could not be verified.'}
+      {onRetry && <button type="button" className="ml-2 rounded-md px-2 font-medium underline underline-offset-4" onClick={onRetry}>Retry status</button>}
     </p>}
-    {warnings.length > 0 && <ul tabIndex={0} className="mt-2 flex max-h-48 flex-col gap-1 overflow-y-auto overscroll-contain text-destructive sm:max-h-none" aria-label="Sync and backup warnings">
-      {warnings.map((warning, index) => <li key={`${warning}-${index}`}>{warning}</li>)}
+    {warnings.length > 0 && <ul tabIndex={0} className="flex max-h-[4.5rem] flex-col gap-0.5 overflow-y-auto overscroll-contain border-t px-3 py-2 text-xs text-muted-foreground sm:px-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring" aria-label="Sync and backup warnings">
+      {warnings.map((warning, index) => <li key={`${warning}-${index}`} className="flex min-w-0 items-center gap-2" title={warning}>
+        <TriangleAlert aria-hidden="true" className="size-3.5 shrink-0 text-warning" /><span className="min-w-0 truncate">{warning}</span>
+      </li>)}
     </ul>}
   </section>
 }

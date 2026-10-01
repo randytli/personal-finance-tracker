@@ -1,7 +1,11 @@
 'use client'
 
-import { PageNavigation, TransactionTools, TransactionTypeBadge, useTransactionPageSize } from '@/components/page-presentation'
+import { Amount, ControlField, DayGroup, LoadingState, MoreTags, PageHeader, PageNavigation, Pagination, SelectAllBar, TransactionRow, TransactionTools, TransactionTypeBadge, cardClassName, fieldClassName, groupByDay, pageClassName, useTransactionPageSize } from '@/components/page-presentation'
+import { Alert } from '@/components/ui/alert'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
+import { CircleAlert, CircleCheck } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import AccountBadge from '@/components/account-badge'
 import BulkTransactionEditor, { bulkErrorMessage, type BulkEditRequest } from '@/components/bulk-transaction-editor'
@@ -224,153 +228,154 @@ export default function ReviewPage() {
         && transaction.effective_is_internal_transfer !== true).length },
   ]
 
+  const controlsBusy = bulkBusy || busy !== null
   return (
-    <main className="mx-auto max-w-7xl px-4 pb-10 pt-4 sm:px-6 sm:pt-6">
-      <PageNavigation current="Review" />
-      <div className="mt-6 flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-3xl font-semibold tracking-tight">{mode === 'needs_review' ? 'Needs Review' : 'Credits & Transfers'}</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Classify ambiguous transactions without changing automatic rules.
-          </p>
-        </div>
-        <p className="text-sm font-medium">{total} {mode === 'needs_review' ? 'remaining' : 'matching transactions'}</p>
-      </div>
+    <>
+    <PageNavigation current="Review" />
+    <main className={pageClassName}>
+      <PageHeader title={mode === 'needs_review' ? 'Needs Review' : 'Credits & Transfers'}
+        description="Classify ambiguous transactions without changing automatic rules."
+        actions={<Badge variant={mode === 'needs_review' && total > 0 ? 'warning' : 'secondary'} className="text-sm tabular-nums">
+          {total} {mode === 'needs_review' ? 'remaining' : 'matching transactions'}
+        </Badge>} />
       <div className="mt-5"><SyncHealth status={sync.status} error={sync.error} onRetry={() => { void sync.check().catch(() => undefined) }} /></div>
-      <section aria-label="Review controls" className="mt-6 rounded-lg border bg-card p-4 shadow-sm">
-      <nav aria-label="Review views" className="flex flex-wrap gap-2">
-        {(['needs_review', 'credits_transfers'] as const).map((view) => (
-          <Button size="sm" variant={mode === view ? 'secondary' : 'ghost'} key={view} aria-pressed={mode === view} disabled={bulkBusy || busy !== null}
-            onClick={() => { setMode(view); setDirection('incoming'); setOffset(0); setTypeFilter('all'); setChoices({}); setSelected(new Set()) }}>
-            {view === 'needs_review' ? 'Needs Review' : 'Credits & Transfers'}
-          </Button>
-        ))}
-      </nav>
-      {mode === 'credits_transfers' && <div className="mt-4 flex flex-wrap gap-4">
-        <label className="flex flex-wrap items-center gap-2 text-sm">Direction{' '}
-          <select aria-label="Direction filter" value={direction} disabled={bulkBusy || busy !== null}
-            className="min-h-9 max-w-full rounded-md border bg-background px-3 py-2"
-            onChange={(event) => { setDirection(event.target.value as typeof direction); setOffset(0); setChoices({}); setSelected(new Set()) }}>
-            <option value="incoming">Incoming</option><option value="outgoing">Outgoing</option><option value="all">All</option>
-          </select>
-        </label>
-        <label className="flex flex-wrap items-center gap-2 text-sm">Effective type{' '}
-          <select aria-label="Effective type filter" value={typeFilter} disabled={bulkBusy || busy !== null}
-            className="min-h-9 max-w-full rounded-md border bg-background px-3 py-2"
-            onChange={(event) => { setTypeFilter(event.target.value); setOffset(0); setChoices({}); setSelected(new Set()) }}>
-            {FILTERS.map((type) => <option key={type} value={type}>{type === 'card_benefit' ? 'Card Benefit' : type.charAt(0).toUpperCase() + type.slice(1)}</option>)}
-          </select>
-        </label>
-      </div>}
-
+      <section aria-label="Review controls" className="mt-6 flex flex-wrap items-end justify-between gap-3">
+        <nav aria-label="Review views" className="inline-flex flex-wrap gap-0.5 rounded-full border bg-card p-1">
+          {(['needs_review', 'credits_transfers'] as const).map((view) => (
+            <Button size="sm" variant="ghost" key={view} aria-pressed={mode === view} disabled={controlsBusy}
+              className={cn('text-muted-foreground hover:bg-accent', mode === view && 'bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground')}
+              onClick={() => { setMode(view); setDirection('incoming'); setOffset(0); setTypeFilter('all'); setChoices({}); setSelected(new Set()) }}>
+              {view === 'needs_review' ? 'Needs Review' : 'Credits & Transfers'}
+            </Button>
+          ))}
+        </nav>
+        {mode === 'credits_transfers' && <div className="flex w-full flex-wrap gap-3 sm:w-auto">
+          <ControlField label="Direction">
+            <select aria-label="Direction filter" value={direction} disabled={controlsBusy} className={fieldClassName}
+              onChange={(event) => { setDirection(event.target.value as typeof direction); setOffset(0); setChoices({}); setSelected(new Set()) }}>
+              <option value="incoming">Incoming</option><option value="outgoing">Outgoing</option><option value="all">All</option>
+            </select>
+          </ControlField>
+          <ControlField label="Effective type">
+            <select aria-label="Effective type filter" value={typeFilter} disabled={controlsBusy} className={fieldClassName}
+              onChange={(event) => { setTypeFilter(event.target.value); setOffset(0); setChoices({}); setSelected(new Set()) }}>
+              {FILTERS.map((type) => <option key={type} value={type}>{type === 'card_benefit' ? 'Card Benefit' : type.charAt(0).toUpperCase() + type.slice(1)}</option>)}
+            </select>
+          </ControlField>
+        </div>}
       </section>
 
       {undo && (
-        <div className="mt-5 rounded-md border bg-white p-4 text-sm [overflow-wrap:anywhere]">
-          Saved {undo.transactionType.replace('_', ' ')} for {undo.transaction.description || undo.transaction.merchant_name || 'transaction'}.
-          <button className="ml-3 font-medium text-blue-700 underline" onClick={() => clearOverride(undo.transaction)} disabled={busy !== null}>Undo / Restore automatic</button>
+        <Alert variant="info" className="mt-4">
+          <CircleCheck aria-hidden="true" />
+          <span className="min-w-0">Saved {undo.transactionType.replace('_', ' ')} for {undo.transaction.description || undo.transaction.merchant_name || 'transaction'}.</span>
+          <Button type="button" variant="link" size="inline" onClick={() => clearOverride(undo.transaction)} disabled={busy !== null}>Undo / Restore automatic</Button>
+        </Alert>
+      )}
+      {error && <Alert role="alert" variant="destructive" className="mt-4"><CircleAlert aria-hidden="true" /><span className="min-w-0 flex-1">{error}</span> <Button type="button" variant="outline" size="sm" onClick={() => { setError(''); setOptionsRetry(value => value + 1); sync.invalidate() }}>Retry loading</Button></Alert>}
+      {bulkStatus && <Alert role="status" variant="success" className="mt-4"><CircleCheck aria-hidden="true" />{bulkStatus}</Alert>}
+      {loading && <LoadingState label="Loading transactions…" rows={4} />}
+      {!loading && transactions.length === 0 && !error && (
+        <div className={cn(cardClassName, 'mt-4 flex flex-col items-center gap-2 px-6 py-12 text-center')}>
+          <CircleCheck aria-hidden="true" className="size-8 text-success" />
+          <p className="font-medium">{mode === 'needs_review' ? 'Nothing needs review.' : 'No matching credits or transfers.'}</p>
+          <p className="text-sm text-muted-foreground">{mode === 'needs_review' ? 'Every transaction in scope has a classification.' : 'Try another direction or type filter.'}</p>
         </div>
       )}
-      {error && <p role="alert" className="mt-5 rounded-md bg-red-50 p-3 text-sm text-red-800">{error} <Button type="button" variant="ghost" size="sm" onClick={() => { setError(''); setOptionsRetry(value => value + 1); sync.invalidate() }}>Retry loading</Button></p>}
-      {bulkStatus && <p role="status" className="mt-5 rounded-md border bg-slate-50 p-3 text-sm">{bulkStatus}</p>}
-      {loading && <p className="mt-8 text-muted-foreground">Loading transactions…</p>}
-      {!loading && transactions.length === 0 && !error && (
-        <p className="mt-8 rounded-lg border bg-white p-8 text-center">{mode === 'needs_review' ? 'Nothing needs review.' : 'No matching credits or transfers.'}</p>
-      )}
 
-      {!loading && transactions.length > 0 && <div className="mt-6 rounded-t-lg border bg-muted/50 px-4 py-3">
+      {!loading && transactions.length > 0 && <section aria-labelledby="review-list-title" className={cn(cardClassName, 'mt-4')}>
+      <h2 id="review-list-title" className="px-4 pt-4 text-base font-semibold sm:px-5 sm:pt-5">{mode === 'needs_review' ? 'Transactions to review' : 'Credits and transfers'}</h2>
+      <SelectAllBar className="mt-1">
         <label className="inline-flex items-center gap-2 text-sm font-medium">
           <input type="checkbox"
             checked={transactions.every(transaction => selected.has(transaction.transaction_id))}
             ref={element => { if (element) element.indeterminate = selected.size > 0 && !transactions.every(transaction => selected.has(transaction.transaction_id)) }}
-            disabled={bulkBusy || busy !== null}
+            disabled={controlsBusy}
             onChange={event => setSelected(event.target.checked
               ? new Set(transactions.map(transaction => transaction.transaction_id)) : new Set())} />
           Select current page ({transactions.length})
         </label>
-        {selected.size > 0 && <button type="button" className="ml-4 text-sm text-blue-700 underline"
-          disabled={bulkBusy || busy !== null} onClick={() => setSelected(new Set())}>Clear selection</button>}
-      </div>}
+        {selected.size > 0 && <Button type="button" variant="link" size="inline"
+          disabled={controlsBusy} onClick={() => setSelected(new Set())}>Clear selection</Button>}
+      </SelectAllBar>
 
-      <div className={transactions.length > 0 && !loading ? "divide-y overflow-hidden rounded-b-lg border border-t-0 bg-card shadow-sm" : undefined}>
-        {!loading && transactions.map((transaction) => (
-          <article key={transaction.transaction_id} className="p-4 sm:p-5">
-            <div className="flex flex-wrap justify-between gap-3">
-              <label className="pt-1">
-                <input type="checkbox" checked={selected.has(transaction.transaction_id)}
-                  disabled={bulkBusy || busy !== null} onChange={() => toggleSelected(transaction.transaction_id)}
-                  aria-label={`Select ${transaction.merchant_name || transaction.description || 'transaction'}`} />
-              </label>
-              <div className="min-w-0 flex-1 basis-40">
-                <h2 className="break-words font-medium">{transaction.merchant_name || transaction.description || 'Unknown transaction'}</h2>
-                {transaction.description !== transaction.merchant_name && <p className="mt-1 break-words text-sm text-muted-foreground">{transaction.description}</p>}
-                <div className="mt-2 flex flex-wrap gap-2">
-                  <TransactionTypeBadge type={transaction.effective_transaction_type} manual={Boolean(transaction.override_transaction_type)} />
-                  {!transaction.category_editable && <CategoryBadge category={transaction.effective_category} manual={transaction.override_category != null} />}
+      <div className="px-1.5 pb-2">
+        {groupByDay(transactions, transaction => transaction.transaction_date).map(group => <DayGroup key={group.date} date={group.date}>
+        {group.rows.map((transaction) => (
+          <TransactionRow as="article" key={transaction.transaction_id}
+            select={<label>
+              <input type="checkbox" checked={selected.has(transaction.transaction_id)}
+                disabled={controlsBusy} onChange={() => toggleSelected(transaction.transaction_id)}
+                aria-label={`Select ${transaction.merchant_name || transaction.description || 'transaction'}`} />
+            </label>}
+            title={<h2 className="break-words font-medium">{transaction.merchant_name || transaction.description || 'Unknown transaction'}</h2>}
+            meta={<>
+              {transaction.description !== transaction.merchant_name && transaction.description}
+              {mode === 'credits_transfers' && (transaction.effective_is_internal_transfer ||
+                transaction.effective_transaction_type === 'transfer' || transaction.effective_transaction_type === 'payment') &&
+                <Badge variant="muted" className="mt-1 flex w-fit">
+                  {transaction.effective_is_internal_transfer ? 'Confirmed internal transfer · excluded money movement' : 'Excluded money movement'}
+                </Badge>}
+            </>}
+            pill={transaction.category_editable
+              ? <CategoryEditor detail={transaction} options={categoryOptions} busy={categoryBusy || controlsBusy} save={saveCategory} />
+              : <CategoryBadge category={transaction.effective_category} manual={transaction.override_category != null} />}
+            amount={<Amount value={transaction.amount}>{new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(Number(transaction.amount))}</Amount>}>
+            <TransactionTools count={transaction.override_transaction_type ? 5 : 4}>
+              <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+                  <MoreTags count={transaction.override_transaction_type ? 5 : 4}>
+                    <TransactionTypeBadge type={transaction.effective_transaction_type} manual={Boolean(transaction.override_transaction_type)} />
+                    {transaction.override_transaction_type && <span className="text-xs text-muted-foreground">
+                      Automatic: {transaction.automatic_transaction_type?.replace(/_/g, ' ') || 'unclassified'}
+                    </span>}
+                    <AccountBadge institutionName={transaction.institution_name} accountName={transaction.account_name}
+                      accountMask={transaction.account_mask} accountType={transaction.account_type} />
+                    <span className="min-w-0 truncate" title={`${transaction.institution_name} · ${transaction.account_type}`}>{transaction.institution_name} · {transaction.account_type}</span>
+                    <span className="flex flex-wrap items-center gap-1.5"><span>Plaid category</span><CategoryBadge category={transaction.plaid_category} /></span>
+                  </MoreTags>
+                  <BenefitCategoryEditor detail={transaction} options={benefitCategoryOptions}
+                    disabled={controlsBusy} onChanged={updateBenefitCategory} />
+                  <LabelEditor detail={transaction} options={labelOptions.options}
+                    optionsLoading={labelOptions.loading} optionsError={labelOptions.error}
+                    disabled={bulkBusy} onRetryOptions={labelOptions.retry} onChanged={updateLabels} />
                 </div>
-                {transaction.override_transaction_type && <p className="mt-1 text-xs text-muted-foreground">
-                  Automatic: {transaction.automatic_transaction_type?.replace(/_/g, ' ') || 'unclassified'}
-                </p>}
-                {mode === 'credits_transfers' && (transaction.effective_is_internal_transfer ||
-                  transaction.effective_transaction_type === 'transfer' || transaction.effective_transaction_type === 'payment') &&
-                  <p className="mt-2 inline-block rounded-full border border-slate-300 bg-slate-100 px-2 py-1 text-xs font-medium text-slate-700">
-                    {transaction.effective_is_internal_transfer ? 'Confirmed internal transfer · excluded money movement' : 'Excluded money movement'}
-                  </p>}
-              </div>
-              <p className="max-w-full shrink-0 font-semibold tabular-nums [overflow-wrap:anywhere]">{new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(Number(transaction.amount))}</p>
-            </div>
-            {transaction.category_editable && <CategoryEditor detail={transaction} options={categoryOptions}
-              busy={categoryBusy || bulkBusy || busy !== null} save={saveCategory} />}
-            <TransactionTools>
-              <div className="grid gap-3 md:grid-cols-2">
-                <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                <p>{transaction.transaction_date} · {transaction.institution_name} · {transaction.account_type}</p>
-                <AccountBadge institutionName={transaction.institution_name} accountName={transaction.account_name}
-                  accountMask={transaction.account_mask} accountType={transaction.account_type} />
-                <div className="flex flex-wrap items-center gap-2"><span>Plaid category</span><CategoryBadge category={transaction.plaid_category} /></div>
-              </div>
                 <div className="flex flex-wrap items-center gap-2 md:justify-end">
-              <select
-                aria-label={`Classification for ${transaction.description || transaction.transaction_id}`}
-                className="min-h-9 max-w-full rounded-md border bg-background px-3 py-2 text-sm"
-                disabled={busy !== null || bulkBusy || (mode === 'credits_transfers' && transaction.effective_is_internal_transfer === true)}
-                value={choices[transaction.transaction_id] || ''}
-                onChange={(event) => setChoices((current) => ({
-                  ...current,
-                  [transaction.transaction_id]: event.target.value as TransactionType,
-                }))}
-              >
-                <option value="">Choose classification</option>
-                {(mode === 'credits_transfers' ? Number(transaction.amount) < 0 ? OUTGOING_TYPES : CREDIT_TYPES : TYPES)
-                  .map((type) => <option key={type} value={type}>{type.replace('_', ' ')}</option>)}
-              </select>
-              <Button size="sm"
-                disabled={bulkBusy || busy !== null || !choices[transaction.transaction_id] ||
-                  (mode === 'credits_transfers' && transaction.effective_is_internal_transfer === true)}
-                onClick={() => save(transaction)}
-              >
-                {busy === transaction.transaction_id ? 'Saving…' : 'Save'}
-              </Button>
-              {transaction.override_transaction_type && (
-                <button className="text-sm text-blue-700 underline" disabled={bulkBusy || busy !== null}
-                  onClick={() => clearOverride(transaction)}>Restore automatic</button>
-              )}
-            </div>
-
-            </div>
-            <div className="grid gap-x-5 md:grid-cols-2">
-            <BenefitCategoryEditor detail={transaction} options={benefitCategoryOptions}
-              disabled={bulkBusy || busy !== null} onChanged={updateBenefitCategory} />
-            <LabelEditor detail={transaction} options={labelOptions.options}
-              optionsLoading={labelOptions.loading} optionsError={labelOptions.error}
-              disabled={bulkBusy} onRetryOptions={labelOptions.retry} onChanged={updateLabels} />
-            </div>
+                  <select
+                    aria-label={`Classification for ${transaction.description || transaction.transaction_id}`}
+                    className={fieldClassName}
+                    disabled={controlsBusy || (mode === 'credits_transfers' && transaction.effective_is_internal_transfer === true)}
+                    value={choices[transaction.transaction_id] || ''}
+                    onChange={(event) => setChoices((current) => ({
+                      ...current,
+                      [transaction.transaction_id]: event.target.value as TransactionType,
+                    }))}
+                  >
+                    <option value="">Choose classification</option>
+                    {(mode === 'credits_transfers' ? Number(transaction.amount) < 0 ? OUTGOING_TYPES : CREDIT_TYPES : TYPES)
+                      .map((type) => <option key={type} value={type}>{type.replace('_', ' ')}</option>)}
+                  </select>
+                  <Button size="sm"
+                    disabled={controlsBusy || !choices[transaction.transaction_id] ||
+                      (mode === 'credits_transfers' && transaction.effective_is_internal_transfer === true)}
+                    onClick={() => save(transaction)}
+                  >
+                    {busy === transaction.transaction_id ? 'Saving…' : 'Save'}
+                  </Button>
+                  {transaction.override_transaction_type && (
+                    <Button type="button" variant="link" size="inline" disabled={controlsBusy}
+                      onClick={() => clearOverride(transaction)}>Restore automatic</Button>
+                  )}
+                </div>
+              </div>
             </TransactionTools>
-          </article>
+          </TransactionRow>
         ))}
+        </DayGroup>)}
       </div>
+      </section>}
       {selected.size > 0 && <div className="min-w-0">
-        <BulkTransactionEditor overviewStyle
+        <BulkTransactionEditor
           transactionIds={Array.from(selected)}
           categoryOptions={categoryOptions}
           benefitCategoryOptions={benefitCategoryOptions}
@@ -386,11 +391,9 @@ export default function ReviewPage() {
           onClear={() => setSelected(new Set())}
         />
       </div>}
-      <div className="mt-5 flex flex-wrap items-center gap-3 text-sm">
-        <button disabled={loading || bulkBusy || busy !== null || offset === 0} onClick={() => setOffset(Math.max(0, offset - pageSize))} className="disabled:opacity-40">Previous</button>
-        <span>{total === 0 ? 0 : offset + 1}–{Math.min(offset + pageSize, total)} of {total}</span>
-        <button disabled={loading || bulkBusy || busy !== null || offset + pageSize >= total} onClick={() => setOffset(offset + pageSize)} className="disabled:opacity-40">Next</button>
-      </div>
+      <Pagination className="mt-4" offset={offset} pageSize={pageSize} total={total}
+        disabled={loading || controlsBusy} onPage={setOffset} />
     </main>
+    </>
   )
 }

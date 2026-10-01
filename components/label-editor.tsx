@@ -2,6 +2,8 @@
 
 import { ChevronDown, Pencil, Sparkles } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
 
 export type LabelDecision = 'include' | 'exclude'
 export type LabelChoice = LabelDecision | 'auto'
@@ -137,15 +139,14 @@ export default function LabelEditor({
     }
   }, [busy, detail, disabled, onChanged, optionMap])
 
-  return <div className="mt-3 w-full text-sm">
+  return <div className="contents text-sm">
     <div className="flex flex-wrap items-center gap-2">
       {detail.effective_labels.map(label => {
         const manual = detail.manual_label_decisions[label] === 'include'
         const source = manual ? 'manually included' : 'automatic'
         return <span key={label} title={`${optionMap.get(label) || fallbackLabel(label)} · ${source}`}
-          className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium ${
-            manual ? 'border-blue-300 bg-blue-50 text-blue-900' : 'border-slate-300 bg-slate-50 text-slate-800'
-          }`}>
+          className={cn('inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium leading-4',
+            manual ? 'border-info/30 bg-info-soft text-info' : 'border-transparent bg-muted text-foreground')}>
           {manual ? <Pencil aria-hidden="true" className="h-3 w-3" /> : <Sparkles aria-hidden="true" className="h-3 w-3" />}
           <span>{optionMap.get(label) || fallbackLabel(label)}</span>
           <span className="sr-only">({source})</span>
@@ -153,19 +154,19 @@ export default function LabelEditor({
       })}
       {excludedCount > 0 && <span className="text-xs text-muted-foreground">{excludedCount} excluded</span>}
       <button type="button" aria-expanded={open} aria-controls={panelId}
-        className="inline-flex items-center gap-1 rounded-md border bg-white px-2.5 py-1 text-xs font-medium hover:bg-slate-50 disabled:opacity-50"
+        className="inline-flex items-center gap-1 rounded-full border border-dashed border-input px-2.5 py-1 text-xs font-semibold text-muted-foreground transition-colors hover:border-solid hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
         disabled={busy || disabled} onClick={() => setOpen(value => !value)}>
         Labels <ChevronDown aria-hidden="true" className={`h-3.5 w-3.5 transition ${open ? 'rotate-180' : ''}`} />
       </button>
     </div>
 
-    {open && <div id={panelId} className="mt-2 max-h-72 overflow-y-auto rounded-md border bg-slate-50 p-3">
+    {open && <div id={panelId} className="order-last w-full max-h-72 basis-full overflow-y-auto rounded-2xl border bg-popover p-3">
       <div className="flex items-center justify-between gap-3">
         <p className="font-medium">Labels</p>
         <p className="text-xs text-muted-foreground">Changes save automatically</p>
       </div>
       {optionsLoading && <p className="mt-3 text-xs text-muted-foreground">Loading labels…</p>}
-      {optionsError && <p className="mt-3 text-xs text-red-700">
+      {optionsError && <p className="mt-3 text-xs text-destructive">
         {optionsError}{' '}
         {onRetryOptions && <button type="button" className="underline" onClick={onRetryOptions}>Retry</button>}
       </p>}
@@ -181,7 +182,7 @@ export default function LabelEditor({
               <span className="ml-2 text-xs text-muted-foreground">Automatic: {automatic ? 'included' : 'not included'}</span>
             </span>
             <select aria-label={`${option.label} label decision`} value={labelChoice(detail, option.value)}
-              disabled={busy || disabled} className="rounded-md border bg-white px-2 py-1 text-xs"
+              disabled={busy || disabled} className="rounded-lg border border-input bg-muted/60 px-2 py-1 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               onChange={event => void update(option.value, event.target.value as LabelChoice)}>
               <option value="auto">Auto</option>
               <option value="include">Include</option>
@@ -196,10 +197,10 @@ export default function LabelEditor({
       </div>
       <div className="mt-2 flex items-center justify-between gap-3">
         <span aria-live="polite" className="text-xs text-muted-foreground">{status}</span>
-        <button type="button" className="text-xs font-medium text-blue-700 underline" disabled={busy || disabled}
-          onClick={() => setOpen(false)}>Done</button>
+        <Button type="button" variant="outline" size="sm" disabled={busy || disabled}
+          onClick={() => setOpen(false)}>Done</Button>
       </div>
-      {error && <p role="alert" className="mt-2 text-xs text-red-700">{error}</p>}
+      {error && <p role="alert" className="mt-2 text-xs text-destructive">{error}</p>}
     </div>}
   </div>
 }

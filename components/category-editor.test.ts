@@ -11,8 +11,12 @@ describe('reusable category presentation and mutation helpers', () => {
     for (const category of MANUAL_CATEGORY_VALUES) {
       const metadata = categoryMetadata(category)
       expect(metadata.label).not.toContain('_')
-      expect(metadata.icon).toBeDefined()
+      expect(metadata.emoji).not.toBe('')
     }
+    // Every category reads at a glance: no two manual categories share an emoji.
+    const emoji = MANUAL_CATEGORY_VALUES.map(category => categoryMetadata(category).emoji)
+    expect(new Set(emoji).size).toBe(emoji.length)
+    expect(categoryMetadata('FUTURE_CATEGORY').emoji).toBe(categoryMetadata('UNCATEGORIZED').emoji)
     expect(categoryMetadata('GENERAL_MERCHANDISE').label).toBe('General Merchandise')
     expect(categoryMetadata('FUTURE_CATEGORY').label).toBe('Future Category')
     expect(categoryMetadata(null).label).toBe('Uncategorized')

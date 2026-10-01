@@ -187,7 +187,7 @@ async function overviewFlow(page, data, width) {
  if (width < 768) {
   await page.getByRole('button', { name: 'View full breakdown' }).click()
   const dialog = page.getByRole('dialog'); await dialog.waitFor()
-  await dialog.locator('summary').filter({ hasText: 'Dining' }).click()
+  await dialog.getByRole('button', { name: 'Breakdown for Dining', exact: true }).click()
   await dialog.getByRole('button', { name: /^Card Benefits transactions for Dining:/ }).click(); await idle(page)
   await page.getByRole('dialog').waitFor({ state: 'detached' })
   await page.waitForFunction(() => document.activeElement?.id === 'overview-transaction-details', null, { timeout: 5000 })
@@ -239,7 +239,9 @@ async function membershipFlow(page, data, width) {
  await focusRefresh(page, data, { start_month: '2026-01', end_month: '2026-08', account_id: 'card', membership_view: 'all', limit: width < 768 || width === 844 ? '10' : '50', offset: width < 768 || width === 844 ? '10' : '50' })
  await page.getByRole('button', { name: /^Card Benefits \(/ }).click(); await idle(page)
  const first = page.locator('article').first(); if (width < 768) await first.locator('summary').click()
- await first.getByRole('combobox', { name: 'Benefit category', exact: true }).selectOption('TRAVEL_CREDIT'); await idle(page)
+ // The save reloads and remounts rows; wait for that reload, not a fixed delay.
+ const reloaded = page.waitForResponse(response => response.url().includes('/analytics/transactions'))
+ await first.getByRole('combobox', { name: 'Benefit category', exact: true }).selectOption('TRAVEL_CREDIT'); await reloaded; await idle(page)
  const changed = page.locator('article').first(); if (width < 768 && await changed.locator('details').getAttribute('open') === null) await changed.locator('summary').click()
  await changed.getByRole('button', { name: 'Labels', exact: true }).click()
  await changed.getByRole('combobox', { name: 'Membership label decision', exact: true }).selectOption('include'); await idle(page)

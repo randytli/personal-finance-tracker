@@ -84,12 +84,13 @@ afterEach(async () => {
 
 async function click(element: Element) { await act(async () => { fireEvent.click(element) }) }
 async function change(element: Element, event: Parameters<typeof fireEvent.change>[1]) { await act(async () => { fireEvent.change(element, event) }) }
-async function keyDown(element: Element, event: Parameters<typeof fireEvent.keyDown>[1]) { await act(async () => { fireEvent.keyDown(element, event) }) }
 
 function metric(name: string) { return screen.getByRole('button', { name: new RegExp(`^${name} \\$`) }) }
 function table(title = 'Net Spending') { return screen.getByRole('table', { name: `${title} by Category` }) }
-function latestDetails() { return requests.filter(url => url.pathname.endsWith('/transactions')).at(-1)! }
+function detailRequests() { return requests.filter(url => url.pathname.endsWith('/transactions')) }
+function latestDetails() { return detailRequests().at(-1)! }
 function row(name: string, title = 'Net Spending') { return Array.from(table(title).querySelectorAll('tr[data-category]')).find(node => node.textContent!.includes(name))! as HTMLElement }
+function chevron(name: string, scope: HTMLElement = row(name)) { return within(scope).getByRole('button', { name: `Breakdown for ${name}` }) }
 async function ready() { render(createElement(HomePage)); await screen.findByRole('table', { name: 'Net Spending by Category' }) }
 
 test('Net Spending controls the only compact category view by default; income does not change it', async () => {
@@ -150,12 +151,12 @@ test('zero net with contributing transactions remains visible', async () => {
   expect(within(row('Dining')).getAllByRole('cell')[1].textContent).toBe('$0.00')
 })
 
-test.each([768, 1440])('inline category disclosures at %ipx expand, collapse and switch without a sheet', async viewport => {
+test.each([768, 1440])('inline category disclosures at %ipx expand, collapse and switch from the chevron without a sheet', async viewport => {
   width = viewport
   await ready()
   expect(screen.queryByRole('button', { name: 'View full breakdown' })).toBeNull()
   expect(screen.queryByRole('dialog')).toBeNull()
-  await click(row('Dining'))
+  await click(chevron('Dining'))
   const breakdown = screen.getByRole('group', { name: 'Breakdown for Dining' })
   const amounts = ['$100.00', '$10.00', '$15.00', '$20.00', '$55.00']
   const counts = [1, 1, 1, 1, 4]
@@ -163,18 +164,21 @@ test.each([768, 1440])('inline category disclosures at %ipx expand, collapse and
     expect(button.textContent).toContain(amounts[index])
     expect(button.textContent).toContain(`${counts[index]} transaction`)
   })
-  expect(within(row('Dining')).getByRole('button', { name: 'Breakdown for Dining' }).getAttribute('aria-expanded')).toBe('true')
-  await click(row('Entertainment'))
+  expect(chevron('Dining').getAttribute('aria-expanded')).toBe('true')
+  expect(chevron('Dining').getAttribute('aria-controls')).toBe(breakdown.id)
+  await click(chevron('Entertainment'))
   expect(screen.queryByRole('group', { name: 'Breakdown for Dining' })).toBeNull()
   const negative = screen.getByRole('group', { name: 'Breakdown for Entertainment' })
   expect(within(negative).getByRole('button', { name: /Gross Spending transactions/ }).textContent).toContain('$0.00')
   expect(within(negative).getByRole('button', { name: /Gross Spending transactions/ }).textContent).toContain('0 transactions')
   expect(within(negative).getByRole('button', { name: /Net Spending transactions/ }).textContent).toContain('-$25.00')
-  await click(row('Entertainment'))
+  await click(chevron('Entertainment'))
   expect(screen.queryByRole('group', { name: 'Breakdown for Entertainment' })).toBeNull()
+  expect(chevron('Entertainment').getAttribute('aria-expanded')).toBe('false')
   expect(screen.queryByRole('dialog')).toBeNull()
+  expect(detailRequests()).toHaveLength(0)
   await click(metric('Gross Spending'))
-  await click(row('Dining', 'Gross Spending'))
+  await click(chevron('Dining', row('Dining', 'Gross Spending')))
   expect(within(screen.getByRole('group', { name: 'Breakdown for Dining' })).getByRole('button', { name: /Net Spending transactions/ }).textContent).toContain('$55.00')
 })
 
@@ -194,12 +198,19 @@ test('crossing to desktop closes the mobile sheet and removes its entry point', 
   expect(table()).toBeTruthy()
 })
 
-test('keyboard category activation selects the row and keeps signed detail totals', async () => {
+test('keyboard category activation uses native buttons, presses the row and keeps signed detail totals', async () => {
   await ready()
-  await keyDown(row('Dining'), { key: 'Enter' })
-  await click(within(screen.getByRole('group', { name: 'Breakdown for Dining' })).getByRole('button', { name: /Net Spending transactions/ }))
+  expect(row('Dining').hasAttribute('tabindex')).toBe(false)
+  expect(row('Dining').hasAttribute('aria-selected')).toBe(false)
+  chevron('Dining').focus()
+  expect(document.activeElement).toBe(chevron('Dining'))
+  await click(chevron('Dining'))
+  const sub = within(screen.getByRole('group', { name: 'Breakdown for Dining' })).getByRole('button', { name: /Net Spending transactions/ })
+  expect(sub.tagName).toBe('BUTTON')
+  await click(sub)
   await screen.findByText('DINING gross 0')
-  expect(row('Dining').getAttribute('aria-selected')).toBe('true')
+  expect(sub.getAttribute('aria-pressed')).toBe('true')
+  expect(within(row('Dining')).getByRole('button', { name: /^Net Spending transactions for Dining/ }).getAttribute('aria-pressed')).toBe('true')
   expect(within(screen.getByLabelText('Active detail filters')).getByText('Dining')).toBeTruthy()
   expect(screen.getByText('Net contribution: $55.00')).toBeTruthy()
   expect(Element.prototype.scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'start' })
@@ -265,24 +276,37 @@ test('complete canonical pagination retains full-filter reconciliation across pa
   expect(screen.getByText('101–101 of 101')).toBeTruthy()
 })
 
-test('mobile compact list opens a disclosure sheet with negative and zero components, never a table', async () => {
+test('mobile compact list and disclosure sheet use chevron buttons with negative and zero components, never a table', async () => {
   width = 390
   render(createElement(HomePage))
   await screen.findByRole('heading', { name: 'Net Spending by Category' })
   expect(screen.queryByRole('table')).toBeNull()
-  expect(screen.getByLabelText('Net Spending category list')).toBeTruthy()
+  const list = screen.getByLabelText('Net Spending category list')
+  const listRow = list.querySelector<HTMLElement>('[data-category="DINING"]')!
+  const listMain = within(listRow).getByRole('button', { name: /Dining.*4 transactions/ })
+  expect(listMain.textContent).toContain('$55.00')
+  expect(listMain.getAttribute('aria-pressed')).toBe('false')
+  await click(chevron('Dining', listRow))
+  expect(within(listRow).getAllByRole('button', { name: /transactions for Dining/ })).toHaveLength(5)
+  expect(detailRequests()).toHaveLength(0)
+  await click(chevron('Dining', listRow))
+  expect(within(listRow).queryByRole('group')).toBeNull()
   await click(screen.getByRole('button', { name: 'View full breakdown' }))
   const dialog = await screen.findByRole('dialog', { name: 'Full category breakdown' })
   expect(within(dialog).queryByRole('table')).toBeNull()
-  const disclosure = within(dialog).getByText('Entertainment').closest('details')!
-  expect(disclosure.hasAttribute('open')).toBe(false)
-  expect(disclosure.querySelector('summary')!.textContent).toContain('-$25.00')
-  await click(disclosure.querySelector('summary')!)
-  expect(disclosure.hasAttribute('open')).toBe(true)
-  expect(within(disclosure).getAllByRole('button')).toHaveLength(5)
-  expect(within(disclosure).getByRole('button', { name: /Gross Spending transactions.*\$0.00/ })).toBeTruthy()
-  await click(disclosure.querySelector('summary')!)
-  expect(disclosure.hasAttribute('open')).toBe(false)
+  expect(dialog.querySelector('details, summary')).toBeNull()
+  const sheetRow = dialog.querySelector<HTMLElement>('[data-category="ENTERTAINMENT"]')!
+  expect(chevron('Entertainment', sheetRow).getAttribute('aria-expanded')).toBe('false')
+  expect(within(sheetRow).getByRole('button', { pressed: false }).textContent).toContain('-$25.00')
+  await click(chevron('Entertainment', sheetRow))
+  expect(chevron('Entertainment', sheetRow).getAttribute('aria-expanded')).toBe('true')
+  const group = within(sheetRow).getByRole('group', { name: 'Breakdown for Entertainment' })
+  expect(within(group).getAllByRole('button')).toHaveLength(5)
+  expect(within(group).getByRole('button', { name: /Gross Spending transactions.*\$0.00/ })).toBeTruthy()
+  expect(within(sheetRow).getAllByRole('button').some(button => button.querySelector('button'))).toBe(false)
+  await click(chevron('Entertainment', sheetRow))
+  expect(within(sheetRow).queryByRole('group')).toBeNull()
+  expect(detailRequests()).toHaveLength(0)
   await click(within(dialog).getByRole('button', { name: 'Close' }))
   await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
   await click(screen.getByRole('button', { name: 'View full breakdown' }))
@@ -297,9 +321,9 @@ test.each([390, 768, 1440])('responsive breakdown drill-down at %ipx uses canoni
   if (viewport < 768) {
     await click(screen.getByRole('button', { name: 'View full breakdown' }))
     content = await screen.findByRole('dialog')
-    await click(within(content).getByText('Dining').closest('summary')!)
+    await click(chevron('Dining', content.querySelector<HTMLElement>('[data-category="DINING"]')!))
   } else {
-    await click(row('Dining'))
+    await click(chevron('Dining'))
     content = screen.getByRole('group', { name: 'Breakdown for Dining' })
   }
   await click(within(content).getByRole('button', { name: /Card Benefits transactions for Dining/ }))
@@ -307,4 +331,44 @@ test.each([390, 768, 1440])('responsive breakdown drill-down at %ipx uses canoni
   expect(screen.queryByRole('dialog')).toBeNull()
   expect(latestDetails().searchParams.get('canonical_category')).toBe('DINING')
   expect(latestDetails().searchParams.get('spending_component')).toBe('card_benefits')
+})
+
+test('a category row toggles its transactions, the chevron only toggles its breakdown, and sub-rows toggle', async () => {
+  await ready()
+  const main = () => within(row('Dining')).getByRole('button', { name: /^Net Spending transactions for Dining/ })
+  expect(main().getAttribute('aria-pressed')).toBe('false')
+  await click(row('Dining'))
+  await screen.findByText('DINING gross 0')
+  expect(detailRequests()).toHaveLength(1)
+  expect(latestDetails().searchParams.get('canonical_category')).toBe('DINING')
+  expect(latestDetails().searchParams.get('spending_component')).toBe('net')
+  expect(main().getAttribute('aria-pressed')).toBe('true')
+  expect(within(row('Dining')).getAllByRole('cell')[0].textContent).toBe('Dining')
+  await click(row('Dining'))
+  await waitFor(() => expect(screen.queryByText('DINING gross 0')).toBeNull())
+  expect(main().getAttribute('aria-pressed')).toBe('false')
+  await click(main())
+  await screen.findByText('DINING gross 0')
+  expect(main().getAttribute('aria-pressed')).toBe('true')
+  await click(main())
+  await waitFor(() => expect(screen.queryByText('DINING gross 0')).toBeNull())
+  const before = detailRequests().length
+  await click(chevron('Dining'))
+  const group = screen.getByRole('group', { name: 'Breakdown for Dining' })
+  expect(main().getAttribute('aria-pressed')).toBe('false')
+  await click(chevron('Dining'))
+  expect(screen.queryByRole('group', { name: 'Breakdown for Dining' })).toBeNull()
+  expect(group.isConnected).toBe(false)
+  expect(detailRequests()).toHaveLength(before)
+  await click(chevron('Dining'))
+  const refunds = () => within(screen.getByRole('group', { name: 'Breakdown for Dining' })).getByRole('button', { name: /^Refunds transactions for Dining/ })
+  await click(refunds())
+  await screen.findByText('DINING refunds 0')
+  expect(latestDetails().searchParams.get('spending_component')).toBe('refunds')
+  expect(refunds().getAttribute('aria-pressed')).toBe('true')
+  expect(main().getAttribute('aria-pressed')).toBe('false')
+  await click(refunds())
+  await waitFor(() => expect(screen.queryByText('DINING refunds 0')).toBeNull())
+  expect(refunds().getAttribute('aria-pressed')).toBe('false')
+  expect(screen.getByRole('group', { name: 'Breakdown for Dining' })).toBeTruthy()
 })

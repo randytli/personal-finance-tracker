@@ -6,6 +6,10 @@ import {
   type PlaidLinkOnExit,
   type PlaidLinkOnSuccess,
 } from 'react-plaid-link'
+import { Plus } from 'lucide-react'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import InstitutionBadge from '@/components/institution-badge'
 
 const LINK_TOKEN_KEY = 'pft_plaid_link_token'
 
@@ -102,19 +106,19 @@ export default function PlaidLinkButton({ resumeOAuth = false }: { resumeOAuth?:
       {!resumeOAuth && (
         <>
           {items.length > 0 && (
-            <ul className="space-y-1 text-sm">
-              {items.map((item) => <li key={item.item_id}>{item.institution_name} — {item.status}</li>)}
+            <ul aria-label="Connected institutions" className="-mx-2.5 flex flex-col text-sm">
+              {items.map((item) => <li key={item.item_id} className="flex min-w-0 items-center justify-between gap-3 rounded-xl px-2.5 py-2 hover:bg-accent/70">
+                <span className="min-w-0"><InstitutionBadge institutionName={item.institution_name} /></span>
+                <Badge variant={item.status === 'active' ? 'success' : 'warning'} className="shrink-0 capitalize">{item.status}</Badge>
+              </li>)}
             </ul>
           )}
-          <p className="text-sm text-muted-foreground">Choose your institution securely inside Plaid Link.</p>
-          <button
-            type="button"
-            onClick={startLink}
-            disabled={shouldOpen}
-            className="rounded-md bg-black px-5 py-3 font-medium text-white disabled:opacity-50"
-          >
-            Connect new institution
-          </button>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-sm text-muted-foreground">Choose your institution securely inside Plaid Link.</p>
+            <Button type="button" onClick={startLink} disabled={shouldOpen}>
+              <Plus aria-hidden="true" />Connect new institution
+            </Button>
+          </div>
         </>
       )}
       {status && <p role="status" className="text-sm text-muted-foreground">{status}</p>}
