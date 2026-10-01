@@ -1,5 +1,6 @@
 'use client'
 
+import { apiFetch } from '@/lib/api'
 import { Amount, LoadingState, PageHeader, PageNavigation, Pagination, SelectAllBar, TransactionRow, TransactionTools, TransactionTypeBadge, fieldClassName, useTransactionPageSize } from '@/components/page-presentation'
 import { Alert } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
@@ -66,7 +67,7 @@ export default function ReviewPage() {
 
   useEffect(() => {
     let active = true
-    fetch('/api/pft/review/categories').then(response => response.ok ? response.json() : Promise.reject())
+    apiFetch('/api/pft/review/categories').then(response => response.ok ? response.json() : Promise.reject())
       .then(data => { if (active) setCategoryOptions(data.categories || []) })
       .catch(() => { if (active) setError('Category options could not be loaded.') })
     return () => { active = false }
@@ -74,7 +75,7 @@ export default function ReviewPage() {
 
   useEffect(() => {
     let active = true
-    fetch('/api/pft/review/benefit-categories').then(response => response.ok ? response.json() : Promise.reject())
+    apiFetch('/api/pft/review/benefit-categories').then(response => response.ok ? response.json() : Promise.reject())
       .then(data => { if (active) setBenefitCategoryOptions(data.categories || []) })
       .catch(() => { if (active) setError('Benefit category options could not be loaded.') })
     return () => { active = false }
@@ -122,7 +123,7 @@ export default function ReviewPage() {
     setBusy(transaction.transaction_id)
     setError('')
     try {
-      const response = await fetch(
+      const response = await apiFetch(
         `/api/pft/review/transactions/${encodeURIComponent(transaction.transaction_id)}/override`,
         {
           method: 'PUT',
@@ -149,7 +150,7 @@ export default function ReviewPage() {
     setBusy(transaction.transaction_id)
     setError('')
     try {
-      const response = await fetch(
+      const response = await apiFetch(
         `/api/pft/review/transactions/${encodeURIComponent(transaction.transaction_id)}/override`,
         { method: 'DELETE' },
       )
@@ -194,7 +195,7 @@ export default function ReviewPage() {
     setError('')
     setBulkStatus('')
     try {
-      const response = await fetch('/api/pft/review/transactions/bulk-edit', {
+      const response = await apiFetch('/api/pft/review/transactions/bulk-edit', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(request),
       })
       const body = await response.json().catch(() => null)

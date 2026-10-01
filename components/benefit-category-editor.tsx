@@ -1,5 +1,6 @@
 'use client'
 
+import { apiFetch } from '@/lib/api'
 import { useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 
@@ -13,7 +14,7 @@ export type BenefitCategoryDetail = {
 }
 
 export async function mutateBenefitCategory(transactionId: string, category: string | null) {
-  const response = await fetch(`/api/pft/review/transactions/${encodeURIComponent(transactionId)}/benefit-category-override`,
+  const response = await apiFetch(`/api/pft/review/transactions/${encodeURIComponent(transactionId)}/benefit-category-override`,
     category === null ? { method: 'DELETE' } : { method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ benefit_category: category }) })
   if (!response.ok) throw new Error('Benefit category change could not be saved.')
   return response.json() as Promise<BenefitCategoryDetail>

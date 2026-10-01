@@ -1,5 +1,6 @@
 'use client'
 
+import { apiFetch } from '@/lib/api'
 import { Amount, ChartMonthlyTotals, LoadingState, MetricCard, PageHeader, PageNavigation, Pagination, SectionCard, SelectAllBar, TransactionRow, TransactionTools, TransactionTypeBadge, compactMoney, fieldClassName, useNarrowViewport, useTransactionPageSize } from '@/components/page-presentation'
 import { Alert } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
@@ -121,11 +122,11 @@ export default function MembershipsPage() {
 
   useEffect(() => {
     let active = true
-    fetch('/api/pft/review/categories')
+    apiFetch('/api/pft/review/categories')
       .then(response => response.ok ? response.json() : Promise.reject())
       .then(data => { if (active) setCategoryOptions(data.categories || []) })
       .catch(() => { if (active) setError('Category options could not be loaded.') })
-    fetch('/api/pft/review/benefit-categories')
+    apiFetch('/api/pft/review/benefit-categories')
       .then(response => response.ok ? response.json() : Promise.reject())
       .then(data => { if (active) setBenefitCategoryOptions(data.categories || []) })
       .catch(() => { if (active) setError('Benefit category options could not be loaded.') })
@@ -256,7 +257,7 @@ export default function MembershipsPage() {
     setError('')
     setStatus('')
     try {
-      const response = await fetch('/api/pft/review/transactions/bulk-edit', {
+      const response = await apiFetch('/api/pft/review/transactions/bulk-edit', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(request),
       })
       const data = await response.json().catch(() => null)

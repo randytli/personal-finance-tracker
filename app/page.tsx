@@ -1,5 +1,6 @@
 'use client'
 
+import { apiFetch } from '@/lib/api'
 import { Amount, ChartMonthlyTotals, LoadingState, MetricCard, PageHeader, PageNavigation, Pagination, SectionCard, SelectAllBar, TransactionRow, chartTooltipStyle, compactMoney, fieldClassName, useNarrowViewport } from '@/components/page-presentation'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { CircleAlert, CircleCheck, ListChecks } from 'lucide-react'
@@ -142,10 +143,10 @@ export default function HomePage() {
 
   useEffect(() => {
     let active = true
-    fetch('/api/pft/review/categories').then(response => response.ok ? response.json() : Promise.reject())
+    apiFetch('/api/pft/review/categories').then(response => response.ok ? response.json() : Promise.reject())
       .then(data => { if (active) setCategoryOptions(data.categories) })
       .catch(() => { if (active) setError('Category options could not be loaded.') })
-    fetch('/api/pft/review/benefit-categories').then(response => response.ok ? response.json() : Promise.reject())
+    apiFetch('/api/pft/review/benefit-categories').then(response => response.ok ? response.json() : Promise.reject())
       .then(data => { if (active) setBenefitCategoryOptions(data.categories) })
       .catch(() => { if (active) setError('Benefit category options could not be loaded.') })
     return () => { active = false }
@@ -257,7 +258,7 @@ export default function HomePage() {
     setError('')
     setBulkStatus('')
     try {
-      const response = await fetch('/api/pft/review/transactions/bulk-edit', {
+      const response = await apiFetch('/api/pft/review/transactions/bulk-edit', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(request),
       })
       const body = await response.json().catch(() => null)

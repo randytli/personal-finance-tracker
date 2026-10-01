@@ -1,5 +1,6 @@
 'use client'
 
+import { apiFetch } from '@/lib/api'
 import { ChevronDown, Pencil, Sparkles } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
@@ -49,7 +50,7 @@ export function useLabelOptions() {
     const controller = new AbortController()
     setLoading(true)
     setError('')
-    fetch('/api/pft/review/labels', { signal: controller.signal })
+    apiFetch('/api/pft/review/labels', { signal: controller.signal })
       .then(response => response.ok ? response.json() : Promise.reject())
       .then(data => {
         const labels = Array.isArray(data.labels) ? data.labels : []
@@ -121,7 +122,7 @@ export default function LabelEditor({
     setError('')
     setStatus(`Saving ${optionMap.get(label) || fallbackLabel(label)} label…`)
     try {
-      const response = await fetch(
+      const response = await apiFetch(
         `/api/pft/review/transactions/${encodeURIComponent(detail.transaction_id)}/labels/${encodeURIComponent(label)}`,
         { ...labelMutationRequest(choice), signal: request.signal },
       )

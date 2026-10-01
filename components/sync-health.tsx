@@ -1,5 +1,6 @@
 'use client'
 
+import { apiFetch } from '@/lib/api'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ChevronDown } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -21,7 +22,7 @@ export type SyncStatus = {
 }
 
 export async function fetchSyncStatus(): Promise<SyncStatus> {
-  const response = await fetch('/api/pft/sync/status', { cache: 'no-store' })
+  const response = await apiFetch('/api/pft/sync/status', { cache: 'no-store' })
   if (!response.ok) throw new Error('Sync status unavailable')
   return response.json()
 }
@@ -78,7 +79,7 @@ export function useSyncRefresh() {
 export async function consistentJson(paths: string[], check: () => Promise<SyncStatus>) {
   for (let attempt = 0; attempt < 3; attempt++) {
     const before = await check()
-    const responses = await Promise.all(paths.map(path => fetch(path, { cache: 'no-store' })))
+    const responses = await Promise.all(paths.map(path => apiFetch(path, { cache: 'no-store' })))
     if (responses.some(response => !response.ok)) throw new Error('Query failed')
     const data = await Promise.all(responses.map(response => response.json()))
     const after = await check()

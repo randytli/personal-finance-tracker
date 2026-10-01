@@ -1,5 +1,6 @@
 'use client'
 
+import { apiFetch } from '@/lib/api'
 import { useCallback, useEffect, useState } from 'react'
 import {
   usePlaidLink,
@@ -22,7 +23,7 @@ export default function PlaidLinkButton({ resumeOAuth = false }: { resumeOAuth?:
 
   useEffect(() => {
     if (resumeOAuth) return
-    fetch('/api/pft/plaid/items')
+    apiFetch('/api/pft/plaid/items')
       .then((response) => response.ok ? response.json() : Promise.reject())
       .then((data) => setItems(Array.isArray(data.items) ? data.items : []))
       .catch(() => setStatus('Connected institutions could not be loaded.'))
@@ -48,7 +49,7 @@ export default function PlaidLinkButton({ resumeOAuth = false }: { resumeOAuth?:
       if (!institution?.institution_id || !institution.name) {
         throw new Error('institution metadata missing')
       }
-      const response = await fetch('/api/pft/plaid/exchange', {
+      const response = await apiFetch('/api/pft/plaid/exchange', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -87,7 +88,7 @@ export default function PlaidLinkButton({ resumeOAuth = false }: { resumeOAuth?:
   async function startLink() {
     setStatus('Preparing Plaid Link…')
     try {
-      const response = await fetch('/api/pft/plaid/link-token', { method: 'POST' })
+      const response = await apiFetch('/api/pft/plaid/link-token', { method: 'POST' })
       if (!response.ok) throw new Error('link token failed')
       const token = await response.json()
       if (typeof token !== 'string' || !token) throw new Error('invalid link token')

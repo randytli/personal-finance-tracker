@@ -1,5 +1,6 @@
 'use client'
 
+import { apiFetch } from '@/lib/api'
 import { Check } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { CategoryBadge, categoryMetadata } from './category-display'
@@ -34,7 +35,7 @@ export async function mutateCategoryOverride(
   category: string | null,
   signal?: AbortSignal,
 ): Promise<CategoryMutationResult> {
-  const response = await fetch(
+  const response = await apiFetch(
     `/api/pft/review/transactions/${encodeURIComponent(transactionId)}/category-override`,
     { ...categoryMutationRequest(category), signal },
   )
