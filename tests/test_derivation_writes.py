@@ -15,7 +15,8 @@ from sqlalchemy import event, func, select, text, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from api.models import Account, Base, Item, ManualClassificationOverride, RawTransaction, Transaction
+from api.models import (Account, Base, Item, ManualClassificationOverride, RawTransaction, SyncItemRun,
+                        Transaction)
 from api.services import derivation
 from api.services import sync_all as service
 from api.statement_semantics import lock_consumer_derivation, normalized_raw_values
@@ -163,7 +164,7 @@ class SyntheticSchema:
         async with admin.begin() as connection:
             await connection.execute(text(f'DROP SCHEMA "{self.name}" CASCADE'))
 
-    async def sync(self, added=(), modified=(), removed=(), *, legacy=False):
+    async def sync(self, added=(), modified=(), removed=(), *, legacy=False, expect="success"):
         self.cursor += 1
         client = Client({"a": f"a-{self.cursor}", "b": f"b-{self.cursor}"}, added, modified, removed)
         patches = []
@@ -178,7 +179,7 @@ class SyntheticSchema:
         finally:
             for active in patches:
                 active.stop()
-        assert result["status"] == "success", result
+        assert result["status"] == expect, result
         return result
 
     async def fingerprints(self):
@@ -263,6 +264,8 @@ class DerivationWriteTests(unittest.IsolatedAsyncioTestCase):
         await step("modified expense breaks the refund match", modified=[
             plaid_tx("e1", "a-card", 30, 1, "COFFEE SHOP", "FOOD_AND_DRINK", "Coffee Shop"),
             plaid_tx("e2", "b-card", 40, 2, "BOOK STORE ONLINE", "GENERAL_MERCHANDISE", "Book Store"),
+            # Same value, new scale: the stored numeric must follow the payload exactly.
+            plaid_tx("pay", "b-check", -2000.0, 1, "PAYROLL", "INCOME"),
         ])
         self.assertEqual(await current.classification("r1"), (None, None, None))
 
@@ -306,6 +309,59 @@ class DerivationWriteTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(await schema.classification("z1"), ("transfer", False, None))
         self.assertEqual(await schema.classification("z2"), ("transfer", False, None))
         self.assertEqual(await schema.classification("e0"), ("expense", True, False))
+
+    async def no_op_statements(self, retained_rows):
+        schema = await self.schema()
+        await schema.sync(added=[
+            plaid_tx(f"r{i}", ("a-card", "a-check", "b-card", "b-check")[i % 4], 10 + i % 37, 1 + i % 28,
+                     f"MERCHANT {i % 41}", ("GENERAL_MERCHANDISE", "TRANSFER_OUT", "FOOD_AND_DRINK")[i % 3])
+            for i in range(retained_rows)
+        ])
+        schema.recording = True
+        await schema.sync()
+        schema.recording = False
+        return schema.statements
+
+    async def test_noop_sync_statement_count_does_not_grow_with_history(self):
+        small, large = await self.no_op_statements(50), await self.no_op_statements(500)
+        self.assertEqual(len(small), len(large))
+
+    async def test_noop_normalization_writes_no_rows_and_counts_every_eligible_row(self):
+        schema = await self.schema()
+        await schema.sync(added=[plaid_tx(f"e{i}", "a-card", 10 + i, 1 + i, f"SHOP {i}", "GENERAL_MERCHANDISE")
+                                 for i in range(20)])
+        schema.recording = True
+        result = await schema.sync()
+        schema.recording = False
+        self.assertEqual([s for s in schema.statements if s.lstrip().upper().startswith("INSERT INTO TRANSACTIONS")], [])
+        async with schema.sessions() as db:
+            counts = dict((await db.execute(select(SyncItemRun.item_id, SyncItemRun.normalized_count)
+                                            .where(SyncItemRun.run_id == result["run_id"]))).all())
+        self.assertEqual(counts, {"a": 20, "b": 0})
+
+    async def test_noop_sync_restores_a_missing_normalized_row(self):
+        schema = await self.schema()
+        await schema.sync(added=[plaid_tx("e1", "a-card", 25, 1, "COFFEE", "FOOD_AND_DRINK", "Coffee"),
+                                 plaid_tx("e2", "a-card", 30, 2, "LUNCH", "FOOD_AND_DRINK", "Deli")])
+        before = await schema.fingerprints()
+        async with schema.sessions.begin() as db:
+            await db.execute(text("DELETE FROM transactions WHERE transaction_id = 'e2'"))
+        await schema.sync()
+        after = await schema.fingerprints()
+        self.assertEqual((after["classifications"], after["transactions"]),
+                         (before["classifications"], before["transactions"]))
+        self.assertEqual(await schema.classification("e2"), ("expense", True, False))
+
+    async def test_invalid_historical_row_still_blocks_its_item_on_noop(self):
+        schema = await self.schema()
+        await schema.sync(added=[plaid_tx("e1", "a-card", 25, 1, "COFFEE", "FOOD_AND_DRINK"),
+                                 plaid_tx("e2", "b-card", 30, 2, "LUNCH", "FOOD_AND_DRINK")])
+        async with schema.sessions.begin() as db:
+            await db.execute(text("UPDATE raw_transactions SET payload = payload || '{\"amount\": \"NaN\"}' "
+                                  "WHERE transaction_id = 'e1'"))
+        result = await schema.sync(expect="partial")
+        self.assertEqual(result["items"]["a"], {"status": "blocked", "error_category": "normalization_input"})
+        self.assertEqual(result["items"]["b"]["status"], "success")
 
 
 if __name__ == "__main__":

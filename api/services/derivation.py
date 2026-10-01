@@ -2,8 +2,7 @@
 
 from fastapi import HTTPException
 from decimal import Decimal, InvalidOperation
-from sqlalchemy import and_, func, or_, select, text, update
-from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy import and_, or_, select, text, update
 from sqlalchemy.orm.attributes import set_committed_value
 
 from api.card_benefits import AMERICAN_EXPRESS_INSTITUTION_ID, AMEX_MERCHANT_BENEFIT_ACCOUNT_NAMES
@@ -46,41 +45,73 @@ async def normalize_item_transactions(db, user_id, item_id):
     await db.execute(select(Account).where(Account.item_id == item_id)
                      .order_by(Account.account_id).with_for_update())
     result = await db.execute(
-        select(RawTransaction).join(Account,
+        select(RawTransaction, Transaction).join(Account,
             (Account.account_id == RawTransaction.account_id)
-            & (Account.item_id == RawTransaction.item_id)).where(
+            & (Account.item_id == RawTransaction.item_id))
+        .outerjoin(Transaction, Transaction.transaction_id == RawTransaction.transaction_id)
+        .where(
             RawTransaction.item_id == item.item_id,
             RawTransaction.is_removed.is_(False),
             Account.consumer_transactions_enabled.is_(True),
         ).execution_options(populate_existing=True)
     )
-    raw_transactions = result.scalars().all()
-    for raw_transaction in raw_transactions:
+    rows = result.all()
+    changed = []
+    # Every eligible row is still validated, and missing normalized rows are restored.
+    for raw_transaction, normalized in rows:
         validate_normalization_input(raw_transaction)
         values = {
             "transaction_id": raw_transaction.transaction_id,
             "account_id": raw_transaction.account_id,
             "transaction_date": raw_transaction.transaction_date,
             **normalized_raw_values(raw_transaction),
-            "transaction_type": None,
-            "is_spending": None,
-            "is_internal_transfer": None,
         }
-        statement = insert(Transaction).values(**values)
-        await db.execute(statement.on_conflict_do_update(
-            index_elements=["transaction_id"],
-            set_={
-                "account_id": values["account_id"],
-                "transaction_date": values["transaction_date"],
-                "amount": values["amount"],
-                "merchant_name": values["merchant_name"],
-                "description": values["description"],
-                "plaid_category": values["plaid_category"],
-                "statement_kind": values["statement_kind"],
-                "updated_at": func.now(),
-            },
-        ))
-    return {"normalized_count": len(raw_transactions)}
+        if normalized is None or _normalized_differs(normalized, values):
+            changed.append((normalized, values))
+    await _write_normalized(db, changed)
+    return {"normalized_count": len(rows)}
+
+
+NORMALIZED_FIELDS = ("account_id", "transaction_date", "amount", "merchant_name",
+                     "description", "plaid_category", "statement_kind")
+
+
+def _normalized_differs(row, values):
+    # Numeric keeps the payload's scale (-30 vs -30.0), so compare it exactly.
+    if (row.amount != values["amount"]
+            or row.amount.as_tuple().exponent != values["amount"].as_tuple().exponent):
+        return True
+    return any(getattr(row, name) != values[name] for name in NORMALIZED_FIELDS if name != "amount")
+
+
+async def _write_normalized(db, changed):
+    """Upsert only missing or different rows, as one statement however many changed.
+
+    INSERT ... SELECT FROM unnest keeps the round trips constant; executemany is
+    avoided because its round trips depend on driver batching. New rows start
+    unclassified, as before, and classification stays untouched on update.
+    """
+    if not changed:
+        return
+    await db.execute(text(
+        "INSERT INTO transactions (transaction_id, account_id, transaction_date, amount, "
+        "merchant_name, description, plaid_category, statement_kind) "
+        "SELECT * FROM unnest(CAST(:transaction_id AS VARCHAR[]), CAST(:account_id AS VARCHAR[]), "
+        "CAST(:transaction_date AS DATE[]), CAST(:amount AS NUMERIC[]), "
+        "CAST(:merchant_name AS VARCHAR[]), CAST(:description AS VARCHAR[]), "
+        "CAST(:plaid_category AS VARCHAR[]), CAST(:statement_kind AS VARCHAR[])) "
+        "ON CONFLICT (transaction_id) DO UPDATE SET account_id = excluded.account_id, "
+        "transaction_date = excluded.transaction_date, amount = excluded.amount, "
+        "merchant_name = excluded.merchant_name, description = excluded.description, "
+        "plaid_category = excluded.plaid_category, statement_kind = excluded.statement_kind, "
+        "updated_at = now()"
+    ), {name: [values[name] for _, values in changed]
+        for name in ("transaction_id", *NORMALIZED_FIELDS)})
+    # Keep loaded rows consistent with the database, as classification reads them next.
+    for row, values in changed:
+        if row is not None:
+            for name in NORMALIZED_FIELDS:
+                set_committed_value(row, name, values[name])
 
 
 async def _classification_inputs(db, user_id, item_scope):
