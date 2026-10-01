@@ -14,7 +14,7 @@ export default function InstitutionBadge({ institutionName }: { institutionName:
 
   return (
     <span
-      className={`inline-flex max-w-full break-words rounded-full border px-2.5 py-1 text-xs font-bold tracking-wide ${style.className}`}
+      className={`inline-flex max-w-full items-center [overflow-wrap:anywhere] rounded-md border px-2 py-1 text-[11px] font-semibold leading-4 tracking-wide ${style.className}`}
       title={name || 'Unknown institution'}
     >
       {style.label}

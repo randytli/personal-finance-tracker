@@ -115,7 +115,7 @@ export default function PlaidLinkButton({ resumeOAuth = false }: { resumeOAuth?:
             </ul>
           )}
           <p className="text-sm text-muted-foreground">Choose your institution securely inside Plaid Link.</p>
-          <Button type="button" onClick={startLink} disabled={shouldOpen}>
+          <Button type="button" variant="outline" onClick={startLink} disabled={shouldOpen}>
             <Plus aria-hidden="true" />Connect new institution
           </Button>
         </>

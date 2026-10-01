@@ -63,36 +63,36 @@ export default function SpendingCategoryView({ categories, metric, selectedCateg
 
   return <Sheet open={!desktop && breakdownOpen} onOpenChange={setBreakdownOpen}>
     <section aria-labelledby={`${id}-title`} className="min-w-0">
-      <Card className="overflow-hidden shadow-sm">
-        <CardHeader className="gap-2 p-4 sm:p-5">
+      <Card className="overflow-hidden shadow-[0_1px_2px_rgb(15_23_42/0.04)]">
+        <CardHeader className="gap-1 px-4 pb-3 pt-4 sm:px-5 sm:pt-5">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <CardTitle><h2 id={`${id}-title`} className="text-lg">{column.title} by Category</h2></CardTitle>
+            <CardTitle><h2 id={`${id}-title`} className="text-base leading-6">{column.title} by Category</h2></CardTitle>
             {!desktop && <SheetTrigger asChild><Button type="button" variant="outline" size="sm">View full breakdown</Button></SheetTrigger>}
           </div>
           <CardDescription>{desktop ? 'Expand a category for its breakdown, or select an amount for transactions.' : 'Select a category for its transactions.'} Credits use their own posted month and category.</CardDescription>
         </CardHeader>
         <CardContent className="p-0">
           {desktop ? <table aria-label={`${column.title} by Category`} className="w-full table-fixed text-sm">
-            <thead className="border-t bg-muted/50 text-xs text-muted-foreground"><tr>
-              <th scope="col" className="w-[44%] px-4 py-2 text-left font-medium">Category</th>
+            <thead className="border-t bg-muted/40 text-[11px] uppercase tracking-wide text-muted-foreground"><tr>
+              <th scope="col" className="w-[44%] px-4 py-2 text-left font-medium sm:px-5">Category</th>
               <th scope="col" className="w-[32%] px-3 py-2 text-right font-medium">{column.title}</th>
-              <th scope="col" className="px-4 py-2 text-right font-medium">Transactions</th>
+              <th scope="col" className="px-4 py-2 text-right font-medium sm:px-5">Transactions</th>
             </tr></thead>
             <tbody>{included.map(category => <Fragment key={category.category}><tr data-category={category.category} tabIndex={0} aria-selected={selected(category.category)}
               className={cn('cursor-pointer border-t hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring', selected(category.category) && 'bg-accent/70')}
               onClick={() => toggle(category.category)}
               onKeyDown={event => { if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); toggle(category.category) } }}>
-              <td className="px-4 py-3"><button type="button" aria-label={`Breakdown for ${categoryMetadata(category.category).label}`}
+              <td className="px-4 py-2.5 sm:px-5"><button type="button" aria-label={`Breakdown for ${categoryMetadata(category.category).label}`}
                 aria-expanded={expandedCategory === category.category} aria-controls={`${id}-${category.category}-breakdown`}
                 className="flex w-full items-center gap-2 rounded text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 onClick={event => { event.stopPropagation(); toggle(category.category) }}>
                 <ChevronDown className={cn('size-4 shrink-0 text-muted-foreground', expandedCategory === category.category && 'rotate-180')} aria-hidden="true" />
                 <CategoryBadge category={category.category} /></button></td>
-              <td className="px-3 py-3 text-right"><button type="button"
+              <td className="px-3 py-2.5 text-right"><button type="button"
                 aria-label={`${column.title} transactions for ${categoryMetadata(category.category).label}: ${money(category[column.field])}`}
-                className="rounded px-1 py-1 font-semibold tabular-nums focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="rounded-md px-1.5 py-1 font-semibold tabular-nums text-foreground underline-offset-4 hover:text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 onClick={event => { event.stopPropagation(); onSelect(category.category, metric) }}>{money(category[column.field])}</button></td>
-              <td className="px-4 py-3 text-right tabular-nums text-muted-foreground">{category[column.count]}</td>
+              <td className="px-4 py-2.5 text-right tabular-nums text-muted-foreground sm:px-5">{category[column.count]}</td>
             </tr>{expandedCategory === category.category && <tr><td colSpan={3} className="border-t bg-muted/20 px-4 pt-2">
               <div id={`${id}-${category.category}-breakdown`} role="group" aria-label={`Breakdown for ${categoryMetadata(category.category).label}`}>
                 <CategoryBreakdownContent category={category} money={money} onSelect={onSelect} />

@@ -69,7 +69,7 @@ export default function AccountBadge(props: AccountBadgeProps) {
   const style = badgeStyle(props)
   return (
     <span
-      className={`inline-flex max-w-full [overflow-wrap:anywhere] rounded-full border px-2.5 py-1 text-xs font-bold tracking-wide ${style.className}`}
+      className={`inline-flex max-w-full items-center [overflow-wrap:anywhere] rounded-md border px-2 py-1 text-[11px] font-semibold leading-4 tracking-wide ${style.className}`}
       title={`${props.institutionName} — ${props.accountName}`}
     >
       {style.label}

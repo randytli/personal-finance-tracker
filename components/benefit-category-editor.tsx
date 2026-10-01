@@ -39,10 +39,10 @@ export default function BenefitCategoryEditor({ detail, options, disabled, onCha
     finally { inFlight.current = false; setSaving(false) }
   }
   if (!detail.benefit_category_editable) return null
-  return <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+  return <div className="flex flex-wrap items-center gap-2 text-xs">
     <span className="font-medium text-muted-foreground">Benefit category</span>
     <select aria-label="Benefit category" disabled={disabled || saving} value={detail.override_benefit_category || detail.effective_benefit_category || 'UNCATEGORIZED'}
-      className="rounded-md border border-input bg-card px-2 py-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onChange={event => void save(event.target.value)}>
+      className="rounded-md border border-input bg-card px-2 py-1 font-medium shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onChange={event => void save(event.target.value)}>
       {options.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
     </select>
     {detail.override_benefit_category && <Button type="button" variant="link" size="inline" className="text-xs" disabled={disabled || saving}

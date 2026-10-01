@@ -193,7 +193,7 @@ export default function BulkTransactionEditor({
     {spacerRoot && createPortal(<div data-bulk-spacer aria-hidden="true" style={{ height: spacerHeight }} />, spacerRoot)}
     {portalRoot && createPortal(<div ref={toolbar} data-bulk-toolbar
       style={{ bottom: `calc(max(12px, env(safe-area-inset-bottom)) + ${keyboardInset}px)`, maxHeight: availableHeight ?? '70dvh' }}
-      className="fixed left-[max(1rem,env(safe-area-inset-left))] right-[max(1rem,env(safe-area-inset-right))] z-30 mx-auto max-w-7xl overflow-y-auto rounded-xl border border-border bg-card/95 p-3 shadow-xl ring-1 ring-primary/10 backdrop-blur sm:p-4">
+      className="fixed left-[max(1rem,env(safe-area-inset-left))] right-[max(1rem,env(safe-area-inset-right))] z-30 mx-auto max-w-6xl overflow-y-auto rounded-2xl border border-border bg-card/95 p-3 shadow-[0_12px_40px_rgb(15_23_42/0.14)] backdrop-blur sm:p-4">
     <div className="grid gap-3 sm:flex sm:flex-wrap sm:items-center">
       <div className="flex items-center justify-between gap-3">
       <p className="text-sm font-semibold">{transactionIds.length} selected <span className="font-normal text-muted-foreground">· this page only</span></p>

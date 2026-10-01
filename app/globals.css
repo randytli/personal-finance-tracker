@@ -4,38 +4,38 @@
 
 @layer base {
   :root {
-    /* Soft canvas so white cards separate without heavy shadows. */
-    --background: 210 33% 98.5%;
-    --foreground: 222.2 84% 4.9%;
+    /* Calm ledger: cool neutral canvas, white surfaces, hairline borders, one deep accent. */
+    --background: 220 20% 97.3%;
+    --foreground: 222 39% 12%;
     --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
+    --card-foreground: 222 39% 12%;
     --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
-    --primary: 221.2 83.2% 53.3%;
-    --primary-foreground: 210 40% 98%;
-    --secondary: 210 40% 96%;
-    --secondary-foreground: 222.2 84% 4.9%;
-    --muted: 210 40% 96%;
-    --muted-foreground: 215.4 16.3% 46.9%;
-    --accent: 210 40% 96%;
-    --accent-foreground: 222.2 84% 4.9%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 221.2 83.2% 53.3%;
-    --radius: 0.5rem;
-    --success: 152 69% 31%;
-    --success-soft: 152 60% 96%;
-    --warning: 32 95% 34%;
-    --warning-soft: 48 100% 96%;
-    --info: 221.2 83.2% 45%;
-    --info-soft: 214 100% 97%;
-    --chart-1: 221.2 83.2% 53.3%;
-    --chart-2: 152 60% 38%;
-    --chart-3: 12 76% 56%;
-    --chart-4: 271 60% 52%;
-    --chart-5: 38 92% 45%;
+    --popover-foreground: 222 39% 12%;
+    --primary: 226 66% 49%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 220 16% 95%;
+    --secondary-foreground: 222 39% 12%;
+    --muted: 220 16% 95.5%;
+    --muted-foreground: 220 9% 43%;
+    --accent: 222 40% 96%;
+    --accent-foreground: 222 39% 12%;
+    --destructive: 0 72% 48%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 220 14% 90.5%;
+    --input: 220 13% 86%;
+    --ring: 226 66% 49%;
+    --radius: 0.625rem;
+    --success: 155 64% 29%;
+    --success-soft: 152 50% 95.5%;
+    --warning: 30 92% 33%;
+    --warning-soft: 42 100% 95.5%;
+    --info: 226 62% 44%;
+    --info-soft: 225 90% 97%;
+    --chart-1: 226 66% 52%;
+    --chart-2: 158 55% 38%;
+    --chart-3: 12 74% 55%;
+    --chart-4: 268 52% 56%;
+    --chart-5: 36 90% 46%;
   }
 
   .dark {
@@ -79,6 +79,9 @@
   body {
     @apply bg-background text-foreground antialiased;
     font-feature-settings: "cv11", "ss01";
+  }
+  h1, h2, h3 {
+    @apply tracking-tight;
   }
 }
 
@@ -127,5 +130,13 @@
   }
   .pft-app label:has(> input[type="radio"]) {
     min-height: 44px;
+  }
+  /* Keep the 44px row checkbox hit area while aligning the box with the row title and gutter. */
+  .pft-app [data-row-select] {
+    padding-top: 0;
+    margin: -10px -12px 0;
+  }
+  .pft-app [data-row-select] > label {
+    justify-content: center;
   }
 }

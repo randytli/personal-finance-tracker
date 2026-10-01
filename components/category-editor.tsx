@@ -89,13 +89,13 @@ export default function CategoryEditor({ detail, options, busy, save }: {
     if (await save(detail, category)) setOpen(false)
   }
 
-  return <div className="mt-2 w-full text-sm">
+  return <div className="contents text-sm">
     <div className="flex flex-wrap items-center gap-2">
       <CategoryBadge category={detail.effective_category} manual={detail.override_category !== null}
         editable={detail.category_editable} busy={busy} expanded={open} controls={panelId} onClick={toggle} />
     </div>
 
-    {open && detail.category_editable && <div id={panelId} className="mt-2 rounded-lg border bg-muted/40 p-3">
+    {open && detail.category_editable && <div id={panelId} className="order-last w-full basis-full rounded-lg border bg-muted/40 p-3">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
           <p className="font-medium">Spending category</p>

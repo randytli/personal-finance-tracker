@@ -140,13 +140,13 @@ export default function LabelEditor({
     }
   }, [busy, detail, disabled, onChanged, optionMap])
 
-  return <div className="mt-2 w-full text-sm">
+  return <div className="contents text-sm">
     <div className="flex flex-wrap items-center gap-2">
       {detail.effective_labels.map(label => {
         const manual = detail.manual_label_decisions[label] === 'include'
         const source = manual ? 'manually included' : 'automatic'
         return <span key={label} title={`${optionMap.get(label) || fallbackLabel(label)} · ${source}`}
-          className={cn('inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium',
+          className={cn('inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium leading-4',
             manual ? 'border-info/30 bg-info-soft text-info' : 'border-border bg-muted/60 text-foreground')}>
           {manual ? <Pencil aria-hidden="true" className="h-3 w-3" /> : <Sparkles aria-hidden="true" className="h-3 w-3" />}
           <span>{optionMap.get(label) || fallbackLabel(label)}</span>
@@ -161,7 +161,7 @@ export default function LabelEditor({
       </button>
     </div>
 
-    {open && <div id={panelId} className="mt-2 max-h-72 overflow-y-auto rounded-lg border bg-muted/40 p-3">
+    {open && <div id={panelId} className="order-last w-full max-h-72 basis-full overflow-y-auto rounded-lg border bg-muted/40 p-3">
       <div className="flex items-center justify-between gap-3">
         <p className="font-medium">Labels</p>
         <p className="text-xs text-muted-foreground">Changes save automatically</p>

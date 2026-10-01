@@ -1,7 +1,7 @@
 'use client'
 
 import { apiFetch } from '@/lib/api'
-import { Amount, LoadingState, PageHeader, PageNavigation, Pagination, SelectAllBar, TransactionRow, TransactionTools, TransactionTypeBadge, fieldClassName, useTransactionPageSize } from '@/components/page-presentation'
+import { Amount, ChipRow, ControlField, LoadingState, PageHeader, PageNavigation, Pagination, SelectAllBar, TransactionRow, TransactionTools, TransactionTypeBadge, fieldClassName, pageClassName, useTransactionPageSize } from '@/components/page-presentation'
 import { Alert } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -231,38 +231,39 @@ export default function ReviewPage() {
 
   const controlsBusy = bulkBusy || busy !== null
   return (
-    <main className="mx-auto max-w-7xl px-4 pb-10 sm:px-6">
-      <PageNavigation current="Review" />
+    <>
+    <PageNavigation current="Review" />
+    <main className={pageClassName}>
       <PageHeader title={mode === 'needs_review' ? 'Needs Review' : 'Credits & Transfers'}
         description="Classify ambiguous transactions without changing automatic rules."
         actions={<Badge variant={mode === 'needs_review' && total > 0 ? 'warning' : 'secondary'} className="text-sm tabular-nums">
           {total} {mode === 'needs_review' ? 'remaining' : 'matching transactions'}
         </Badge>} />
-      <div className="mt-4"><SyncHealth status={sync.status} error={sync.error} onRetry={() => { void sync.check().catch(() => undefined) }} /></div>
-      <section aria-label="Review controls" className="mt-4 flex flex-wrap items-end justify-between gap-4 rounded-xl border bg-card p-3 shadow-sm sm:p-4">
-      <nav aria-label="Review views" className="inline-flex flex-wrap gap-1 rounded-lg bg-muted p-1">
-        {(['needs_review', 'credits_transfers'] as const).map((view) => (
-          <Button size="sm" variant="ghost" key={view} aria-pressed={mode === view} disabled={controlsBusy}
-            className={cn('text-muted-foreground', mode === view && 'bg-card text-foreground shadow-sm hover:bg-card')}
-            onClick={() => { setMode(view); setDirection('incoming'); setOffset(0); setTypeFilter('all'); setChoices({}); setSelected(new Set()) }}>
-            {view === 'needs_review' ? 'Needs Review' : 'Credits & Transfers'}
-          </Button>
-        ))}
-      </nav>
-      {mode === 'credits_transfers' && <div className="flex flex-wrap gap-3">
-        <label className="flex flex-wrap items-center gap-2 text-sm font-medium">Direction{' '}
-          <select aria-label="Direction filter" value={direction} disabled={controlsBusy} className={fieldClassName}
-            onChange={(event) => { setDirection(event.target.value as typeof direction); setOffset(0); setChoices({}); setSelected(new Set()) }}>
-            <option value="incoming">Incoming</option><option value="outgoing">Outgoing</option><option value="all">All</option>
-          </select>
-        </label>
-        <label className="flex flex-wrap items-center gap-2 text-sm font-medium">Effective type{' '}
-          <select aria-label="Effective type filter" value={typeFilter} disabled={controlsBusy} className={fieldClassName}
-            onChange={(event) => { setTypeFilter(event.target.value); setOffset(0); setChoices({}); setSelected(new Set()) }}>
-            {FILTERS.map((type) => <option key={type} value={type}>{type === 'card_benefit' ? 'Card Benefit' : type.charAt(0).toUpperCase() + type.slice(1)}</option>)}
-          </select>
-        </label>
-      </div>}
+      <div className="mt-5"><SyncHealth status={sync.status} error={sync.error} onRetry={() => { void sync.check().catch(() => undefined) }} /></div>
+      <section aria-label="Review controls" className="mt-6 flex flex-wrap items-end justify-between gap-3">
+        <nav aria-label="Review views" className="inline-flex flex-wrap gap-0.5 rounded-lg bg-muted p-1">
+          {(['needs_review', 'credits_transfers'] as const).map((view) => (
+            <Button size="sm" variant="ghost" key={view} aria-pressed={mode === view} disabled={controlsBusy}
+              className={cn('text-muted-foreground hover:bg-card/70', mode === view && 'bg-card text-foreground shadow-sm hover:bg-card')}
+              onClick={() => { setMode(view); setDirection('incoming'); setOffset(0); setTypeFilter('all'); setChoices({}); setSelected(new Set()) }}>
+              {view === 'needs_review' ? 'Needs Review' : 'Credits & Transfers'}
+            </Button>
+          ))}
+        </nav>
+        {mode === 'credits_transfers' && <div className="flex w-full flex-wrap gap-3 sm:w-auto">
+          <ControlField label="Direction">
+            <select aria-label="Direction filter" value={direction} disabled={controlsBusy} className={fieldClassName}
+              onChange={(event) => { setDirection(event.target.value as typeof direction); setOffset(0); setChoices({}); setSelected(new Set()) }}>
+              <option value="incoming">Incoming</option><option value="outgoing">Outgoing</option><option value="all">All</option>
+            </select>
+          </ControlField>
+          <ControlField label="Effective type">
+            <select aria-label="Effective type filter" value={typeFilter} disabled={controlsBusy} className={fieldClassName}
+              onChange={(event) => { setTypeFilter(event.target.value); setOffset(0); setChoices({}); setSelected(new Set()) }}>
+              {FILTERS.map((type) => <option key={type} value={type}>{type === 'card_benefit' ? 'Card Benefit' : type.charAt(0).toUpperCase() + type.slice(1)}</option>)}
+            </select>
+          </ControlField>
+        </div>}
       </section>
 
       {undo && (
@@ -276,14 +277,14 @@ export default function ReviewPage() {
       {bulkStatus && <Alert role="status" variant="success" className="mt-4"><CircleCheck aria-hidden="true" />{bulkStatus}</Alert>}
       {loading && <LoadingState label="Loading transactions…" rows={4} />}
       {!loading && transactions.length === 0 && !error && (
-        <div className="mt-6 flex flex-col items-center gap-2 rounded-xl border border-dashed bg-card px-6 py-12 text-center">
+        <div className="mt-4 flex flex-col items-center gap-2 rounded-xl border border-dashed bg-card px-6 py-12 text-center">
           <CircleCheck aria-hidden="true" className="size-8 text-success" />
           <p className="font-medium">{mode === 'needs_review' ? 'Nothing needs review.' : 'No matching credits or transfers.'}</p>
           <p className="text-sm text-muted-foreground">{mode === 'needs_review' ? 'Every transaction in scope has a classification.' : 'Try another direction or type filter.'}</p>
         </div>
       )}
 
-      {!loading && transactions.length > 0 && <div className="mt-4 overflow-hidden rounded-xl border bg-card shadow-sm">
+      {!loading && transactions.length > 0 && <div className="mt-4 overflow-hidden rounded-xl border bg-card shadow-[0_1px_2px_rgb(15_23_42/0.04)]">
       <SelectAllBar className="border-t-0">
         <label className="inline-flex items-center gap-2 text-sm font-medium">
           <input type="checkbox"
@@ -306,32 +307,38 @@ export default function ReviewPage() {
                 disabled={controlsBusy} onChange={() => toggleSelected(transaction.transaction_id)}
                 aria-label={`Select ${transaction.merchant_name || transaction.description || 'transaction'}`} />
             </label>}
-            title={<>
-              <h2 className="break-words font-medium">{transaction.merchant_name || transaction.description || 'Unknown transaction'}</h2>
-              {transaction.description !== transaction.merchant_name && <p className="mt-0.5 break-words text-sm text-muted-foreground">{transaction.description}</p>}
+            title={<h2 className="break-words font-medium">{transaction.merchant_name || transaction.description || 'Unknown transaction'}</h2>}
+            meta={<>
+              <span className="tabular-nums">{transaction.transaction_date}</span>
+              {transaction.description !== transaction.merchant_name && <> · {transaction.description}</>}
             </>}
             amount={<Amount value={transaction.amount}>{new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(Number(transaction.amount))}</Amount>}>
-            <div className="mt-2 flex flex-wrap items-center gap-2">
+            <ChipRow>
               <TransactionTypeBadge type={transaction.effective_transaction_type} manual={Boolean(transaction.override_transaction_type)} />
-              {!transaction.category_editable && <CategoryBadge category={transaction.effective_category} manual={transaction.override_category != null} />}
+              {transaction.category_editable
+                ? <CategoryEditor detail={transaction} options={categoryOptions} busy={categoryBusy || controlsBusy} save={saveCategory} />
+                : <CategoryBadge category={transaction.effective_category} manual={transaction.override_category != null} />}
+              <AccountBadge institutionName={transaction.institution_name} accountName={transaction.account_name}
+                accountMask={transaction.account_mask} accountType={transaction.account_type} />
               {transaction.override_transaction_type && <span className="text-xs text-muted-foreground">
                 Automatic: {transaction.automatic_transaction_type?.replace(/_/g, ' ') || 'unclassified'}
               </span>}
-            </div>
-            {mode === 'credits_transfers' && (transaction.effective_is_internal_transfer ||
-              transaction.effective_transaction_type === 'transfer' || transaction.effective_transaction_type === 'payment') &&
-              <Badge variant="muted" className="mt-2">
-                {transaction.effective_is_internal_transfer ? 'Confirmed internal transfer · excluded money movement' : 'Excluded money movement'}
-              </Badge>}
-            {transaction.category_editable && <CategoryEditor detail={transaction} options={categoryOptions}
-              busy={categoryBusy || controlsBusy} save={saveCategory} />}
+              {mode === 'credits_transfers' && (transaction.effective_is_internal_transfer ||
+                transaction.effective_transaction_type === 'transfer' || transaction.effective_transaction_type === 'payment') &&
+                <Badge variant="muted">
+                  {transaction.effective_is_internal_transfer ? 'Confirmed internal transfer · excluded money movement' : 'Excluded money movement'}
+                </Badge>}
+            </ChipRow>
             <TransactionTools>
-              <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
-                <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                  <span>{transaction.transaction_date} · {transaction.institution_name} · {transaction.account_type}</span>
-                  <AccountBadge institutionName={transaction.institution_name} accountName={transaction.account_name}
-                    accountMask={transaction.account_mask} accountType={transaction.account_type} />
-                  <span className="flex flex-wrap items-center gap-2"><span>Plaid category</span><CategoryBadge category={transaction.plaid_category} /></span>
+              <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+                  <span className="mr-1">{transaction.institution_name} · {transaction.account_type}</span>
+                  <span className="mr-1 flex flex-wrap items-center gap-1.5"><span>Plaid category</span><CategoryBadge category={transaction.plaid_category} /></span>
+                  <BenefitCategoryEditor detail={transaction} options={benefitCategoryOptions}
+                    disabled={controlsBusy} onChanged={updateBenefitCategory} />
+                  <LabelEditor detail={transaction} options={labelOptions.options}
+                    optionsLoading={labelOptions.loading} optionsError={labelOptions.error}
+                    disabled={bulkBusy} onRetryOptions={labelOptions.retry} onChanged={updateLabels} />
                 </div>
                 <div className="flex flex-wrap items-center gap-2 md:justify-end">
                   <select
@@ -361,11 +368,6 @@ export default function ReviewPage() {
                   )}
                 </div>
               </div>
-              <BenefitCategoryEditor detail={transaction} options={benefitCategoryOptions}
-                disabled={controlsBusy} onChanged={updateBenefitCategory} />
-              <LabelEditor detail={transaction} options={labelOptions.options}
-                optionsLoading={labelOptions.loading} optionsError={labelOptions.error}
-                disabled={bulkBusy} onRetryOptions={labelOptions.retry} onChanged={updateLabels} />
             </TransactionTools>
           </TransactionRow>
         ))}
@@ -391,5 +393,6 @@ export default function ReviewPage() {
       <Pagination className="mt-4" offset={offset} pageSize={pageSize} total={total}
         disabled={loading || controlsBusy} onPage={setOffset} />
     </main>
+    </>
   )
 }
