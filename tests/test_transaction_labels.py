@@ -80,8 +80,7 @@ class LabelRuleTests(unittest.TestCase):
 
     def test_reviewed_membership_descriptions_are_exact_and_description_only(self):
         approved = (
-            "MEMBERSHIP FEE", "RENEWAL MEMBERSHIP FEE", "CAPITAL ONE MEMBER FEE",
-            "GOLD ANNUAL SUBSCRIPTIO", "OPENAI CHATGPT SUBSCR",
+            "OPENAI CHATGPT SUBSCR",
             "OPENAI CHATGPT SUBSCR OPENAI COM CA", "CLAUDE AI SUBSCRIPTION",
             "CLAUDE AI SUBSCRIPTION ANTHROPIC COMCA", "YOUTUBE PREMIUM",
             "YOUTUBEPREMI G CO HELPPAY", "YOUTUBEPREMIUCC GOOGLE COM",
@@ -125,6 +124,19 @@ class LabelRuleTests(unittest.TestCase):
         self.assertEqual(label_result(matched, [override])["effective_labels"], ["MEMBERSHIP"])
         unmatched = transaction("OpenAI", "OpenAI")
         self.assertEqual(effective_labels(unmatched, {"MEMBERSHIP": "include"}), ("MEMBERSHIP",))
+
+    def test_annual_card_fees_are_not_automatic_memberships(self):
+        for description in ("MEMBERSHIP FEE", "RENEWAL MEMBERSHIP FEE",
+                            "CAPITAL ONE MEMBER FEE", "GOLD ANNUAL SUBSCRIPTIO"):
+            for card in ("Platinum Card", "American Express Gold Card", "Venture X"):
+                with self.subTest(description=description, card=card):
+                    fee = transaction("Card issuer", description)
+                    fee.amount = Decimal("-695")
+                    context = dict(account_type="credit", account_name=card)
+                    self.assertNotIn("MEMBERSHIP", automatic_labels(fee, **context))
+                    self.assertEqual(effective_labels(fee, **context), ())
+                    self.assertEqual(effective_labels(
+                        fee, {"MEMBERSHIP": "include"}, **context), ("MEMBERSHIP",))
 
     def test_reviewed_generic_expense_amount_rules_are_exact(self):
         def expense(merchant, description, amount):

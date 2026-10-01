@@ -33,6 +33,23 @@ class MembershipTests(unittest.TestCase):
         session.start()
         self.addCleanup(session.stop)
 
+    def test_annual_card_fees_do_not_contribute_to_membership_totals(self):
+        bank = SimpleNamespace(institution_id='ins_test', institution_name='Test Bank')
+        rows = []
+        for index, description in enumerate(("MEMBERSHIP FEE", "RENEWAL MEMBERSHIP FEE",
+                                            "CAPITAL ONE MEMBER FEE", "GOLD ANNUAL SUBSCRIPTIO")):
+            fee = transaction(str(index), date(2026, 9, 1), '-695', 'expense', spending=True)
+            fee.description = description
+            rows.append((fee, False, None, bank, account(str(index))))
+        subscription = transaction('subscription', date(2026, 9, 1), '-20', 'expense', spending=True)
+        subscription.description = 'OPENAI CHATGPT SUBSCR'
+        rows.append((subscription, False, None, bank, account('subscription')))
+        result = summarize_memberships(rows, {}, '2026-09', '2026-09')
+        self.assertEqual(result['overall']['gross_charges'], '20.00')
+        self.assertEqual(result['overall']['net_cost'], '20.00')
+        self.assertEqual(result['overall']['membership_transaction_count'], 1)
+        self.assertEqual([entry['account_id'] for entry in result['accounts']], ['subscription'])
+
     def test_membership_reimbursements_reduce_overall_but_remain_unallocated_by_account(self):
         bank = SimpleNamespace(institution_id='ins_test', institution_name='Test Bank')
         card, checking = account('card'), account('checking')

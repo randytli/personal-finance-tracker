@@ -13,11 +13,9 @@ LABEL_CHECK = "label IN (" + ",".join("'" + label + "'" for label in ALLOWED_LAB
 # same way as transaction.description; merchant names and cadence are not used.
 # Some source descriptions are truncated or include processor text, so retain
 # only the exact observed forms instead of prefix matching.
+# Annual credit-card fees are ordinary expenses, not Membership subscriptions.
+# Do not reintroduce the reviewed Amex/Capital One fee descriptions here.
 MEMBERSHIP_EXACT_DESCRIPTIONS = frozenset({
-    "MEMBERSHIP FEE",
-    "RENEWAL MEMBERSHIP FEE",
-    "CAPITAL ONE MEMBER FEE",
-    "GOLD ANNUAL SUBSCRIPTIO",
     "OPENAI CHATGPT SUBSCR",
     "OPENAI CHATGPT SUBSCR OPENAI COM CA",
     "CLAUDE AI SUBSCRIPTION",
