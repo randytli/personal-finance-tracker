@@ -1,7 +1,7 @@
 'use client'
 
 import { apiFetch } from '@/lib/api'
-import { Amount, ChipRow, ControlField, LoadingState, PageHeader, PageNavigation, Pagination, SelectAllBar, TransactionRow, TransactionTools, TransactionTypeBadge, fieldClassName, pageClassName, useTransactionPageSize } from '@/components/page-presentation'
+import { Amount, ChipRow, ControlField, LoadingState, PageHeader, PageNavigation, Pagination, SelectAllBar, TransactionRow, TransactionTools, TransactionTypeBadge, fieldClassName, pageClassName, sheetClassName, useTransactionPageSize } from '@/components/page-presentation'
 import { Alert } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -277,14 +277,14 @@ export default function ReviewPage() {
       {bulkStatus && <Alert role="status" variant="success" className="mt-4"><CircleCheck aria-hidden="true" />{bulkStatus}</Alert>}
       {loading && <LoadingState label="Loading transactions…" rows={4} />}
       {!loading && transactions.length === 0 && !error && (
-        <div className="mt-4 flex flex-col items-center gap-2 rounded-xl border border-dashed bg-card px-6 py-12 text-center">
+        <div className="mt-4 flex flex-col items-center gap-2 rounded-xl border border-dashed border-foreground/20 px-6 py-12 text-center">
           <CircleCheck aria-hidden="true" className="size-8 text-success" />
           <p className="font-medium">{mode === 'needs_review' ? 'Nothing needs review.' : 'No matching credits or transfers.'}</p>
           <p className="text-sm text-muted-foreground">{mode === 'needs_review' ? 'Every transaction in scope has a classification.' : 'Try another direction or type filter.'}</p>
         </div>
       )}
 
-      {!loading && transactions.length > 0 && <div className="mt-4 overflow-hidden rounded-xl border bg-card shadow-[0_1px_2px_rgb(15_23_42/0.04)]">
+      {!loading && transactions.length > 0 && <div className={cn(sheetClassName, 'mt-4 overflow-hidden')}>
       <SelectAllBar className="border-t-0">
         <label className="inline-flex items-center gap-2 text-sm font-medium">
           <input type="checkbox"
@@ -308,10 +308,8 @@ export default function ReviewPage() {
                 aria-label={`Select ${transaction.merchant_name || transaction.description || 'transaction'}`} />
             </label>}
             title={<h2 className="break-words font-medium">{transaction.merchant_name || transaction.description || 'Unknown transaction'}</h2>}
-            meta={<>
-              <span className="tabular-nums">{transaction.transaction_date}</span>
-              {transaction.description !== transaction.merchant_name && <> · {transaction.description}</>}
-            </>}
+            date={transaction.transaction_date}
+            meta={transaction.description !== transaction.merchant_name ? transaction.description : undefined}
             amount={<Amount value={transaction.amount}>{new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(Number(transaction.amount))}</Amount>}>
             <ChipRow>
               <TransactionTypeBadge type={transaction.effective_transaction_type} manual={Boolean(transaction.override_transaction_type)} />

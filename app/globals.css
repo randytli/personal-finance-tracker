@@ -4,38 +4,38 @@
 
 @layer base {
   :root {
-    /* Calm ledger: cool neutral canvas, white surfaces, hairline borders, one deep accent. */
-    --background: 220 20% 97.3%;
-    --foreground: 222 39% 12%;
+    /* Statement and ink: sage-grey paper, white sheets for rows, blue-black ink. See preview/DESIGN.md. */
+    --background: 84 17% 94.3%;
+    --foreground: 221 43% 16%;
     --card: 0 0% 100%;
-    --card-foreground: 222 39% 12%;
+    --card-foreground: 221 43% 16%;
     --popover: 0 0% 100%;
-    --popover-foreground: 222 39% 12%;
-    --primary: 226 66% 49%;
+    --popover-foreground: 221 43% 16%;
+    --primary: 221 43% 20%;
     --primary-foreground: 0 0% 100%;
-    --secondary: 220 16% 95%;
-    --secondary-foreground: 222 39% 12%;
-    --muted: 220 16% 95.5%;
-    --muted-foreground: 220 9% 43%;
-    --accent: 222 40% 96%;
-    --accent-foreground: 222 39% 12%;
-    --destructive: 0 72% 48%;
+    --secondary: 84 14% 91.5%;
+    --secondary-foreground: 221 43% 16%;
+    --muted: 84 14% 91.5%;
+    --muted-foreground: 217 11% 40%;
+    --accent: 84 20% 95.5%;
+    --accent-foreground: 221 43% 16%;
+    --destructive: 8 59% 40%;
     --destructive-foreground: 0 0% 100%;
-    --border: 220 14% 90.5%;
-    --input: 220 13% 86%;
-    --ring: 226 66% 49%;
-    --radius: 0.625rem;
-    --success: 155 64% 29%;
-    --success-soft: 152 50% 95.5%;
-    --warning: 30 92% 33%;
-    --warning-soft: 42 100% 95.5%;
-    --info: 226 62% 44%;
-    --info-soft: 225 90% 97%;
-    --chart-1: 226 66% 52%;
-    --chart-2: 158 55% 38%;
-    --chart-3: 12 74% 55%;
-    --chart-4: 268 52% 56%;
-    --chart-5: 36 90% 46%;
+    --border: 93 14% 84%;
+    --input: 95 11% 76%;
+    --ring: 216 50% 36%;
+    --radius: 0.5rem;
+    --success: 158 59% 26%;
+    --success-soft: 147 27% 92.5%;
+    --warning: 37 85% 29%;
+    --warning-soft: 42 68% 92%;
+    --info: 216 45% 32%;
+    --info-soft: 215 36% 93.5%;
+    --chart-1: 216 47% 34%;
+    --chart-2: 154 50% 36%;
+    --chart-3: 11 59% 45%;
+    --chart-4: 283 30% 43%;
+    --chart-5: 38 71% 40%;
   }
 
   .dark {
@@ -77,11 +77,16 @@
     @apply border-border;
   }
   body {
-    @apply bg-background text-foreground antialiased;
-    font-feature-settings: "cv11", "ss01";
+    @apply bg-background font-sans text-foreground antialiased;
   }
   h1, h2, h3 {
     @apply tracking-tight;
+  }
+  /* Statement figures: serif, lining and tabular so columns of money align. */
+  .figures {
+    @apply font-serif;
+    font-variant-numeric: lining-nums tabular-nums;
+    font-optical-sizing: auto;
   }
 }
 

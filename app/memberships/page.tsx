@@ -1,7 +1,7 @@
 'use client'
 
 import { apiFetch } from '@/lib/api'
-import { Amount, ChartLegend, ChartMonthlyTotals, ChipRow, ControlField, LoadingState, MetricCard, PageHeader, PageNavigation, Pagination, SectionCard, SectionHeader, SelectAllBar, TransactionRow, TransactionTools, TransactionTypeBadge, compactMoney, fieldClassName, pageClassName, statGridClassName, useNarrowViewport, useTransactionPageSize } from '@/components/page-presentation'
+import { Amount, ChartLegend, ChartMonthlyTotals, ChipRow, ControlField, LoadingState, PageHeader, PageNavigation, Pagination, SectionCard, SectionHeader, SelectAllBar, Statement, TransactionRow, TransactionTools, TransactionTypeBadge, compactMoney, fieldClassName, pageClassName, sheetClassName, useNarrowViewport, useTransactionPageSize } from '@/components/page-presentation'
 import { Alert } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -310,21 +310,22 @@ export default function MembershipsPage() {
     {status && <Alert role="status" variant="success" className="mt-4"><CircleCheck aria-hidden="true" />{status}</Alert>}
     {loading && !summary && <LoadingState label="Loading membership costs…" rows={3} />}
     {summary && <>
-      <div className="mt-6 overflow-hidden rounded-xl border bg-card shadow-[0_1px_2px_rgb(15_23_42/0.04)]">
-        <section className={cn(statGridClassName, 'grid-cols-2 lg:grid-cols-[1.35fr_repeat(4,minmax(0,1fr))]')} aria-label="Overall membership costs">
-          <div className="col-span-2 lg:col-span-1">
-            <MetricCard label="Net cost" value={money(summary.overall.net_cost)} primary
-              selected={!accountId && view === 'all'} onClick={() => { changeAccount(null); changeView('all') }} />
-          </div>
-          {([
-            ['Gross charges', summary.overall.gross_charges, 'charges'],
-            ['Refunds', summary.overall.refunds, 'refunds'],
-            ['Reimbursements', summary.overall.reimbursements, 'reimbursements'],
-            ['Card benefits', summary.overall.card_benefits, 'card_benefits'],
-          ] as const).map(([name, value, targetView]) => <MetricCard key={name} label={name} value={money(value)}
-            selected={!accountId && view === targetView} onClick={() => { changeAccount(null); changeView(targetView) }} />)}
-        </section>
-        <div className="border-t px-4 py-2.5 text-xs text-muted-foreground sm:px-5">
+      <div className={cn(sheetClassName, 'mt-6 grid gap-x-10 gap-y-5 p-3 sm:p-5 lg:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)] lg:px-7 lg:py-6')}>
+        <div className="min-w-0">
+          <h2 className="px-2 pb-1 font-serif text-[19px] font-semibold sm:px-3">Net membership cost</h2>
+          <p className="px-2 pb-2 text-[13px] text-muted-foreground sm:px-3">Select a line to filter the transactions below.</p>
+          <Statement label="Overall membership costs" lines={([
+            ['Gross charges', summary.overall.gross_charges, 'charges', undefined],
+            ['Refunds', summary.overall.refunds, 'refunds', '−'],
+            ['Reimbursements', summary.overall.reimbursements, 'reimbursements', '−'],
+            ['Card benefits', summary.overall.card_benefits, 'card_benefits', '−'],
+          ] as const).map(([name, value, targetView, operator]) => ({ label: name, value: money(value), operator,
+            selected: !accountId && view === targetView, onClick: () => { changeAccount(null); changeView(targetView) } }))}
+            total={{ label: 'Net cost', value: money(summary.overall.net_cost), selected: !accountId && view === 'all',
+              onClick: () => { changeAccount(null); changeView('all') } }} />
+        </div>
+        <div className="min-w-0 border-t pt-4 lg:border-l lg:border-t-0 lg:pl-10 lg:pt-1">
+        <div className="px-2 text-[13px] leading-5 text-muted-foreground sm:px-3 lg:px-0">
           <p>Net Membership Cost = gross charges − refunds − reimbursements − card benefits. Each transaction affects its posted month.</p>
           <p className="mt-1">
             {summary.type_counts.charges} charges · {summary.type_counts.refunds} refunds · {summary.type_counts.reimbursements} reimbursements · {summary.type_counts.card_benefits} card benefit credits · {summary.overall.excluded_transaction_count} excluded from cost
@@ -332,7 +333,7 @@ export default function MembershipsPage() {
             {' '}Payments, transfers, adjustments, income, and unclassified entries do not affect cost.
           </p>
         </div>
-        <details aria-label="Membership reconciliation" className="group border-t bg-muted/30 px-4 py-3 text-sm sm:px-5">
+        <details aria-label="Membership reconciliation" className="group mx-2 mt-4 rounded-lg bg-background/70 px-3 py-2.5 text-sm sm:mx-3 lg:mx-0">
           <summary className="flex cursor-pointer list-none items-start gap-1.5 rounded-md font-medium tabular-nums focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
             <ChevronRight aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-90" />
             <span>Unallocated reimbursements: {money(summary.overall.unallocated_reimbursements)} · {summary.overall.unallocated_reimbursement_transaction_count} transactions</span>
@@ -343,11 +344,12 @@ export default function MembershipsPage() {
             <p className="tabular-nums text-muted-foreground">Unallocated deduction: {money(summary.overall.unallocated_reimbursements)} · Overall net cost: {money(summary.overall.net_cost)}</p>
           </div>
         </details>
+        </div>
       </div>
 
-      <SectionCard className="mt-5 min-w-0">
-        <SectionHeader title="Monthly membership cost" description="Posted month · USD" />
-        <div className="px-4 pb-4 sm:px-5 sm:pb-5">
+      <SectionCard plain className="mt-10 min-w-0">
+        <SectionHeader plain title="Monthly membership cost" description="By posted month, in US dollars" />
+        <div>
           <ChartLegend items={[{ label: 'Net cost', color: lineColor.netCost }, { label: 'Gross charges', color: lineColor.grossCharges },
             { label: 'Refunds', color: lineColor.refunds }, { label: 'Reimbursements', color: lineColor.reimbursements, dashed: true }, { label: 'Card benefits', color: lineColor.cardBenefits }]} />
           <div className="mt-3 h-64 min-w-0 sm:h-72">
@@ -379,19 +381,19 @@ export default function MembershipsPage() {
         </div>
       </SectionCard>
 
-      <section className="mt-8" aria-labelledby="membership-accounts">
-        <h2 id="membership-accounts" className="text-base font-semibold">By account</h2>
+      <section className="mt-10 border-t border-foreground/15 pt-4" aria-labelledby="membership-accounts">
+        <h2 id="membership-accounts" className="font-serif text-[19px] font-semibold leading-7">By account</h2>
         <p className="mt-0.5 text-sm text-muted-foreground">Account net costs exclude unallocated reimbursements. Reimbursements received are shown only as source context.</p>
         {summary.accounts.length === 0 && <p className="mt-3 text-sm text-muted-foreground">No Membership transactions in this period.</p>}
         <div className="mt-3 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {summary.accounts.map(account => <div key={account.account_id}
-            className={cn('flex min-w-0 flex-col overflow-hidden rounded-xl border bg-card text-left shadow-[0_1px_2px_rgb(15_23_42/0.04)]', accountId === account.account_id && 'border-primary ring-2 ring-primary/15')}>
+            className={cn(sheetClassName, 'flex min-w-0 flex-col overflow-hidden text-left', accountId === account.account_id && 'border-foreground/60 ring-1 ring-foreground/60')}>
             <button type="button" aria-pressed={accountId === account.account_id}
               className="w-full p-4 text-left transition-colors hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:px-5"
               onClick={() => { changeAccount(accountId === account.account_id ? null : account.account_id); changeView('all') }}>
               <AccountBadge institutionName={account.institution_name} accountName={account.account_name}
                 accountMask={account.account_mask} accountType={account.account_type} accountSubtype={account.account_subtype} />
-              <p className="mt-3 text-xl font-semibold tabular-nums tracking-tight">{money(account.net_cost)} net cost</p>
+              <p className="figures mt-3 text-[26px] font-semibold leading-tight">{money(account.net_cost)} net cost</p>
               <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-sm tabular-nums">
                 <div className="min-w-0"><dt className="text-xs text-muted-foreground">Gross</dt><dd className="[overflow-wrap:anywhere]">{money(account.gross_charges)}</dd></div>
                 <div className="min-w-0"><dt className="text-xs text-muted-foreground">Refunds</dt><dd className="[overflow-wrap:anywhere]">{money(account.refunds)}</dd></div>
@@ -399,7 +401,7 @@ export default function MembershipsPage() {
                 <div className="min-w-0"><dt className="text-xs text-muted-foreground">Transactions</dt><dd>{account.membership_transaction_count} Membership transactions</dd></div>
               </dl>
             </button>
-            <div className="mt-auto flex flex-col items-start gap-2 border-t bg-muted/20 px-4 py-3 sm:px-5">
+            <div className="mt-auto flex flex-col items-start gap-2 border-t bg-background/50 px-4 py-3 sm:px-5">
               <Button type="button" variant="outline" size="sm"
                 onClick={event => { event.stopPropagation(); changeAccount(account.account_id); changeView('card_benefits') }}>
                 View {money(account.card_benefits)} benefits
@@ -419,7 +421,7 @@ export default function MembershipsPage() {
         </div>
       </section>
 
-      <SectionCard className="mt-6 overflow-hidden">
+      <SectionCard className="mt-10 overflow-hidden">
         <SectionHeader title="Membership transactions"
           description={<>
             <p>
@@ -461,7 +463,8 @@ export default function MembershipsPage() {
               aria-label={`Select ${detail.merchant_name || detail.description || 'transaction'}`}
               onChange={() => toggleSelected(detail.transaction_id)} /></label>}
             title={<p className="font-medium break-words">{detail.merchant_name || detail.description || 'Unknown transaction'}</p>}
-            meta={<><span className="tabular-nums">{detail.transaction_date}</span> · {detail.description}</>}
+            date={detail.transaction_date}
+            meta={detail.merchant_name && detail.description !== detail.merchant_name ? detail.description : undefined}
             amount={<Amount value={detail.amount}>{signedMoney(detail.amount)}</Amount>}>
             <ChipRow>
               <TransactionTypeBadge type={detail.transaction_type} />

@@ -1,8 +1,9 @@
 import type { Metadata, Viewport } from 'next'
-import { Inter } from 'next/font/google'
+import { Public_Sans, Source_Serif_4 } from 'next/font/google'
 import './globals.css'
 
-const inter = Inter({ subsets: ['latin'] })
+const sans = Public_Sans({ subsets: ['latin'], variable: '--font-sans' })
+const serif = Source_Serif_4({ subsets: ['latin'], axes: ['opsz'], variable: '--font-serif' })
 
 export const metadata: Metadata = {
   title: 'Personal Finance Tracker',
@@ -13,7 +14,7 @@ export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
   viewportFit: 'cover',
-  themeColor: '#f6f7f9',
+  themeColor: '#f1f3ee',
 }
 
 export default function RootLayout({
@@ -23,7 +24,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body className={inter.className}>
+      <body className={`${sans.variable} ${serif.variable}`}>
         <div className="pft-app min-h-screen bg-background">
           {children}
         </div>

@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { useEffect, useState, type HTMLAttributes, type ReactNode } from 'react'
-import { ChevronDown, ChevronLeft, ChevronRight, WalletCards } from 'lucide-react'
+import { ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
@@ -69,19 +69,27 @@ export function ChartLegend({ items }: { items: Array<{ label: string; color: st
 
 const NAV_ITEMS = [['/', 'Overview'], ['/review', 'Review'], ['/memberships', 'Memberships']] as const
 
+// Wordmark glyph: a ledger sheet closed by the accounting double rule used under statement totals.
+function LedgerMark() {
+  return <svg aria-hidden="true" viewBox="0 0 20 20" className="size-5 shrink-0">
+    <rect x="1" y="1" width="18" height="18" rx="4.5" fill="currentColor" />
+    <path d="M5.5 6.5h5M5.5 12h9M5.5 14.5h9" stroke="hsl(var(--background))" strokeWidth="1.3" strokeLinecap="round" />
+  </svg>
+}
+
 export function PageNavigation({ current }: { current: 'Overview' | 'Review' | 'Memberships' }) {
-  return <header className="sticky top-[env(safe-area-inset-top)] z-20 border-b bg-background/85 backdrop-blur-md supports-[backdrop-filter]:bg-background/70">
-    <nav aria-label="Main navigation" className="mx-auto flex max-w-6xl items-center gap-3 px-4 py-2 sm:px-6">
-      <Link href="/" className="mr-auto inline-flex items-center gap-2 rounded-md text-[15px] font-semibold tracking-tight focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-        <span aria-hidden="true" className="flex size-7 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-sm"><WalletCards className="size-4" /></span>
-        <span className="max-[379px]:sr-only">PFT</span>
+  return <header className="sticky top-[env(safe-area-inset-top)] z-20 border-b bg-background/90 backdrop-blur-md supports-[backdrop-filter]:bg-background/75">
+    <nav aria-label="Main navigation" className="mx-auto flex max-w-6xl items-stretch gap-3 px-4 sm:px-6">
+      <Link href="/" className="mr-auto inline-flex items-center gap-2 rounded-md py-3 font-serif text-[19px] font-semibold tracking-tight focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+        <LedgerMark /><span className="max-[379px]:sr-only">PFT</span>
       </Link>
-      <div className="flex items-center gap-0.5 rounded-lg bg-muted p-1">
+      <div className="flex items-stretch gap-1 sm:gap-3">
         {NAV_ITEMS.map(([href, label]) =>
-          <Button key={href} asChild variant="ghost" size="sm"
-            className={cn('px-2.5 text-muted-foreground hover:bg-card/70 sm:px-3', current === label && 'bg-card text-foreground shadow-sm hover:bg-card')}>
-            <Link href={href} aria-current={current === label ? 'page' : undefined}>{label}</Link>
-          </Button>)}
+          <Link key={href} href={href} aria-current={current === label ? 'page' : undefined}
+            className={cn('relative inline-flex items-center rounded-md px-2 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:px-2.5',
+              current === label && 'text-foreground after:absolute after:inset-x-2 after:-bottom-px after:h-0.5 after:rounded-full after:bg-foreground')}>
+            {label}
+          </Link>)}
       </div>
     </nav>
   </header>
@@ -93,10 +101,10 @@ export const pageClassName = 'mx-auto max-w-6xl px-4 pb-10 sm:px-6'
 export function PageHeader({ title, description, meta, actions }: {
   title: ReactNode; description?: ReactNode; meta?: ReactNode; actions?: ReactNode
 }) {
-  return <header className="flex flex-col gap-4 pt-6 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between sm:pt-8">
+  return <header className="flex flex-col gap-4 pt-7 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between sm:pt-10">
     <div className="min-w-0">
-      <h1 className="text-[26px] font-semibold leading-tight sm:text-3xl">{title}</h1>
-      {description && <p className="mt-1.5 text-sm text-muted-foreground">{description}</p>}
+      <h1 className="font-serif text-[30px] font-semibold leading-[1.1] sm:text-[38px]">{title}</h1>
+      {description && <p className="mt-2 max-w-prose text-[15px] text-muted-foreground">{description}</p>}
       {meta}
     </div>
     {actions && <div className="flex flex-wrap items-end gap-3">{actions}</div>}
@@ -112,18 +120,21 @@ export function ControlField({ label, children, className }: { label: string; ch
 }
 
 // Shared native control styling keeps selects/month inputs consistent with Button.
-export const fieldClassName = 'min-h-9 min-w-0 max-w-full rounded-lg border border-input bg-card px-3 py-1.5 text-sm shadow-sm transition-colors hover:border-ring/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50'
+export const fieldClassName = 'min-h-9 min-w-0 max-w-full rounded-lg border border-input bg-card px-3 py-1.5 text-sm transition-colors hover:border-foreground/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50'
 
-export function SectionCard({ children, className, ...props }: HTMLAttributes<HTMLElement>) {
-  return <section className={cn('rounded-xl border bg-card text-card-foreground shadow-[0_1px_2px_rgb(15_23_42/0.04)]', className)} {...props}>{children}</section>
+// Sheets hold rows of money; context (charts, actions) sits on the paper under a rule instead.
+export const sheetClassName = 'rounded-xl border bg-card text-card-foreground shadow-[0_1px_2px_rgb(23_34_58/0.05),0_6px_20px_-12px_rgb(23_34_58/0.14)]'
+
+export function SectionCard({ children, className, plain = false, ...props }: HTMLAttributes<HTMLElement> & { plain?: boolean }) {
+  return <section className={cn(plain ? 'border-t border-foreground/15' : sheetClassName, className)} {...props}>{children}</section>
 }
 
-export function SectionHeader({ title, description, actions, id, className }: {
-  title: ReactNode; description?: ReactNode; actions?: ReactNode; id?: string; className?: string
+export function SectionHeader({ title, description, actions, id, className, plain = false }: {
+  title: ReactNode; description?: ReactNode; actions?: ReactNode; id?: string; className?: string; plain?: boolean
 }) {
-  return <div className={cn('flex flex-wrap items-start justify-between gap-x-4 gap-y-3 px-4 pb-3 pt-4 sm:px-5 sm:pt-5', className)}>
+  return <div className={cn('flex flex-wrap items-start justify-between gap-x-4 gap-y-3 pb-3', plain ? 'pt-4' : 'px-4 pt-4 sm:px-5 sm:pt-5', className)}>
     <div className="min-w-0 flex-1 basis-56">
-      <h2 id={id} className="text-base font-semibold leading-6">{title}</h2>
+      <h2 id={id} className="font-serif text-[19px] font-semibold leading-7">{title}</h2>
       {description && <div className="mt-0.5 text-sm text-muted-foreground">{description}</div>}
     </div>
     {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
@@ -181,39 +192,51 @@ export function TransactionTypeBadge({ type, manual }: { type: string | null; ma
   </Badge>
 }
 
-// Hairline dividers between tiles without gaps or empty grey cells in partial rows.
-export const statGridClassName = 'grid overflow-hidden [&>*]:shadow-[1px_0_0_hsl(var(--border)),0_1px_0_hsl(var(--border))]'
+export type StatementLine = { label: string; value: string; operator?: '−' | '+'; selected?: boolean; onClick?: () => void }
 
-export function MetricCard({ label, value, onClick, selected, primary = false }: {
-  label: string; value: string; onClick?: () => void; selected?: boolean; primary?: boolean
+// A reconciliation laid out like a printed statement: signed lines, a rule, then the total over a double rule.
+// The operator is visual only, so each line's accessible name stays "<label> <amount>".
+export function Statement({ label, lines, total, className }: {
+  label: string; lines: StatementLine[]; total: StatementLine; className?: string
 }) {
-  const content = <>
-    <span className={cn('block text-[13px] font-medium text-muted-foreground', selected && 'text-primary')}>{label}</span>
-    <span className={cn('mt-1 block font-semibold tabular-nums tracking-tight [overflow-wrap:anywhere]', primary ? 'text-2xl lg:text-[28px] lg:leading-9' : 'text-lg')}>{value}</span>
-  </>
-  const tile = cn('relative block h-full w-full p-4 text-left lg:px-5', primary ? 'sm:py-5' : 'sm:py-4',
-    selected && 'bg-accent/60 before:absolute before:inset-x-0 before:top-0 before:h-0.5 before:bg-primary')
-  return (
-    <div className={cn('h-full min-w-0', value.length > 11 && 'max-sm:col-span-2')}>
-      {onClick
-        ? <button type="button" onClick={onClick} aria-pressed={selected} className={cn(tile, 'transition-colors hover:bg-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring')}>{content}</button>
-        : <div className={tile}>{content}</div>}
-    </div>
-  )
+  const row = (line: StatementLine, isTotal: boolean) => {
+    const content = <>
+      <span aria-hidden="true" className="text-muted-foreground">{isTotal ? '' : line.operator}</span>
+      <span className={cn('min-w-0', isTotal ? 'self-center whitespace-nowrap text-sm font-semibold' : 'text-[15px]', line.selected && 'font-semibold')}>{line.label}</span>{' '}
+      <span className={cn('justify-self-end text-right [overflow-wrap:anywhere]', isTotal
+        ? 'figures border-b-[3px] border-double border-foreground pb-0.5 text-[28px] font-semibold leading-tight min-[400px]:text-[32px] sm:text-[40px]'
+        : 'text-[15px] font-medium tabular-nums')}>{line.value}</span>
+    </>
+    const layout = cn('relative grid w-full grid-cols-[1rem_minmax(0,1fr)_auto] items-baseline gap-x-3 rounded-md px-2 text-left sm:px-3',
+      isTotal ? 'py-3' : 'min-h-11 py-2',
+      line.selected && 'bg-accent before:absolute before:inset-y-1.5 before:-left-px before:w-0.5 before:rounded-full before:bg-foreground')
+    return line.onClick
+      ? <button type="button" onClick={line.onClick} aria-pressed={line.selected}
+          className={cn(layout, 'transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring')}>{content}</button>
+      : <div className={layout}>{content}</div>
+  }
+  return <section aria-label={label} className={cn('flex min-w-0 flex-col', className)}>
+    <ul className="flex flex-col">{lines.map(line => <li key={line.label}>{row(line, false)}</li>)}</ul>
+    <div className="mt-1 border-t border-foreground/70" />
+    {row(total, true)}
+  </section>
 }
 
-// Shared ledger row: selection column, then title/amount, a muted meta line, then chips and editors.
-export function TransactionRow({ as: Tag = 'div', select, title, amount, meta, children, className }: {
-  as?: 'div' | 'article'; select: ReactNode; title: ReactNode; amount: ReactNode; meta?: ReactNode; children?: ReactNode; className?: string
+// Shared ledger row: selection, a date column from md up, then title/amount, a muted meta line, then chips and editors.
+export function TransactionRow({ as: Tag = 'div', select, date, title, amount, meta, children, className }: {
+  as?: 'div' | 'article'; select: ReactNode; date?: string; title: ReactNode; amount: ReactNode; meta?: ReactNode; children?: ReactNode; className?: string
 }) {
-  return <Tag className={cn('grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 px-4 py-3.5 transition-colors hover:bg-muted/30 sm:px-5', className)}>
+  return <Tag className={cn('grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 px-4 py-3.5 transition-colors hover:bg-accent/70 sm:px-5', date && 'md:grid-cols-[auto_6rem_minmax(0,1fr)] md:gap-x-4', className)}>
     <div data-row-select className="pt-0.5">{select}</div>
+    {date && <div aria-hidden="true" className="hidden pt-px text-[13px] leading-6 tabular-nums text-muted-foreground md:block">{date}</div>}
     <div className="min-w-0">
       <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-4">
         <div className="min-w-0">{title}</div>
         <div className="max-w-[11rem] text-right sm:max-w-none">{amount}</div>
       </div>
-      {meta && <div className="mt-0.5 break-words text-[13px] leading-5 text-muted-foreground">{meta}</div>}
+      {(meta || date) && <div className="mt-0.5 break-words text-[13px] leading-5 text-muted-foreground">
+        {date && <span className="mr-2 tabular-nums md:sr-only">{date}</span>}{meta}
+      </div>}
       {children}
     </div>
   </Tag>
@@ -225,11 +248,11 @@ export function ChipRow({ children, className }: { children: ReactNode; classNam
 }
 
 export function SelectAllBar({ children, className }: { children: ReactNode; className?: string }) {
-  return <div className={cn('flex flex-wrap items-center gap-x-4 gap-y-1 border-t bg-muted/50 px-4 py-2 sm:px-5', className)}>{children}</div>
+  return <div className={cn('flex flex-wrap items-center gap-x-4 gap-y-1 border-t bg-background/60 px-4 py-2 sm:px-5', className)}>{children}</div>
 }
 
 export const chartTooltipStyle = {
-  borderRadius: 10, borderColor: 'hsl(var(--border))', background: 'hsl(var(--popover))',
+  borderRadius: 8, borderColor: 'hsl(var(--border))', background: 'hsl(var(--popover))',
   color: 'hsl(var(--popover-foreground))', fontSize: 13, overflowWrap: 'anywhere' as const,
-  boxShadow: '0 8px 24px rgb(15 23 42 / 0.08)',
+  boxShadow: '0 8px 24px rgb(23 34 58 / 0.10)',
 }

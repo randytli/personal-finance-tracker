@@ -5,6 +5,7 @@ import { ChevronDown, ChevronRight } from 'lucide-react'
 import { CategoryBadge, categoryMetadata } from '@/components/category-display'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { sheetClassName } from '@/components/page-presentation'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet'
 import { cn } from '@/lib/utils'
 
@@ -63,17 +64,17 @@ export default function SpendingCategoryView({ categories, metric, selectedCateg
 
   return <Sheet open={!desktop && breakdownOpen} onOpenChange={setBreakdownOpen}>
     <section aria-labelledby={`${id}-title`} className="min-w-0">
-      <Card className="overflow-hidden shadow-[0_1px_2px_rgb(15_23_42/0.04)]">
+      <Card className={cn(sheetClassName, 'overflow-hidden')}>
         <CardHeader className="gap-1 px-4 pb-3 pt-4 sm:px-5 sm:pt-5">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <CardTitle><h2 id={`${id}-title`} className="text-base leading-6">{column.title} by Category</h2></CardTitle>
+            <CardTitle><h2 id={`${id}-title`} className="font-serif text-[19px] leading-7">{column.title} by Category</h2></CardTitle>
             {!desktop && <SheetTrigger asChild><Button type="button" variant="outline" size="sm">View full breakdown</Button></SheetTrigger>}
           </div>
           <CardDescription>{desktop ? 'Expand a category for its breakdown, or select an amount for transactions.' : 'Select a category for its transactions.'} Credits use their own posted month and category.</CardDescription>
         </CardHeader>
         <CardContent className="p-0">
           {desktop ? <table aria-label={`${column.title} by Category`} className="w-full table-fixed text-sm">
-            <thead className="border-t bg-muted/40 text-[11px] uppercase tracking-wide text-muted-foreground"><tr>
+            <thead className="border-t bg-background/60 text-xs text-muted-foreground"><tr>
               <th scope="col" className="w-[44%] px-4 py-2 text-left font-medium sm:px-5">Category</th>
               <th scope="col" className="w-[32%] px-3 py-2 text-right font-medium">{column.title}</th>
               <th scope="col" className="px-4 py-2 text-right font-medium sm:px-5">Transactions</th>

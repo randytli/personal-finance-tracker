@@ -1,7 +1,7 @@
 'use client'
 
 import { apiFetch } from '@/lib/api'
-import { Amount, ChartLegend, ChartMonthlyTotals, ChipRow, ControlField, LoadingState, MetricCard, PageHeader, PageNavigation, Pagination, SectionCard, SectionHeader, SelectAllBar, TransactionRow, chartTooltipStyle, compactMoney, fieldClassName, pageClassName, statGridClassName, useNarrowViewport } from '@/components/page-presentation'
+import { Amount, ChartLegend, ChartMonthlyTotals, ChipRow, ControlField, LoadingState, PageHeader, PageNavigation, Pagination, SectionCard, SectionHeader, SelectAllBar, Statement, TransactionRow, chartTooltipStyle, compactMoney, fieldClassName, pageClassName, sheetClassName, useNarrowViewport } from '@/components/page-presentation'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { CircleAlert, CircleCheck, ListChecks } from 'lucide-react'
 import {
@@ -343,25 +343,30 @@ export default function HomePage() {
 
       {monthly && !loading && (
         <>
-          <div className="mt-6 overflow-hidden rounded-xl border bg-card shadow-[0_1px_2px_rgb(15_23_42/0.04)]">
-            <section aria-label="Monthly financial summary" className={cn(statGridClassName, 'grid-cols-2 sm:grid-cols-3')}>
-              <div className="col-span-2 sm:col-span-1"><MetricCard label="Net Spending" value={money(monthly.net_spending)} selected={categoryMode === 'net'} onClick={() => selectCategoryMode('net')} primary /></div>
-              <MetricCard label="Income" value={money(monthly.income)} onClick={() => setDetailFilter({ transactionType: 'income' })} primary />
-              <MetricCard label="Net Savings" value={money(monthly.net_savings)} primary />
-            </section>
-            <section aria-label="Spending components" className={cn(statGridClassName, 'grid-cols-2 border-t bg-muted/30 lg:grid-cols-4')}>
-              <MetricCard label="Gross Spending" value={money(monthly.gross_spending)} selected={categoryMode === 'gross'} onClick={() => selectCategoryMode('gross')} />
-              <MetricCard label="Refunds" value={money(monthly.refunds)} selected={categoryMode === 'refunds'} onClick={() => selectCategoryMode('refunds')} />
-              <MetricCard label="Reimbursements" value={money(monthly.reimbursements)} selected={categoryMode === 'reimbursements'} onClick={() => selectCategoryMode('reimbursements')} />
-              <MetricCard label="Card Benefits" value={money(monthly.card_benefits)} selected={categoryMode === 'card_benefits'} onClick={() => selectCategoryMode('card_benefits')} />
-            </section>
-            <p className="border-t px-4 py-2.5 text-xs text-muted-foreground sm:px-5">Net Spending = Gross Spending − Refunds − Reimbursements − Card Benefits.</p>
-          </div>
+          <section aria-label="Monthly financial summary" className={cn(sheetClassName, 'mt-6 grid gap-x-10 gap-y-6 p-3 sm:p-5 lg:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)] lg:px-7 lg:py-6')}>
+            <div className="min-w-0">
+              <h2 className="px-2 pb-1 font-serif text-[19px] font-semibold sm:px-3">Spending</h2>
+              <p className="px-2 pb-2 text-[13px] text-muted-foreground sm:px-3">Select a line to break it down by category below.</p>
+              <Statement label="Spending components" lines={[
+                { label: 'Gross Spending', value: money(monthly.gross_spending), selected: categoryMode === 'gross', onClick: () => selectCategoryMode('gross') },
+                { label: 'Refunds', operator: '−', value: money(monthly.refunds), selected: categoryMode === 'refunds', onClick: () => selectCategoryMode('refunds') },
+                { label: 'Reimbursements', operator: '−', value: money(monthly.reimbursements), selected: categoryMode === 'reimbursements', onClick: () => selectCategoryMode('reimbursements') },
+                { label: 'Card Benefits', operator: '−', value: money(monthly.card_benefits), selected: categoryMode === 'card_benefits', onClick: () => selectCategoryMode('card_benefits') },
+              ]} total={{ label: 'Net Spending', value: money(monthly.net_spending), selected: categoryMode === 'net', onClick: () => selectCategoryMode('net') }} />
+            </div>
+            <div className="min-w-0 border-t pt-5 lg:border-l lg:border-t-0 lg:pl-10 lg:pt-0">
+              <h2 className="px-2 pb-3 font-serif text-[19px] font-semibold sm:px-3">Savings</h2>
+              <Statement label="Savings" lines={[
+                { label: 'Income', value: money(monthly.income), onClick: () => setDetailFilter({ transactionType: 'income' }) },
+                { label: 'Net Spending', operator: '−', value: money(monthly.net_spending) },
+              ]} total={{ label: 'Net Savings', value: money(monthly.net_savings) }} />
+            </div>
+          </section>
 
-          <section className="mt-5 grid gap-5 lg:grid-cols-2">
-            <SectionCard aria-label="12-Month Trend" className="min-w-0">
-              <SectionHeader title="12-Month Trend" description="Monthly totals · USD" />
-              <div className="px-4 pb-4 sm:px-5 sm:pb-5">
+          <section className="mt-10 grid items-start gap-x-8 gap-y-10 lg:grid-cols-2">
+            <SectionCard plain aria-label="12-Month Trend" className="min-w-0">
+              <SectionHeader plain title="12-Month Trend" description="Monthly totals in US dollars" />
+              <div>
                 <ChartLegend items={[{ label: 'Net Spending', color: summaryColor.netSpending }, { label: 'Income', color: summaryColor.income }, { label: 'Net Savings', color: summaryColor.netSavings }]} />
                 <div className="mt-3 h-64 min-w-0 sm:h-72">
                   {chartData.length > 0 ? <ResponsiveContainer width="100%" height="100%">
@@ -386,14 +391,14 @@ export default function HomePage() {
               money={money} detailsId="overview-transaction-details" />
           </section>
 
-          <SectionCard className="mt-5 overflow-hidden">
+          <SectionCard className="mt-10 overflow-hidden">
             <SectionHeader title={categoryMode === 'card_benefits' ? `Card Benefits by ${groupBy}`
               : categoryMode === 'reimbursements' ? `Reimbursements by ${groupBy}` : `Spending by ${groupBy}`}
               description={`Select a category above to filter these summaries by ${groupBy}.`}
               actions={<select aria-label="Group summary by" className={fieldClassName} value={groupBy} onChange={(event) => setGroupBy(event.target.value as 'institution' | 'account')}>
                 <option value="institution">Institution</option><option value="account">Account</option>
               </select>} />
-            <div className="grid border-t sm:grid-cols-2">
+            <div className={cn('grid border-t', breakdown.length > 1 && 'sm:grid-cols-2')}>
               {breakdown.map((group) => (
                 <button
                   type="button"
@@ -403,7 +408,7 @@ export default function HomePage() {
                   aria-pressed={Boolean(detailFilter?.secondary && (group.account_id
                     ? detailFilter.secondary.account_id === group.account_id
                     : detailFilter.secondary.institution_id === group.institution_id))}
-                  className={cn('flex min-w-0 flex-wrap items-center justify-between gap-3 border-b px-4 py-3.5 text-left transition-colors last:border-b-0 sm:border-r sm:px-5 sm:even:border-r-0 enabled:hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
+                  className={cn('flex min-w-0 flex-wrap items-center justify-between gap-3 border-b px-4 py-3.5 text-left transition-colors last:border-b-0 sm:px-5', breakdown.length > 1 && 'sm:border-r sm:even:border-r-0', 'enabled:hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
                     detailFilter?.secondary && (group.account_id
                       ? detailFilter.secondary.account_id === group.account_id
                       : detailFilter.secondary.institution_id === group.institution_id) && 'bg-accent/70 ring-2 ring-inset ring-ring')}
@@ -427,11 +432,11 @@ export default function HomePage() {
           </SectionCard>
 
           {detailFilter && (
-            <div id="overview-transaction-details" ref={detailSection} tabIndex={-1} className="mt-5 scroll-mt-20 focus:outline-none">
-            <SectionCard className="overflow-hidden ring-1 ring-primary/15">
+            <div id="overview-transaction-details" ref={detailSection} tabIndex={-1} className="mt-10 scroll-mt-20 focus:outline-none">
+            <SectionCard className="overflow-hidden">
               <div className="flex items-start justify-between gap-4 px-4 pb-4 pt-4 sm:px-5 sm:pt-5">
                 <div className="min-w-0">
-                  <h2 className="text-base font-semibold">Transaction Details</h2>
+                  <h2 className="font-serif text-[19px] font-semibold leading-7">Transaction Details</h2>
                   <div aria-label="Active detail filters" className="mt-2 flex flex-wrap items-center gap-1.5 text-sm">
                     <Badge variant="secondary" className="tabular-nums">{month}</Badge>
                     {detailFilter.transactionType && <Badge variant="secondary" className={filterChip}>{detailFilter.transactionType.replace(/_/g, ' ')}</Badge>}
@@ -485,7 +490,8 @@ export default function HomePage() {
                         aria-label={`Select ${detail.merchant_name || detail.description || 'transaction'}`} />
                     </label>}
                     title={<p className="break-words font-medium">{detail.merchant_name || detail.description || 'Unknown transaction'}</p>}
-                    meta={<><span className="tabular-nums">{detail.transaction_date}</span> · {detail.description} · {detail.transaction_type.replace(/_/g, ' ')}</>}
+                    date={detail.transaction_date}
+                    meta={<>{detail.description} · <span className="capitalize">{detail.transaction_type.replace(/_/g, ' ')}</span></>}
                     amount={<>
                       <Amount value={detail.amount}>{money(detail.amount)}</Amount>
                       {detailFilter.spendingComponent === 'net' && detail.net_contribution && <p className="text-xs font-medium tabular-nums text-muted-foreground">Net contribution {money(detail.net_contribution)}</p>}
@@ -527,9 +533,9 @@ export default function HomePage() {
         </>
       )}
 
-      <SectionCard aria-labelledby="connected-institutions" className="mt-8">
-        <SectionHeader id="connected-institutions" title="Connected Institutions" />
-        <div className="px-4 pb-4 sm:px-5 sm:pb-5"><PlaidLinkButton /></div>
+      <SectionCard plain aria-labelledby="connected-institutions" className="mt-12">
+        <SectionHeader plain id="connected-institutions" title="Connected Institutions" />
+        <div><PlaidLinkButton /></div>
       </SectionCard>
     </main>
     </>

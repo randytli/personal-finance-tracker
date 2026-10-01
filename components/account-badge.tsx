@@ -8,6 +8,7 @@ type AccountBadgeProps = {
 
 type BadgeStyle = {
   label: string
+  /** Swatch colour that identifies the account at a glance. */
   className: string
 }
 
@@ -30,48 +31,49 @@ function badgeStyle({
   const isCredit = type === 'CREDIT' || subtype.includes('CREDIT CARD')
 
   if (institution.includes('AMERICAN EXPRESS') && account.includes('GOLD') && accountMask === '3008') {
-    return { label: 'AMEX GOLD · 3008', className: 'border-amber-400 bg-amber-100 text-amber-950' }
+    return { label: 'AMEX GOLD · 3008', className: 'bg-amber-400' }
   }
   if (institution.includes('AMERICAN EXPRESS') && account.includes('PLATINUM') && accountMask === '1004') {
-    return { label: 'AMEX PLATINUM · 1004', className: 'border-slate-400 bg-slate-200 text-slate-900' }
+    return { label: 'AMEX PLATINUM · 1004', className: 'bg-slate-400' }
   }
   if (institution.includes('CAPITAL ONE') && account.includes('VENTURE X') && accountMask === '5082') {
-    return { label: 'VENTURE X · 5082', className: 'border-blue-950 bg-slate-900 text-white' }
+    return { label: 'VENTURE X · 5082', className: 'bg-slate-900' }
   }
   if (institution.includes('CHASE') && isCredit && accountMask === '6987') {
-    return { label: 'CHASE CARD · 6987', className: 'border-blue-700 bg-blue-600 text-white' }
+    return { label: 'CHASE CARD · 6987', className: 'bg-blue-600' }
   }
   if (institution.includes('CHASE') && account.includes('CHECKING') && accountMask === '1106') {
-    return { label: 'CHASE CHECKING · 1106', className: 'border-red-700 bg-red-100 text-red-950' }
+    return { label: 'CHASE CHECKING · 1106', className: 'bg-red-300 ring-1 ring-inset ring-red-700/60' }
   }
   if (institution.includes('CHASE') && account.includes('SAVINGS') && accountMask === '3761') {
-    return { label: 'CHASE SAVINGS · 3761', className: 'border-orange-600 bg-orange-100 text-orange-950' }
+    return { label: 'CHASE SAVINGS · 3761', className: 'bg-orange-200 ring-1 ring-inset ring-orange-600/60' }
   }
   if (institution.includes('BANK OF AMERICA') && !isCredit && accountMask === '5041') {
-    return { label: 'BOA CHECKING · 5041', className: 'border-red-700 bg-red-600 text-white' }
+    return { label: 'BOA CHECKING · 5041', className: 'bg-red-600' }
   }
   if (institution.includes('CAPITAL ONE') && !isCredit && accountMask === '9121') {
-    return { label: 'CAPITAL ONE SAVINGS · 9121', className: 'border-orange-700 bg-orange-600 text-white' }
+    return { label: 'CAPITAL ONE SAVINGS · 9121', className: 'bg-orange-600' }
   }
   if (isCredit) {
-    return { label: `CREDIT CARD · ${mask}`, className: 'border-indigo-300 bg-indigo-50 text-indigo-950' }
+    return { label: `CREDIT CARD · ${mask}`, className: 'bg-indigo-300' }
   }
   if (account.includes('SAVINGS') || subtype === 'SAVINGS') {
-    return { label: `SAVINGS · ${mask}`, className: 'border-orange-500 bg-orange-100 text-orange-950' }
+    return { label: `SAVINGS · ${mask}`, className: 'bg-orange-300' }
   }
   if (account.includes('CHECKING') || subtype === 'CHECKING' || type === 'DEPOSITORY') {
-    return { label: `CHECKING · ${mask}`, className: 'border-red-500 bg-red-100 text-red-950' }
+    return { label: `CHECKING · ${mask}`, className: 'bg-red-300' }
   }
-  return { label: `${accountName || accountType} · ${mask}`, className: 'border-slate-300 bg-slate-100 text-slate-900' }
+  return { label: `${accountName || accountType} · ${mask}`, className: 'bg-slate-300' }
 }
 
 export default function AccountBadge(props: AccountBadgeProps) {
   const style = badgeStyle(props)
   return (
     <span
-      className={`inline-flex max-w-full items-center [overflow-wrap:anywhere] rounded-md border px-2 py-1 text-[11px] font-semibold leading-4 tracking-wide ${style.className}`}
+      className="inline-flex max-w-full items-center gap-1.5 [overflow-wrap:anywhere] rounded-md border bg-card px-2 py-1 text-[11px] font-semibold leading-4 tracking-wide text-foreground"
       title={`${props.institutionName} — ${props.accountName}`}
     >
+      <span aria-hidden="true" className={`h-2 w-3 shrink-0 rounded-[2px] ${style.className}`} />
       {style.label}
     </span>
   )

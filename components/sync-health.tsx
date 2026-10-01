@@ -112,8 +112,8 @@ export function SyncHealth({ status, error, onRetry }: { status: SyncStatus | nu
   ].filter((warning): warning is string => Boolean(warning)) : []
 
   const tone = error ? 'bg-destructive' : !status ? 'bg-muted-foreground/40 animate-pulse' : warnings.length ? 'bg-warning' : 'bg-success'
-  return <section aria-label="Sync and backup health" className="overflow-hidden break-words rounded-xl border bg-card text-sm shadow-[0_1px_2px_rgb(15_23_42/0.04)] [overflow-wrap:anywhere]">
-    <details className="group px-4 py-2.5">
+  return <section aria-label="Sync and backup health" className="overflow-hidden break-words rounded-lg border bg-card/60 text-sm [overflow-wrap:anywhere]">
+    <details className="group px-3 py-2 sm:px-4">
       <summary className="flex cursor-pointer list-none flex-wrap items-center gap-x-2 gap-y-0.5 rounded-md font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
         <span aria-hidden="true" className={cn('size-2 shrink-0 rounded-full', tone)} />
         <span>Sync and backup health</span>
@@ -160,7 +160,7 @@ export function SyncHealth({ status, error, onRetry }: { status: SyncStatus | nu
     {error && <p role="alert" className="border-t bg-destructive/5 px-4 py-2.5 text-destructive">Status unavailable. {status ? 'Last reported values are shown; bank freshness could not be verified.' : 'Bank freshness could not be verified.'}
       {onRetry && <button type="button" className="ml-2 rounded-md px-2 font-medium underline underline-offset-4" onClick={onRetry}>Retry status</button>}
     </p>}
-    {warnings.length > 0 && <ul tabIndex={0} className="flex max-h-32 flex-col gap-1 overflow-y-auto overscroll-contain border-t bg-warning-soft/50 px-4 py-2.5 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring" aria-label="Sync and backup warnings">
+    {warnings.length > 0 && <ul tabIndex={0} className="flex max-h-28 flex-col gap-1 overflow-y-auto overscroll-contain border-t px-3 py-2 text-xs sm:px-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring" aria-label="Sync and backup warnings">
       {warnings.map((warning, index) => <li key={`${warning}-${index}`} className="flex gap-2">
         <TriangleAlert aria-hidden="true" className="mt-px size-3.5 shrink-0 text-warning" /><span className="min-w-0">{warning}</span>
       </li>)}
