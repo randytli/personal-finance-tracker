@@ -95,6 +95,15 @@
   - M8b/c/d 只列出了边界。
 - 注意：切换属于 M8，M5 不能授权迁移；文档中写明了这一点。
 
+- commit：`9398c20`
+
+### 5. PLAID_PILOT_USER_ID 测试隔离
+
+- 复现（实测）：同一个一次性集群上全套 326 个测试，环境干净时全部通过；shell 中带有 `PLAID_PILOT_USER_ID=leaked-shell-user` 时，`tests.test_category_overrides.CategoryDatabaseTests` 报 1 个错误。原因是测试写死了 Item 的 `user_id='local-sandbox-user'`，而 review 路由按环境变量限定用户范围。
+- 修复（只改测试）：该测试类在 `setUp` 中用 `patch.dict` 固定 `PLAID_PILOT_USER_ID`，并用同一个常量创建 Item，和 `test_consumer_scope`、`test_transaction_labels` 的做法一致。
+- 验证：全套 326 个测试（含 7 个原有的 PG opt-in 和今晚新增的 2 个），在三种设置下都通过，0 跳过：变量未设置、`leaked-shell-user`、`local-sandbox-user`。
+- 已用泄露值实测全套：除这一处外，没有其他测试依赖 `PLAID_PILOT_USER_ID`。其他环境变量（例如 `PFT_STRICT_LOCAL_HTTP`）是否也会泄露进测试，未排查。
+
 ## 待决（需要 owner 拍板或批准）
 
 ### 任务 1：备份
@@ -153,4 +162,5 @@
 - 00:07 任务 1 测试与实测完成。
 - 00:08 任务 2 开始；00:12 测试全部通过。
 - 00:13 任务 3 开始（只写设计）；00:16 完成。
-- 00:17 任务 4 开始（只写文档）；00:20 完成。
+- 00:16 任务 4 开始（只写文档）；00:17 完成。
+- 00:17 任务 5 开始；00:21 全套测试三种环境下均通过。
