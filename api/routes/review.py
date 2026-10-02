@@ -218,7 +218,7 @@ def _transaction_scope(transaction_id):
         .where(
             Transaction.transaction_id == transaction_id,
             Item.user_id == _user_id(),
-            Item.status == "active",
+            Item.published.is_(True),
             Account.consumer_transactions_enabled.is_(True),
             RawTransaction.is_removed.is_(False),
         )
@@ -234,7 +234,7 @@ def _label_transaction_scope(transaction_id):
               & (Account.account_id == RawTransaction.account_id)
               & (Account.item_id == Item.item_id))
         .where(Transaction.transaction_id == transaction_id, Item.user_id == _user_id(),
-               Item.status.in_(("active", "pending")),
+               or_(Item.published.is_(True), Item.status == "pending"),
                Account.consumer_transactions_enabled.is_(True),
                RawTransaction.is_removed.is_(False))
     )
@@ -394,7 +394,7 @@ async def bulk_edit_transactions(request: BulkEditRequest):
                 .outerjoin(ManualClassificationOverride,
                     ManualClassificationOverride.transaction_id == Transaction.transaction_id)
                 .where(Transaction.transaction_id.in_(ids), Item.user_id == _user_id(),
-                       Item.status == "active", Account.consumer_transactions_enabled.is_(True),
+                       Item.published.is_(True), Account.consumer_transactions_enabled.is_(True),
                        RawTransaction.is_removed.is_(False))
                 .order_by(Transaction.transaction_id)
                 .with_for_update(of=Transaction)
@@ -497,7 +497,7 @@ def _review_filters(mode="needs_review", transaction_type="all", direction="inco
     )
     filters = [
         Item.user_id == _user_id(),
-        Item.status == "active",
+        Item.published.is_(True),
         Account.consumer_transactions_enabled.is_(True),
         RawTransaction.is_removed.is_(False),
     ]

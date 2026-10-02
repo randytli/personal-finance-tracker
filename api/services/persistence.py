@@ -16,7 +16,7 @@ async def persist_consumer_transactions(db, user_id, item_id, starting_cursor, a
     await lock_consumer_derivation(db, user_id)
     item = (await db.execute(select(Item).where(
         Item.item_id == item_id, Item.user_id == user_id,
-        Item.status.in_(("pending", "active")),
+        Item.sync_enabled.is_(True),
     ).with_for_update().execution_options(populate_existing=True))).scalar_one_or_none()
     if item is None or item.transactions_cursor != starting_cursor:
         raise HTTPException(409, "Item changed during sync; retry")
@@ -163,7 +163,7 @@ async def persist_account_metadata(db, user_id, item_id, accounts):
     await lock_consumer_derivation(db, user_id)
     item = (await db.execute(select(Item).where(
         Item.item_id == item_id, Item.user_id == user_id,
-        Item.status.in_(("active", "pending")),
+        Item.sync_enabled.is_(True),
     ).with_for_update().execution_options(populate_existing=True))).scalar_one_or_none()
     if item is None:
         raise HTTPException(404, "Item not found")

@@ -137,7 +137,7 @@ class ManualReviewTests(unittest.TestCase):
         # Execute the production predicate against isolated, synthetic SQL tables.
         engine = create_engine("sqlite://")
         with engine.begin() as db:
-            db.execute(text("CREATE TABLE items (item_id TEXT, user_id TEXT, status TEXT)"))
+            db.execute(text("CREATE TABLE items (item_id TEXT, user_id TEXT, status TEXT, published BOOLEAN GENERATED ALWAYS AS (status IN ('active', 'deactivated')))"))
             db.execute(text("CREATE TABLE accounts (consumer_transactions_enabled BOOLEAN)"))
             db.execute(text("INSERT INTO accounts VALUES (true)"))
             db.execute(text("CREATE TABLE raw_transactions (transaction_id TEXT, item_id TEXT, is_removed BOOLEAN)"))

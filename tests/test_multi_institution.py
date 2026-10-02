@@ -38,8 +38,8 @@ class MultiInstitutionTests(unittest.TestCase):
         self.assertEqual(amex_result[3], "amex-next")
 
     def test_active_analytics_query_filters_item_status(self):
-        constants = _active_analytics_rows.__code__.co_consts
-        self.assertIn("active", constants)
+        source = inspect.getsource(_active_analytics_rows)
+        self.assertIn("Item.published.is_(True)", source)
 
     def test_sync_and_normalization_require_item_id(self):
         for endpoint in (get_accounts, get_transactions, normalize_transactions):
@@ -54,8 +54,8 @@ class MultiInstitutionTests(unittest.TestCase):
     def test_item_metadata_never_exposes_access_token_or_cursor(self):
         metadata = item_metadata(SimpleNamespace(
             item_id="item", institution_id="ins_56", institution_name="Chase",
-            status="active", created_at=None, updated_at=None,
-            access_token="secret", transactions_cursor="cursor",
+            status="active", sync_enabled=True, published=True, activated_at=None,
+            deactivated_at=None, created_at=None, updated_at=None, access_token="secret", transactions_cursor="cursor",
         ))
         self.assertNotIn("access_token", metadata)
         self.assertNotIn("transactions_cursor", metadata)

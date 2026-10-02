@@ -69,6 +69,7 @@ async def status_for_user(user_id, *, session_factory=SessionLocal, now=None):
             "institutions": [{
                 "item_id": item.item_id, "institution_id": item.institution_id,
                 "institution_name": item.institution_name, "status": item.status,
+                "sync_enabled": item.sync_enabled, "published": item.published,
                 "sync_paused": item.sync_paused,
                 "last_attempt_at": timestamp(item.last_sync_attempt_at),
                 "last_success_at": timestamp(item.last_sync_success_at),

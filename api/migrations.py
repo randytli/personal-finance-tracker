@@ -219,3 +219,36 @@ async def migrate_multi_institution(connection):
         "CREATE INDEX IF NOT EXISTS ix_manual_overrides_updated_at "
         "ON manual_classification_overrides (updated_at)"
     ))
+
+
+
+async def migrate_institution_lifecycle(connection):
+    """Derive lifecycle scope flags from status; no financial row is touched.
+
+    Generated columns keep status the single written field, so older images that
+    write only status stay consistent, and the flags equal the old status filters.
+    """
+    from api.models import PUBLISHED_SQL, SYNC_ENABLED_SQL
+    unknown = await connection.scalar(text(
+        "SELECT count(*) FROM items WHERE status NOT IN ('pending','active','deactivated','disabled')"))
+    if unknown:
+        raise RuntimeError("Unknown Item status; refusing to derive lifecycle flags")
+    await connection.execute(text(
+        "DO $$ BEGIN "
+        "IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='items'::regclass "
+        "AND conname='ck_items_status' AND pg_get_constraintdef(oid) LIKE '%deactivated%') THEN "
+        "ALTER TABLE items DROP CONSTRAINT IF EXISTS ck_items_status; "
+        "ALTER TABLE items ADD CONSTRAINT ck_items_status "
+        "CHECK (status IN ('pending','active','deactivated','disabled')); "
+        "END IF; END $$"
+    ))
+    for name, expression in (("sync_enabled", SYNC_ENABLED_SQL), ("published", PUBLISHED_SQL)):
+        await connection.execute(text(
+            f"ALTER TABLE items ADD COLUMN IF NOT EXISTS {name} BOOLEAN NOT NULL "
+            f"GENERATED ALWAYS AS ({expression}) STORED"))
+    for name in ("activated_at", "deactivated_at"):
+        await connection.execute(text(f"ALTER TABLE items ADD COLUMN IF NOT EXISTS {name} TIMESTAMPTZ"))
+    await connection.execute(text("ALTER TABLE items ADD COLUMN IF NOT EXISTS activation_digest VARCHAR"))
+    await connection.execute(text(
+        "CREATE INDEX IF NOT EXISTS ix_items_user_lifecycle ON items (user_id, sync_enabled, published)"
+    ))

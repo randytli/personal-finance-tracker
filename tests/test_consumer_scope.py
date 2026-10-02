@@ -5,7 +5,7 @@ import uuid
 from contextlib import ExitStack
 from datetime import date
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from fastapi import HTTPException
 from fastapi.encoders import jsonable_encoder
@@ -17,7 +17,7 @@ from api.consumer_scope import initial_consumer_scope, account_type_drift
 from api.models import Base, Account, Item, ManualClassificationOverride, ManualTransactionLabelOverride, RawTransaction, Transaction
 from api.migrations import migrate_consumer_scope
 from api.routes import plaid, review, analytics
-from api.services import derivation
+from api.services import derivation, lifecycle
 from api.services.derivation import normalize_item_transactions, classify_active_transactions
 from api.services.persistence import persist_account_metadata, persist_consumer_transactions
 from api.statement_semantics import lock_consumer_derivation
@@ -366,8 +366,16 @@ class ConsumerDatabaseTests(unittest.IsolatedAsyncioTestCase):
             self.assertIsNone((await db.get(Transaction, "active-payment-counterpart")).is_internal_transfer)
             self.assertEqual((await db.get(ManualTransactionLabelOverride,
                                           ("active-transfer", "MEMBERSHIP"))).decision, "include")
-        result = await plaid.update_item_status("pending", plaid.ItemStatusUpdate(status="active"))
-        self.assertEqual(result, {"item_id": "pending", "status": "active"})
+        with self.assertRaises(HTTPException) as unconfirmed:
+            await plaid.update_item_status("pending", plaid.ItemStatusUpdate(status="active"))
+        self.assertEqual(unconfirmed.exception.status_code, 409)
+        # This seed has no synced source payloads; lifecycle tests cover the checks themselves.
+        with patch.object(lifecycle, "activation_checks_in_session", AsyncMock(return_value=[])):
+            preview = await plaid.preview_item_activation("pending")
+            result = await plaid.activate_item("pending", plaid.LifecycleConfirmation(
+                preview_digest=preview["digest"]))
+        self.assertEqual(result["status"], "active")
+        self.assertEqual(result["changed_existing_transactions"], preview["changed_existing_transactions"])
         async with self.sessions() as db:
             self.assertEqual((await db.get(Item, "pending")).status, "active")
             self.assertTrue((await db.get(Transaction, "pending-transfer")).is_internal_transfer)
@@ -386,9 +394,12 @@ class ConsumerDatabaseTests(unittest.IsolatedAsyncioTestCase):
             await classify(db, user_id)
             raise RuntimeError("synthetic failure")
 
-        with patch.object(derivation, "classify_active_transactions", new=fail_after_classification):
-            with self.assertRaisesRegex(RuntimeError, "synthetic failure"):
-                await plaid.update_item_status("pending", plaid.ItemStatusUpdate(status="active"))
+        with patch.object(lifecycle, "activation_checks_in_session", AsyncMock(return_value=[])):
+            preview = await plaid.preview_item_activation("pending")
+            with patch.object(lifecycle, "classify_active_transactions", new=fail_after_classification):
+                with self.assertRaisesRegex(RuntimeError, "synthetic failure"):
+                    await plaid.activate_item("pending", plaid.LifecycleConfirmation(
+                        preview_digest=preview["digest"]))
         async with self.sessions() as db:
             self.assertEqual((await db.get(Item, "pending")).status, "pending")
             self.assertIsNone((await db.get(Transaction, "pending-transfer")).transaction_type)

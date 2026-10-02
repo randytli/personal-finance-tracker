@@ -78,7 +78,7 @@ async def _active_analytics_rows(start_date, end_date, db=None):
             Transaction.transaction_date >= start_date,
             Transaction.transaction_date <= end_date,
             RawTransaction.is_removed.is_(False),
-            Item.status == "active",
+            Item.published.is_(True),
             Account.consumer_transactions_enabled.is_(True),
             Item.user_id == os.environ.get("PLAID_PILOT_USER_ID", "local-sandbox-user"),
         )
@@ -88,7 +88,8 @@ async def _active_analytics_rows(start_date, end_date, db=None):
     statement = statement.outerjoin(ManualBenefitCategoryOverride,
         ManualBenefitCategoryOverride.transaction_id == Transaction.transaction_id)
     if db is not None:
-        return (await db.execute(statement)).all()
+        # Lifecycle previews read the same session before and after a reclassification.
+        return (await db.execute(statement.execution_options(populate_existing=True))).all()
     async with SessionLocal() as session:
         await session.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY"))
         return (await session.execute(statement)).all()

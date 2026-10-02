@@ -6,7 +6,7 @@ from dataclasses import asdict
 from datetime import date, datetime, timezone
 from decimal import Decimal
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 
 from api.models import (Account, Item, RawTransaction, Transaction, StatementImportBatch,
                         StatementImportRow, ManualClassificationOverride, ManualCategoryOverride)
@@ -152,7 +152,7 @@ async def preview(db, user_id, account_id, adapter, data, through=None):
     candidates = (await db.execute(select(Transaction).join(Account, Account.account_id == Transaction.account_id)
                  .join(Item, Item.item_id == Account.item_id)
                  .join(RawTransaction, RawTransaction.transaction_id == Transaction.transaction_id)
-                 .where(Item.user_id == user_id, Item.status.in_(("pending", "active")),
+                 .where(Item.user_id == user_id, or_(Item.published.is_(True), Item.status == "pending"),
                         Account.consumer_transactions_enabled.is_(True), RawTransaction.is_removed.is_(False),
                         Account.item_id == RawTransaction.item_id, Account.account_id == RawTransaction.account_id,
                         Transaction.account_id != account_id,
@@ -212,7 +212,7 @@ async def apply(db, user_id, account_id, adapter, data, through, approved, confi
         db.add(raw)
         await db.flush()
         seed = (statement_classification(row.kind, row.amount)
-                if item.status == "active" else None) or (None, None, None)
+                if item.published else None) or (None, None, None)
         db.add(Transaction(transaction_id=ident, account_id=account_id, transaction_date=row.transaction_date,
                            **normalized_raw_values(raw), transaction_type=seed[0], is_spending=seed[1],
                            is_internal_transfer=seed[2]))

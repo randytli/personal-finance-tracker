@@ -21,12 +21,13 @@ from plaid.model.transactions_sync_request import TransactionsSyncRequest
 from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from api.db import SessionLocal
-from api.models import Account, Item, RawTransaction
+from api.models import Account, Item, RawTransaction, Transaction
 from api.statement_semantics import lock_consumer_derivation
 from api.services.derivation import (
-    activate_item, classify_active_transactions, normalize_item_transactions,
+    classify_active_transactions, normalize_item_transactions,
     preview_pending_classification, validate_consumer_activation,
 )
+from api.services import lifecycle
 from api.services.persistence import (
     persist_account_metadata as persist_account_metadata_in_session,
     persist_consumer_transactions as persist_consumer_transactions_in_session,
@@ -46,6 +47,10 @@ class PublicTokenExchange(BaseModel):
 
 class ItemStatusUpdate(BaseModel):
     status: str
+
+
+class LifecycleConfirmation(BaseModel):
+    preview_digest: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
 
 
 def is_production():
@@ -254,6 +259,10 @@ def item_metadata(item):
         "institution_id": item.institution_id,
         "institution_name": item.institution_name,
         "status": item.status,
+        "sync_enabled": item.sync_enabled,
+        "published": item.published,
+        "activated_at": item.activated_at,
+        "deactivated_at": item.deactivated_at,
         "created_at": item.created_at,
         "updated_at": item.updated_at,
     }
@@ -263,9 +272,11 @@ def item_metadata(item):
 async def update_item_status(item_id: str, data: ItemStatusUpdate):
     if data.status not in {"active", "disabled"}:
         raise HTTPException(status_code=422, detail="status must be active or disabled")
+    if data.status == "active":
+        # Activation always goes through a confirmed whole-ledger preview.
+        raise HTTPException(409, "Preview with POST /plaid/items/{item_id}/activation-preview, "
+                                 "then confirm with POST /plaid/items/{item_id}/activate")
     async with SessionLocal.begin() as db:
-        if data.status == "active":
-            return await activate_item(db, _user_id(), item_id)
         await lock_consumer_derivation(db, _user_id())
         item = await db.scalar(select(Item).where(
             Item.item_id == item_id, Item.user_id == _user_id(),
@@ -277,6 +288,95 @@ async def update_item_status(item_id: str, data: ItemStatusUpdate):
             raise HTTPException(409, "Active Items cannot be disabled through this endpoint")
         await db.execute(update(Item).where(Item.item_id == item_id).values(status="disabled"))
     return {"item_id": item_id, "status": "disabled"}
+
+
+@router.get("/items/{item_id}")
+async def get_item_detail(item_id: str):
+    async with SessionLocal() as db:
+        item = await db.scalar(select(Item).where(Item.item_id == item_id, Item.user_id == _user_id()))
+        if item is None:
+            raise HTTPException(404, "Item not found")
+        accounts = (await db.execute(select(Account).where(Account.item_id == item_id)
+                                     .order_by(Account.name, Account.account_id))).scalars().all()
+        counts = dict((await db.execute(
+            select(RawTransaction.account_id, func.count())
+            .where(RawTransaction.item_id == item_id, RawTransaction.is_removed.is_(False))
+            .group_by(RawTransaction.account_id))).all())
+        normalized = await db.scalar(
+            select(func.count()).select_from(Transaction)
+            .join(RawTransaction, RawTransaction.transaction_id == Transaction.transaction_id)
+            .where(RawTransaction.item_id == item_id, RawTransaction.is_removed.is_(False)))
+    return {
+        **item_metadata(item),
+        "has_cursor": item.transactions_cursor is not None,
+        "sync_paused": item.sync_paused,
+        "last_sync_success_at": item.last_sync_success_at,
+        "metadata_warning": item.metadata_warning,
+        "accounts": [{
+            "account_id": account.account_id, "name": account.name, "mask": account.mask,
+            "type": account.type, "subtype": account.subtype,
+            "consumer_transactions_enabled": account.consumer_transactions_enabled,
+            "transaction_count": counts.get(account.account_id, 0),
+        } for account in accounts],
+        "raw_transaction_count": sum(counts.values()),
+        "normalized_transaction_count": normalized,
+    }
+
+
+@router.get("/items/{item_id}/transactions-preview")
+async def get_item_transactions_preview(item_id: str, limit: int = Query(100, ge=1, le=500),
+                                        offset: int = Query(0, ge=0)):
+    async with SessionLocal() as db:
+        item = await db.scalar(select(Item).where(Item.item_id == item_id, Item.user_id == _user_id()))
+        if item is None:
+            raise HTTPException(404, "Item not found")
+        scope = (select(Transaction, Account.name)
+                 .join(RawTransaction, RawTransaction.transaction_id == Transaction.transaction_id)
+                 .join(Account, (Account.account_id == Transaction.account_id)
+                       & (Account.item_id == RawTransaction.item_id))
+                 .where(RawTransaction.item_id == item_id, RawTransaction.is_removed.is_(False),
+                        Account.consumer_transactions_enabled.is_(True)))
+        total = await db.scalar(select(func.count()).select_from(scope.subquery()))
+        rows = (await db.execute(scope.order_by(Transaction.transaction_date.desc(),
+                                                Transaction.transaction_id)
+                                 .limit(limit).offset(offset))).all()
+    return {"item_id": item_id, "total": total, "limit": limit, "offset": offset,
+            "transactions": [{
+                "transaction_id": row.transaction_id, "account_name": account_name,
+                "transaction_date": row.transaction_date.isoformat(),
+                "amount": format(row.amount, "f"), "merchant_name": row.merchant_name,
+                "description": row.description, "plaid_category": row.plaid_category,
+                "transaction_type": row.transaction_type if item.published else None,
+            } for row, account_name in rows]}
+
+
+@router.get("/items/{item_id}/activation-checks")
+async def get_activation_checks(item_id: str):
+    # The session is never committed, so the checks' row locks are released on close.
+    async with SessionLocal() as db:
+        return await lifecycle.activation_checks(db, _user_id(), item_id)
+
+
+@router.post("/items/{item_id}/activation-preview")
+async def preview_item_activation(item_id: str):
+    return await lifecycle.preview_transition(SessionLocal, _user_id(), item_id, "activate")
+
+
+@router.post("/items/{item_id}/activate")
+async def activate_item(item_id: str, data: LifecycleConfirmation):
+    async with SessionLocal.begin() as db:
+        return await lifecycle.apply_transition(db, _user_id(), item_id, "activate", data.preview_digest)
+
+
+@router.post("/items/{item_id}/deactivation-preview")
+async def preview_item_deactivation(item_id: str):
+    return await lifecycle.preview_transition(SessionLocal, _user_id(), item_id, "deactivate")
+
+
+@router.post("/items/{item_id}/deactivate")
+async def deactivate_item(item_id: str, data: LifecycleConfirmation):
+    async with SessionLocal.begin() as db:
+        return await lifecycle.apply_transition(db, _user_id(), item_id, "deactivate", data.preview_digest)
 
 
 @router.get("/items/{item_id}/classification-preview")

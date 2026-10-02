@@ -55,9 +55,14 @@
 
 ## 2. 状态模型
 
-### 2.1 选择
+### 2.1 选择（6b 实现时修订）
 
-用两个布尔列表达范围，`status` 保留为可读标签，用 CHECK 约束把三者绑死：
+`status` 是唯一被写入的生命周期字段；`sync_enabled` 和 `published` 是 PostgreSQL 的 **STORED 生成列**，由 `status` 推导，不能直接写：
+
+```sql
+sync_enabled BOOLEAN NOT NULL GENERATED ALWAYS AS (status IN ('pending','active')) STORED
+published    BOOLEAN NOT NULL GENERATED ALWAYS AS (status IN ('active','deactivated')) STORED
+```
 
 | 状态 | `status` | `sync_enabled` | `published` | 同步 | 账本 | 分类输入 |
 |---|---|---|---|---|---|---|
@@ -66,31 +71,26 @@
 | Deactivated | `deactivated` | false | true | 否 | 是 | 是 |
 | Rejected（旧 `disabled`） | `disabled` | false | false | 否 | 否 | 否 |
 
-```sql
-CHECK ((status='pending'     AND sync_enabled     AND NOT published)
-    OR (status='active'      AND sync_enabled     AND published)
-    OR (status='deactivated' AND NOT sync_enabled AND published)
-    OR (status='disabled'    AND NOT sync_enabled AND NOT published))
-```
-
 理由：
 - 每类范围只看一列：同步看 `sync_enabled`（定时同步再加 `published`，见 2.3），账本和分类输入都看 `published`。三类查询不会再各自解释 `status`。
-- 保留 `status` 有两个好处。一是回滚安全：旧镜像只读 `status='active'`，迁移后对现有数据的结果不变。二是人能直接看懂。
-- CHECK 约束让两个布尔列和标签无法不一致，也就不存在“published 但 status=pending”这种组合。
+- 最初的设计是“两个可写布尔列 + CHECK 约束”。实现时发现：现有测试、脚本和旧镜像都只写 `status`（包括 raw SQL 插入），可写列加 CHECK 会让它们全部违反约束。改用生成列后，标志位与 `status` 在数据库层面不可能不一致。
+- 回滚安全：旧镜像只写 `status`，生成列照常推导。迁移前不存在 `deactivated`，所以 `published` ⇔ `status='active'`，与旧的过滤条件逐行等价。
 - 另加审计列：`activated_at`、`deactivated_at`（TIMESTAMPTZ，可空），以及 `activation_digest`（最近一次激活所确认的预览摘要）。
 
-不选纯枚举：每个查询都要写 `status IN (...)`，“Deactivated 仍计入账本”这条规则会散落在十几处，漏改一处就会让 analytics 悄悄变化。
+不选纯枚举（不带标志列）：每个查询都要写 `status IN (...)`，“Deactivated 仍计入账本”这条规则会散落在十几处，漏改一处就会让 analytics 悄悄变化。
 
-### 2.2 迁移（`migrate_institution_lifecycle`，幂等）
+### 2.2 迁移（`migrate_institution_lifecycle`，幂等，已实现）
 
-1. `ADD COLUMN IF NOT EXISTS sync_enabled BOOLEAN`、`published BOOLEAN`、`activated_at`、`deactivated_at`、`activation_digest`。
-2. 只回填 NULL 行：`active → (true, true)`，`pending → (true, false)`，`disabled → (false, false)`。如果遇到其他 `status` 值，直接 `RAISE`，不猜。
-3. 设置 `NOT NULL`，默认值为 `(true, false)`，与 pending 一致。
-4. 把 `ck_items_status` 扩展为四个值，并加 `ck_items_lifecycle`。
-5. 加索引 `ix_items_user_sync (user_id, sync_enabled, published)`。
+1. 如果存在四个值之外的 `status`，直接 `RAISE`，不猜。
+2. `ck_items_status` 扩展为 `pending/active/deactivated/disabled`；已经扩展过则跳过。
+3. `ADD COLUMN IF NOT EXISTS sync_enabled/published ... GENERATED ALWAYS AS (...) STORED`。这一步会重写 `items` 表；表很小（每个机构一行），但会短暂持有 ACCESS EXCLUSIVE 锁，所以应在没有同步运行时执行。
+4. `activated_at`、`deactivated_at`、`activation_digest` 可空列。
+5. 索引 `ix_items_user_lifecycle (user_id, sync_enabled, published)`。
 6. 不改任何交易、分类、cursor、token。
 
 预期 Production 现状：全部 Item 都是 `active` → 迁移后全部为 Active + published。这一点在 Production 执行前需要只读确认（待决 D1），今晚不连 Production。
+
+旧镜像兼容性（回滚时）：旧代码不知道 `deactivated`，会把 Deactivated 的 Item 排除出 analytics（等同于旧的 disabled）。只要还没有停用过任何 Item，回滚就没有影响。
 
 ### 2.3 迁移前后不变量
 
@@ -101,7 +101,7 @@ CHECK ((status='pending'     AND sync_enabled     AND NOT published)
 - analytics：对每个有数据的月份调用 `summarize_monthly_transactions`，结果的 JSON 哈希；
 - 迁移后立刻跑一次 `classify_active_transactions`，写入集必须为空。
 
-6b 在临时集群上，用带现有数据形状的合成库验证这些不变量：Active 多机构、禁用的投资账户、手动 override、账单导入行、已删除行、一个 pending 和一个 disabled Item。
+6b 已在临时集群上验证（见 §11）。合成库的形状：Chase（checking + credit + 禁用的投资账户）、Amex（权益账户）、一个带数据的 pending（Ally）、一个 disabled，加上手动分类 override、手动类别 override、已删除行、退款对、信用卡还款对、Zelle 对。账单导入行没有放进合成库，属于缺口。
 
 定时同步谓词用 `sync_enabled AND published`，而不是只看 `sync_enabled`：现状是 pending 只靠手动拉取，不进定时同步。是否改为让 Pending 也进定时同步，列为待决 D2。
 
@@ -154,14 +154,14 @@ CHECK ((status='pending'     AND sync_enabled     AND NOT published)
 | K1 | 状态可激活 | `status IN ('pending','deactivated')`；`disabled` 必须先改回 pending（待决 D4） | fail |
 | K2 | 已发现账户 | 至少一个 `consumer_transactions_enabled` 账户 | fail |
 | K3 | 账户归属一致 | `validate_consumer_activation` 的归属校验（raw 与 normalized 的 account 一致，账户属于该 Item） | fail |
-| K4 | 禁用账户上没有新消费数据 | 同上，与 `legacy_consumer_rows` 比对 | fail |
+| K4 | 禁用账户上没有新消费数据 | 同上，与 `legacy_consumer_rows` 比对（实现中与 K3 合并为一项） | fail |
 | K5 | 已有初始同步 | `transactions_cursor IS NOT NULL` | fail |
 | K6 | 规范化完整 | 启用账户上每条未删除的 raw 都有 normalized 行，且值一致（复用 `_normalized_differs`）；源数据校验通过（`validate_normalization_input`） | fail |
 | K7 | 已发布分类是最新的 | 用 `published` 范围重算一次，结果与存储值一致（写入集为空）。否则 before 快照就不是用户当前看到的 analytics | fail |
 | K8 | 同步状态健康 | `NOT sync_paused`，`metadata_warning IS NULL`，最近一次 `sync_item_runs`（如果有）不是 blocked | warn |
-| K9 | 交易与已有数据没有冲突 | 新 Item 的 transaction_id 不与其他 Item 重复（主键已经保证，这里显式报告），也没有疑似重复（同金额、同日期，对方账户在另一个 published Item，且双方描述都不像转账）→ 列出条数 | warn |
+| K9（未实现） | 交易与已有数据没有冲突 | 新 Item 的 transaction_id 不与其他 Item 重复（主键已经保证，这里显式报告），也没有疑似重复（同金额、同日期，对方账户在另一个 published Item，且双方描述都不像转账）→ 列出条数 | warn |
 | K10 | 日期范围 | 报告最早和最晚交易日期；早于已发布账本最早日期 → warn（会改写历史月份） | warn |
-| K11 | 影响预览可算 | §4 预览成功，返回摘要 | fail |
+| K11 | 影响预览可算 | §4 预览成功，返回摘要（不是单独一项检查：预览本身失败就无法激活） | fail |
 | K12 | 没有进行中的同步 | `sync_runtime_state.running_sequence` 为空，或已处理 | warn（激活本身会等锁） |
 
 ## 6. 状态转换与 atomic workflow、advisory lock、cursor 的关系
@@ -229,3 +229,27 @@ Plaid cursor 有效期：Plaid 文档没有承诺 cursor 永久有效。如果�
 - **D8** 停用是否调用 Plaid `/item/remove`？默认否（保留 token 和 cursor，才能重新激活）。代价是 Plaid 可能继续按 Item 计费。
 - **D9** 疑似重复的判定阈值（K9）。默认只提示，不阻止激活。
 - Remove institution data：R-1..R-6（见 §7）。
+
+## 11. 6b 验证结果（临时 PG16 集群，127.0.0.1:55439，用完删除）
+
+**迁移彩排**（`scripts/pft_lifecycle_migration_rehearsal.py`）：
+1. 用 `main`（`git archive main`）的代码建库、写入合成数据、分类，然后记录指纹；
+2. 用本分支代码执行两次迁移（验证幂等），再记录指纹；
+3. 两边各自再跑一次分类，再记录指纹。
+
+四份指纹完全一致：transactions md5、raw_transactions md5、Item 状态/cursor/token 摘要、`external_classifications` 分类哈希，以及 284 行 analytics、6 个月的 `summarize_monthly_transactions` 哈希。证据在 `docs/evidence/institution-lifecycle-2026-10-02/`。
+
+在同一个库上对 Ally 做激活预览：新增 6 笔；6 笔已有的 Chase Zelle 收入变成内部转账；2026-03..08 每月 income −75、net_savings −75。预览前后指纹一致（全部回滚）。
+
+**测试**：`tests/test_institution_lifecycle.py`（9 项，`PFT_LIFECYCLE_SYNTHETIC_TEST=1`，fake Plaid client）：
+- 跨机构 Zelle 配对改变已有交易的分类，预览与实际激活**完全一致**（digest 和全部差异字段都一致；激活后重新计算的差异也等于预览）；
+- 预览之后账本有变化（新增 manual override）→ 激活被拒（409），什么都不改；
+- 激活中途失败（分类写完后抛错）→ 整体回滚：状态、`activated_at`、分类都不变；
+- 停用后 analytics、全部分类、transactions 都不变；配对仍然成立；再跑一次分类，写入集为空；
+- 停用后定时同步跳过该机构（fake client 只收到 Chase 的请求），cursor 不动；`request_sync` 和 onboarding 拉取都拒绝该机构；
+- 重新激活后，从停用前保存的 cursor（`b-2`）继续增量同步，停用期间的新交易被正常分类；
+- pre-activation checks：K5、K6 失败时阻止预览和激活；修复后可以激活；
+- Pending 数据在激活前不影响已发布分类；
+- 迁移：从旧形状升级后，指纹和分类哈希完全一致；标志位符合推导规则；不能直接写生成列。
+
+变异检查：把 `published` 改成只看 `active` 后，停用和重新激活两项测试失败。

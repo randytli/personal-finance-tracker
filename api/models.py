@@ -1,5 +1,5 @@
 from sqlalchemy import (
-    Boolean, CheckConstraint, Column, Date, DateTime, ForeignKey, Index, Numeric,
+    Boolean, CheckConstraint, Column, Computed, Date, DateTime, ForeignKey, Index, Numeric,
     String, Integer, UniqueConstraint, func,
 )
 from sqlalchemy.dialects.postgresql import JSONB
@@ -9,6 +9,18 @@ from api.labels import LABEL_CHECK
 from api.benefit_categories import BENEFIT_CATEGORY_CHECK
 
 Base = declarative_base()
+
+# status is the only written lifecycle field; PostgreSQL derives both scope flags
+# from it, so they can never disagree. Sync reads sync_enabled; the ledger and
+# classification read published.
+LIFECYCLE_STATES = {
+    "pending": (True, False),
+    "active": (True, True),
+    "deactivated": (False, True),
+    "disabled": (False, False),
+}
+SYNC_ENABLED_SQL = "status IN ('pending', 'active')"
+PUBLISHED_SQL = "status IN ('active', 'deactivated')"
 
 
 class ManualCategoryOverride(Base):
@@ -31,10 +43,11 @@ class Item(Base):
     __table_args__ = (
         UniqueConstraint("user_id", "institution_id", name="uq_items_user_institution"),
         CheckConstraint(
-            "status IN ('pending', 'active', 'disabled')",
+            "status IN ('pending', 'active', 'deactivated', 'disabled')",
             name="ck_items_status",
         ),
         Index("ix_items_user_status", "user_id", "status"),
+        Index("ix_items_user_lifecycle", "user_id", "sync_enabled", "published"),
         Index("ix_items_institution_id", "institution_id"),
     )
     item_id = Column(String, primary_key=True)
@@ -42,6 +55,11 @@ class Item(Base):
     institution_id = Column(String, nullable=False)
     institution_name = Column(String, nullable=False)
     status = Column(String, nullable=False, default="pending", server_default="pending")
+    sync_enabled = Column(Boolean, Computed(SYNC_ENABLED_SQL, persisted=True), nullable=False)
+    published = Column(Boolean, Computed(PUBLISHED_SQL, persisted=True), nullable=False)
+    activated_at = Column(DateTime(timezone=True))
+    deactivated_at = Column(DateTime(timezone=True))
+    activation_digest = Column(String)
     access_token = Column(String, nullable=False)
     transactions_cursor = Column(String, nullable=True)
     sync_paused = Column(Boolean, nullable=False, default=False, server_default="false")

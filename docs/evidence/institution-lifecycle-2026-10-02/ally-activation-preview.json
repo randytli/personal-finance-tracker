@@ -1,0 +1,98 @@
+{
+ "digest": "161212afc5c6cfd94587491fbabc5cf3f2f568cffb344be49c363208d8ae80dc",
+ "new_transactions": 6,
+ "changed_existing": [
+  [
+   "zin0",
+   "income",
+   "transfer",
+   true
+  ],
+  [
+   "zin1",
+   "income",
+   "transfer",
+   true
+  ],
+  [
+   "zin2",
+   "income",
+   "transfer",
+   true
+  ],
+  [
+   "zin3",
+   "income",
+   "transfer",
+   true
+  ],
+  [
+   "zin4",
+   "income",
+   "transfer",
+   true
+  ],
+  [
+   "zin5",
+   "income",
+   "transfer",
+   true
+  ]
+ ],
+ "months": [
+  [
+   "2026-03",
+   {
+    "income": "-75.00",
+    "net_savings": "-75.00"
+   }
+  ],
+  [
+   "2026-04",
+   {
+    "income": "-75.00",
+    "net_savings": "-75.00"
+   }
+  ],
+  [
+   "2026-05",
+   {
+    "income": "-75.00",
+    "net_savings": "-75.00"
+   }
+  ],
+  [
+   "2026-06",
+   {
+    "income": "-75.00",
+    "net_savings": "-75.00"
+   }
+  ],
+  [
+   "2026-07",
+   {
+    "income": "-75.00",
+    "net_savings": "-75.00"
+   }
+  ],
+  [
+   "2026-08",
+   {
+    "income": "-75.00",
+    "net_savings": "-75.00"
+   }
+  ]
+ ],
+ "checks": {
+  "K1": "pass",
+  "K2": "pass",
+  "K3": "pass",
+  "K5": "pass",
+  "K6": "pass",
+  "K7": "pass",
+  "K8": "pass",
+  "K10": "pass",
+  "K12": "pass"
+ },
+ "can_activate": true
+}
