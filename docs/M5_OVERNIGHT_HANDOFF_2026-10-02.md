@@ -69,6 +69,20 @@
   - SQL 签名（pgcrypto）与 Python 校验一致，已在本地实测。
 - 测试：触发器 10 个，加上回归的 scheduler draft 和 M4 jobs，共 33 个全部通过。
 
+- commit：`e54b25c`
+
+### 3. 认证（Auth，仅设计）
+
+- 产出：[设计文档](PFT_M5_AUTH_DESIGN_2026-10-02.md)。没有写代码。
+- 结论：
+  - **禁止注册**：关闭 "Allow new users to sign up"、匿名登录、手动关联，也不启用任何社交登录。只预建一个 owner 用户，再在 FastAPI 侧固定 `sub == PFT_OWNER_AUTH_SUB` 作为兜底。主体映射到现有的 `PLAID_PILOT_USER_ID`，历史数据不受影响。
+  - **MFA**：Free 自带 TOTP（官方定价页 "Basic Multi-Factor Auth: Included"），要求 `aal2`。Free 没有泄露密码检测。
+  - **Next.js**：`getClaims()` 负责保护页面和刷新 token；服务器端绝不信任 `getSession()`（官方原文）。现有的 4 组 `/api/pft` rewrite 改为服务器路由处理器，把 Bearer 转发到固定的上游。
+  - **FastAPI**：只从配置的 JWKS 取公钥，只接受 ES256，校验 iss、`aud=authenticated`、exp、iat、`sub`、`aal2`、`is_anonymous=false`；遇到未知 kid 时最多 60 s 刷新一次，失败即拒绝。
+  - **RLS**：完全关闭 Data API（官方：关闭后“无论 grants 或 RLS，REST 端点都不响应”）。再加一层兜底：所有表启用 RLS，只给服务端角色写策略，`anon`/`authenticated` 没有任何权限。
+  - **数据库角色**：reader 只读，且看不到 `items.access_token`；writer 只能写手工覆盖类表；jobs 负责同步；backup 只读全表；migrator 只在运维机上使用。
+  - **与 Tailscale 相比**：对“已经能连上应用的人”更安全（每个请求都有真正的认证，加上 MFA 和最小权限）；但暴露面更大（公网可达，秘密分散在三家服务商，任何认证或路由 bug 都直接暴露在公网）。直连 API 的反向测试仍然是上线前提。
+
 ## 待决（需要 owner 拍板或批准）
 
 ### 任务 1：备份
@@ -98,6 +112,19 @@
 - **P2-3 pg_net 怎样穿过 Vercel 部署保护**。可选：(a) 部署到不受保护的 production 目标，只靠 HMAC 保护；(b) 使用 automation bypass 头，多一个存在 Vault 里的秘密。建议 (a) 加 HMAC，因为 bypass 头只是静态秘密，比 HMAC 弱。这需要你确认 production 目标不暴露任何其他路由。
 - **需要批准的操作**：在 M5 合成项目上启用 pg_cron、pg_net 和 Vault，部署带校验的 jobs preview，跑一次真实的节拍、重复投递和超时测试（见设计 §5）。
 
+### 任务 3：Auth
+
+- **P3-1 会话模型**。建议：Supabase SDK cookie 加 Next.js 服务器代理，而不是完整的 BFF。理由：
+  - 完整 BFF 只能防 XSS 偷 token，防不了 XSS 冒用当前会话；
+  - 它还要额外实现会话表、加密密钥、CSRF、刷新串行化，对单用户来说是更多的安全关键代码；
+  - 计划允许在明确接受这一取舍后使用这个模型。
+
+  配套措施：严格 CSP、MFA、短 JWT 有效期。
+- **P3-2 Python JWT 库**。建议 PyJWT（它会用到已经固定版本的 `cryptography`），版本在 M6 固定。这会新增一个依赖。
+- **P3-3 账号恢复**。建议以 Supabase 控制台的管理员重置作为主路径；控制台账号本身必须开 MFA。默认 SMTP 只能发给团队成员，每小时 2 封，而且是尽力投递。控制台能否不经邮件直接设置密码，未核实。
+- **P3-4 aal2 范围**。建议所有金融路由都要求 aal2。
+- **需要批准的操作（仅限合成项目）**：建 owner 用户并关闭注册、启用 TOTP、迁移到非对称签名密钥、关闭 Data API、建上述角色，然后跑反向测试矩阵。
+
 ## 未完成或受阻
 
 （随各项更新）
@@ -108,3 +135,4 @@
 - 23:58 任务 1 开始：查官方文档，在 scratchpad 起一次性 PG16（127.0.0.1:55439）。
 - 00:07 任务 1 测试与实测完成。
 - 00:08 任务 2 开始；00:12 测试全部通过。
+- 00:13 任务 3 开始（只写设计）；00:16 完成。
