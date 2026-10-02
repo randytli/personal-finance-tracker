@@ -333,10 +333,10 @@ class SyncAllDatabaseTests(unittest.IsolatedAsyncioTestCase):
     async def test_unexpected_normalization_error_aborts_all_items(self):
         original = service.normalize_item_transactions
 
-        async def normalize(db, user_id, item_id):
+        async def normalize(db, user_id, item_id, **scope):
             if item_id == "a":
                 raise TypeError("synthetic normalization failure")
-            return await original(db, user_id, item_id)
+            return await original(db, user_id, item_id, **scope)
 
         with patch.object(service, "normalize_item_transactions", side_effect=normalize):
             with self.assertRaisesRegex(TypeError, "normalization failure"):

@@ -16,7 +16,8 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from api import jobs
 from api.migrations import (LifecyclePreflightBlocked, institution_lifecycle_preflight,
                             lifecycle_preflight_errors, migrate_institution_lifecycle)
-from api.models import Account, Base, Item, ManualClassificationOverride, LIFECYCLE_STATES
+from api.models import (ONBOARDING_STATUSES, Account, Base, Item, ManualClassificationOverride, LIFECYCLE_STATES,
+                        RawTransaction, Transaction)
 from api.services import lifecycle
 from api.services import sync_all as service
 from api.services.derivation import classify_active_transactions, normalize_item_transactions
@@ -41,7 +42,7 @@ class FakePlaid:
         self.pages = pages
         self.requests = []
 
-    def transactions_sync(self, request, *, _request_timeout):
+    def transactions_sync(self, request, *, _request_timeout=None):
         body = request.to_dict()
         item = body["access_token"].removeprefix("token-")
         self.requests.append((item, body.get("cursor")))
@@ -113,8 +114,8 @@ class LifecycleDatabaseTests(unittest.IsolatedAsyncioTestCase):
         async with self.sessions.begin() as db:
             item = await db.get(Item, "b")
             await persist_consumer_transactions(db, USER, "b", item.transactions_cursor, list(rows), [], [],
-                                                cursor, 1)
-            await normalize_item_transactions(db, USER, "b")
+                                                cursor, 1, statuses=ONBOARDING_STATUSES)
+            await normalize_item_transactions(db, USER, "b", statuses=ONBOARDING_STATUSES)
 
     async def seed(self):
         await self.sync({"a": (CHASE, "a-1")})
@@ -337,7 +338,7 @@ class LifecycleDatabaseTests(unittest.IsolatedAsyncioTestCase):
         results = {check["id"]: check["result"] for check in checks["checks"]}
         self.assertEqual(results["K6"], "fail")
         async with self.sessions.begin() as db:
-            await normalize_item_transactions(db, USER, "b")
+            await normalize_item_transactions(db, USER, "b", statuses=ONBOARDING_STATUSES)
         async with self.sessions() as db:
             checks = await lifecycle.activation_checks(db, USER, "b")
         self.assertTrue(checks["can_activate"], checks)
@@ -499,6 +500,147 @@ class LifecycleDatabaseTests(unittest.IsolatedAsyncioTestCase):
         _, result = await self.activate()
         self.assertEqual(result["status"], "active")
         self.assertEqual(await self.classification("a-zelle-in"), ("transfer", False, True))
+
+
+    def plaid_routes(self, client=None):
+        """Route-level calls on the synthetic schema; any Plaid use without a fake fails."""
+        from api.routes import plaid
+        stack = ExitStack()
+        stack.enter_context(patch.object(plaid, "SessionLocal", self.sessions))
+        stack.enter_context(patch.object(plaid, "get_client", side_effect=AssertionError("No Plaid call expected"))
+                            if client is None else patch.object(plaid, "get_client", return_value=client))
+        return plaid, stack
+
+    async def test_split_import_and_normalization_are_pending_onboarding_only(self):
+        await self.seed()
+        await self.activate()
+        async with self.sessions.begin() as db:
+            db.add(Item(item_id="c", user_id=USER, institution_id="ins_c", institution_name="Rejected",
+                        status="disabled", access_token="token-c"))
+            db.add(Item(item_id="d", user_id=USER, institution_id="ins_d", institution_name="Later",
+                        status="pending", access_token="token-d", transactions_cursor=None))
+            await db.flush()
+            db.add(Account(account_id="d-check", item_id="d", name="Later Checking", type="depository",
+                           consumer_transactions_enabled=True))
+        preview = await self.preview("deactivate")
+        await self.apply("deactivate", preview["digest"])
+        before = await self.fingerprint()
+        plaid, stack = self.plaid_routes()
+        with stack:
+            for item_id in ("a", "b", "c"):  # active, deactivated, rejected
+                for call in (plaid.get_transactions, plaid.normalize_transactions, plaid.get_accounts):
+                    with self.assertRaises(HTTPException) as refused:
+                        await call(item_id=item_id)
+                    self.assertEqual(refused.exception.status_code, 409, (item_id, call.__name__))
+            # The module helpers behind the routes are onboarding-scoped too.
+            with self.assertRaises(HTTPException):
+                await plaid.persist_consumer_transactions("a", "a-1", [], [], [], "a-x", 1)
+            with self.assertRaises(HTTPException):
+                await plaid.persist_account_metadata("a", [])
+        self.assertEqual(await self.fingerprint(), before)
+
+        # A Pending Item still onboards through the split routes.
+        client = FakePlaid({"d": ([plaid_tx("d-1", "d-check", 18, 7, "MARKET", "FOOD_AND_DRINK")], "d-1")})
+        plaid, stack = self.plaid_routes(client)
+        with stack:
+            result = await plaid.get_transactions(item_id="d")
+            self.assertEqual(result["added_count"], 1)
+            self.assertEqual((await plaid.normalize_transactions(item_id="d"))["normalized_count"], 1)
+        self.assertEqual(client.requests, [("d", None)])
+        self.assertEqual(await self.classification("d-1"), (None, None, None))
+        after = await self.fingerprint()
+        self.assertEqual(after["ledger"], before["ledger"])
+        async with self.sessions() as db:
+            # Only the new unpublished row differs; every existing classification is unchanged.
+            self.assertEqual(await external_classifications(db, USER, excluded=("d-1",)), before["classifications"])
+
+    async def test_active_account_metadata_maintenance_is_locked_and_narrow(self):
+        await self.seed()
+        await self.activate()
+        await self.sync({"a": ([], "a-2"), "b": ([], "b-2")})
+        before = await self.fingerprint()
+
+        class Accounts:
+            def __init__(self, rows):
+                self.rows, self.calls = rows, 0
+
+            def accounts_get(self, request):
+                self.calls += 1
+                return Response({"accounts": self.rows})
+
+        def account(ident, name, kind="depository", subtype=None):
+            return {"account_id": ident, "name": name, "type": kind, "subtype": subtype, "mask": "9999"}
+
+        renamed = Accounts([account("a-check", "Chase Total Checking"),
+                            account("a-invest", "Brokerage", "investment")])
+        plaid, stack = self.plaid_routes(renamed)
+        with stack:
+            result = await plaid.repair_account_metadata("a")
+        self.assertEqual(result["account_count"], 2)
+        async with self.sessions() as db:
+            self.assertEqual((await db.get(Account, "a-check")).name, "Chase Total Checking")
+        after = await self.fingerprint()
+        self.assertEqual((after["transactions"], after["classifications"], after["items"]),
+                         (before["transactions"], before["classifications"], before["items"]))
+        self.assertEqual(lifecycle._financial_ledger(after["ledger"]), lifecycle._financial_ledger(before["ledger"]))
+
+        refusals = [
+            Accounts([account("a-check", "Checking"), account("a-invest", "Brokerage", "investment"),
+                      account("a-new", "New Card", "credit")]),          # account set grew
+            Accounts([account("a-check", "Checking")]),                    # account set shrank
+            Accounts([account("a-check", "Checking", "credit"),
+                      account("a-invest", "Brokerage", "investment")]),   # type drift
+        ]
+        for client in refusals:
+            plaid, stack = self.plaid_routes(client)
+            with stack, self.assertRaises(HTTPException) as refused:
+                await plaid.repair_account_metadata("a")
+            self.assertEqual(refused.exception.status_code, 409)
+        async with self.sessions() as db:
+            self.assertIsNone(await db.get(Account, "a-new"))
+            self.assertEqual((await db.get(Account, "a-check")).type, "depository")
+            self.assertEqual((await db.get(Account, "a-check")).name, "Chase Total Checking")
+        self.assertEqual(await self.fingerprint(), after)
+        # Maintenance is Active-only and refuses before any Plaid call.
+        plaid, stack = self.plaid_routes()
+        with stack:
+            for item_id in ("b",):
+                preview = await self.preview("deactivate")
+                await self.apply("deactivate", preview["digest"])
+                with self.assertRaises(HTTPException) as refused:
+                    await plaid.repair_account_metadata(item_id)
+                self.assertEqual(refused.exception.status_code, 409)
+
+    async def test_retry_onboarding_only_changes_status(self):
+        await self.seed()
+        await self.onboarding("reject")
+        # Plaid has newer data for b and the staged raw row drifts; retry must use neither.
+        async with self.sessions.begin() as db:
+            raw = await db.get(RawTransaction, "b-grocery")
+            raw.payload = {**raw.payload, "amount": 99}
+        staged = await self.schema_state()
+        before = await self.fingerprint()
+        plaid, stack = self.plaid_routes()
+        with stack:
+            result = await plaid.retry_item_onboarding("b")
+        self.assertEqual(result, {"item_id": "b", "status": "pending"})
+        item = await self.item("b")
+        self.assertEqual((item.status, item.sync_enabled, item.published, item.activated_at, item.transactions_cursor),
+                         ("pending", False, False, None, "b-1"))
+        after = await self.schema_state()
+        self.assertEqual((after[0], after[2]), (staged[0], staged[2]))  # columns and transactions untouched
+        async with self.sessions() as db:
+            self.assertEqual((await db.get(Transaction, "b-grocery")).amount, -30)  # not re-normalized
+            self.assertIsNone((await db.get(Transaction, "b-grocery")).transaction_type)  # not classified
+        current = await self.fingerprint()
+        self.assertEqual({key: current[key] for key in ("ledger", "transactions", "classifications")},
+                         {key: before[key] for key in ("ledger", "transactions", "classifications")})
+        client, _ = await self.sync({"a": ([], "a-2"), "b": ([], "b-2")})
+        self.assertEqual([item for item, _ in client.requests], ["a"])
+        async with self.sessions() as db:
+            checks = {check["id"]: check["result"]
+                      for check in (await lifecycle.activation_checks(db, USER, "b"))["checks"]}
+        self.assertEqual(checks["K6"], "fail")  # onboarding must be repeated before activation
 
 
 if __name__ == "__main__":

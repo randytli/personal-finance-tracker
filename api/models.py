@@ -22,8 +22,10 @@ LIFECYCLE_STATES = {
 }
 SYNC_ENABLED_SQL = "status = 'active'"
 PUBLISHED_SQL = "status IN ('active', 'deactivated')"
-# Active Items ingest through the atomic sync; pending Items through onboarding only.
-INGESTION_STATUSES = ("pending", "active")
+# Ingestion scopes. Every ingestion service takes one explicitly: the atomic sync
+# ingests Active Items, and explicit onboarding actions ingest Pending ones.
+ATOMIC_SYNC_STATUSES = ("active",)
+ONBOARDING_STATUSES = ("pending",)
 
 
 class ManualCategoryOverride(Base):

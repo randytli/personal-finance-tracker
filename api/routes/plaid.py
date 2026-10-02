@@ -21,7 +21,7 @@ from plaid.model.transactions_sync_request import TransactionsSyncRequest
 from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from api.db import SessionLocal
-from api.models import INGESTION_STATUSES, Account, Item, RawTransaction, Transaction
+from api.models import ONBOARDING_STATUSES, Account, Item, RawTransaction, Transaction
 from api.services.derivation import (
     classify_active_transactions, normalize_item_transactions,
     preview_pending_classification, validate_consumer_activation,
@@ -129,17 +129,24 @@ async def _institution_exists(institution_id):
         return result.scalar_one_or_none() is not None
 
 
-async def _get_item(item_id, allowed_statuses=("active",)):
+async def _get_item(item_id, allowed_statuses, refusal):
+    """Load an owned Item; any status outside the operation's scope is refused before Plaid."""
     async with SessionLocal() as db:
-        result = await db.execute(select(Item).where(
-            Item.item_id == item_id,
-            Item.user_id == _user_id(),
-            Item.status.in_(allowed_statuses),
-        ))
-        item = result.scalar_one_or_none()
+        item = await db.scalar(select(Item).where(Item.item_id == item_id, Item.user_id == _user_id()))
     if item is None:
         raise HTTPException(status_code=404, detail="Item not found")
+    if item.status not in allowed_statuses:
+        raise HTTPException(status_code=409, detail=f"{refusal}; this Item is {item.status}")
     return item
+
+
+# Split import and normalization exist only for Pending onboarding. Active Items
+# ingest only through the atomic sync; there is no per-Item bypass.
+ONBOARDING_REFUSAL = "Only Pending Items use onboarding import and normalization; Active Items sync atomically"
+
+
+def _onboarding_item(item_id):
+    return _get_item(item_id, ONBOARDING_STATUSES, ONBOARDING_REFUSAL)
 
 
 def _plaid_failure():
@@ -484,7 +491,7 @@ async def exchange_public_token(data: PublicTokenExchange):
 
 @router.post("/transactions")
 async def get_transactions(item_id: str = Query(..., min_length=1)):
-    item = await _get_item(item_id, INGESTION_STATUSES)
+    item = await _onboarding_item(item_id)
     async with SessionLocal() as db:
         discovered = await db.scalar(select(func.count()).select_from(Account).where(Account.item_id == item_id))
         if not discovered:
@@ -505,16 +512,21 @@ async def persist_consumer_transactions(item_id, starting_cursor, added, modifie
     async with SessionLocal.begin() as db:
         return await persist_consumer_transactions_in_session(
             db, _user_id(), item_id, starting_cursor, added, modified, removed, cursor, pages_fetched,
+            statuses=ONBOARDING_STATUSES,
         )
 
 @router.post("/accounts")
 async def get_accounts(item_id: str = Query(..., min_length=1)):
-    item = await _get_item(item_id, INGESTION_STATUSES)
+    """Pending onboarding account discovery."""
+    item = await _onboarding_item(item_id)
+    return await persist_account_metadata(item.item_id, await _fetch_accounts(item))
 
+
+async def _fetch_accounts(item):
     client = get_client()
     request = AccountsGetRequest(access_token=decrypt_access_token(item.access_token))
     try:
-        accounts = client.accounts_get(request).to_dict()["accounts"]
+        return client.accounts_get(request).to_dict()["accounts"]
     except plaid.ApiException as exc:
         async with SessionLocal.begin() as db:
             await db.execute(update(Item).where(Item.item_id == item.item_id,
@@ -523,20 +535,34 @@ async def get_accounts(item_id: str = Query(..., min_length=1)):
                 metadata_warning_at=datetime.now(timezone.utc)))
         raise _plaid_failure() from exc
 
-    return await persist_account_metadata(item.item_id, accounts)
-
 
 async def persist_account_metadata(item_id, accounts):
     async with SessionLocal.begin() as db:
-        result = await persist_account_metadata_in_session(db, _user_id(), item_id, accounts)
+        result = await persist_account_metadata_in_session(db, _user_id(), item_id, accounts,
+                                                           statuses=ONBOARDING_STATUSES)
         await db.execute(update(Item).where(Item.item_id == item_id, Item.user_id == _user_id())
                          .values(metadata_warning=None, metadata_warning_at=None))
         return result
 
+
+@router.post("/items/{item_id}/maintenance/account-metadata")
+async def repair_account_metadata(item_id: str):
+    """Maintenance only: refresh names and masks of an Active Item's known accounts.
+
+    It never imports, normalizes, classifies or moves the cursor, and refuses any
+    change to the account set or account types instead of widening consumer scope.
+    """
+    item = await _get_item(item_id, ("active",), "Account metadata maintenance is only for Active Items")
+    accounts = await _fetch_accounts(item)
+    async with SessionLocal.begin() as db:
+        return await lifecycle.repair_account_metadata(db, _user_id(), item_id, accounts)
+
+
 @router.post("/transactions/normalize")
 async def normalize_transactions(item_id: str = Query(..., min_length=1)):
+    await _onboarding_item(item_id)
     async with SessionLocal.begin() as db:
-        return await normalize_item_transactions(db, _user_id(), item_id)
+        return await normalize_item_transactions(db, _user_id(), item_id, statuses=ONBOARDING_STATUSES)
 
 
 @router.post("/transactions/classify")

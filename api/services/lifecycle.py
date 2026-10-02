@@ -18,6 +18,7 @@ from sqlalchemy import func, select, update
 
 from api.classification import effective_classification
 from api.models import (Account, Item, RawTransaction, SyncItemRun, SyncRuntimeState, Transaction)
+from api.services.persistence import persist_account_metadata
 from api.services.derivation import (
     NormalizationInputError, _classification_inputs, _normalized_differs, build_classifications,
     classify_active_transactions, normalized_raw_values, validate_consumer_activation,
@@ -314,3 +315,35 @@ async def change_onboarding_status(db, user_id, item_id, kind):
     if await ledger_snapshot(db, user_id) != before:
         raise RuntimeError("An unpublished status change altered the ledger")
     return {"item_id": item_id, "status": target}
+
+
+def _financial_ledger(snapshot):
+    """The ledger without display names, which account maintenance may change."""
+    return {"months": snapshot["months"], "transactions": {
+        ident: {key: value for key, value in row.items() if key != "account_name"}
+        for ident, row in snapshot["transactions"].items()}}
+
+
+async def repair_account_metadata(db, user_id, item_id, accounts):
+    """Refresh display metadata for an Active Item's known accounts under the derivation lock."""
+    item = await _locked_item(db, user_id, item_id)
+    if item.status != "active":
+        raise HTTPException(409, f"Account metadata maintenance is only for Active Items; this Item is {item.status}")
+    known = set((await db.execute(select(Account.account_id).where(Account.item_id == item_id))).scalars())
+    returned = {account.get("account_id") for account in accounts}
+    if returned != known:
+        raise HTTPException(409, {"message": "The account set changed; that needs a reviewed repair, not maintenance",
+                                  "added": len(returned - known), "missing": len(known - returned)})
+    cursor = item.transactions_cursor
+    before = _financial_ledger(await ledger_snapshot(db, user_id))
+    result = await persist_account_metadata(db, user_id, item_id, accounts, statuses=("active",))
+    if result["type_drift"]:
+        # Raising rolls back the caller's transaction, so nothing is written.
+        raise HTTPException(409, {"message": "Account type drift needs review; nothing was changed",
+                                  "type_drift": result["type_drift"]})
+    await db.execute(update(Item).where(Item.item_id == item_id)
+                     .values(metadata_warning=None, metadata_warning_at=None))
+    refreshed = await db.scalar(select(Item.transactions_cursor).where(Item.item_id == item_id))
+    if refreshed != cursor or _financial_ledger(await ledger_snapshot(db, user_id)) != before:
+        raise RuntimeError("Account metadata maintenance changed financial state")
+    return {"item_id": item_id, "account_count": result["account_count"], "accounts": result["accounts"]}

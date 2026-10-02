@@ -69,14 +69,18 @@ class JobsDatabaseTests(unittest.IsolatedAsyncioTestCase):
              patch.object(plaid_routes, 'get_client', return_value=Mock(
                  accounts_get=Mock(side_effect=plaid_error('INSTITUTION_DOWN')))):
             with self.assertRaises(HTTPException):
-                await plaid_routes.get_accounts('a')
+                await plaid_routes.repair_account_metadata('a')
             failed = await status_for_user('synthetic-user', session_factory=self.sessions, now=self.clock)
             self.assertEqual(failed['institutions'][0]['metadata_warning'], 'metadata_refresh_failed')
             self.assertEqual(failed['institutions'][0]['last_success_at'], self.clock.isoformat())
             self.assertIsNone(failed['last_published_run_id'])
-            await plaid_routes.persist_account_metadata('a', [{
-                'account_id': 'account-a', 'name': 'Synthetic', 'type': 'credit', 'subtype': 'credit card',
-            }])
+        with patch.object(plaid_routes, 'SessionLocal', self.sessions), \
+             patch.object(plaid_routes, '_user_id', return_value='synthetic-user'), \
+             patch.dict(os.environ, {'PLAID_PILOT_USER_ID': 'synthetic-user'}), \
+             patch.object(plaid_routes, 'get_client', return_value=Mock(accounts_get=Mock(return_value=Mock(
+                 to_dict=Mock(return_value={'accounts': [{'account_id': 'account-a', 'name': 'Synthetic',
+                                                          'type': 'credit', 'subtype': None}]}))))):
+            await plaid_routes.repair_account_metadata('a')
             recovered = await status_for_user('synthetic-user', session_factory=self.sessions, now=self.clock)
             self.assertIsNone(recovered['institutions'][0]['metadata_warning'])
             self.assertEqual(recovered['institutions'][0]['last_success_at'], self.clock.isoformat())

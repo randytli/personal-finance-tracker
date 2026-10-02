@@ -186,7 +186,15 @@ class CategoryTests(unittest.TestCase):
 class CategoryDatabaseTests(unittest.IsolatedAsyncioTestCase):
     async def test_migration_api_normalization_and_reclassification(self):
         from api.db import engine, init_db, SessionLocal
-        from api.routes.plaid import normalize_transactions, classify_transactions
+        from api.routes.plaid import classify_transactions
+        from api.models import ATOMIC_SYNC_STATUSES
+        from api.services.derivation import normalize_item_transactions
+
+        async def normalize_transactions(item_id):
+            # The Item is Active: normalization runs as the atomic sync's step.
+            async with SessionLocal.begin() as db:
+                return await normalize_item_transactions(db, 'local-sandbox-user', item_id,
+                                                         statuses=ATOMIC_SYNC_STATUSES)
         # Explicit guard: this integration test must never target Production.
         self.assertEqual(engine.url.port, 55439)
         self.assertNotEqual(os.environ.get('PLAID_ENV'), 'production')
