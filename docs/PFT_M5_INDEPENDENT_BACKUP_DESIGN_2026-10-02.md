@@ -276,14 +276,24 @@ These are the approved real run (§7).
 2. **Approvals still needed:**
    1. ~~create the dedicated private backup repository~~ **done by the owner 2026-10-02: `randytli/pft-backups`** (private, initial README; anonymous API 404 [M]). Installing the template (stage → review → commit → push) still needs approval; install order in `deploy/backup_runner/README.md`;
    2. the owner generates the two key pairs offline and commits only the public keys;
-   3. create the read-only `pft_backup` role on the **synthetic** M5 project and store its password as the only repository secret;
+   3. ~~create the read-only `pft_backup` role on the synthetic M5 project~~ **done 2026-10-02** (migration `m5_backup_role`) [M]:
+      - LOGIN with **no password yet**; no superuser/createdb/createrole/replication/bypass-RLS; no role membership;
+      - connection limit 2; `default_transaction_read_only=on`, `statement_timeout=15min`;
+      - SELECT on exactly the 31 tables of `pft_m5_bench_2610`, `pft_m5_bench_35600`, `pft_m5_probe`, with no other table privileges;
+      - no `auth` usage, no CREATE; TEMP through PUBLIC (known gap R16);
+      - security advisor: no lints.
+
+      Setting its password and the single repository secret waits for the keys.
    4. run the workflow manually against the synthetic project, then download on a different machine, restore to PostgreSQL 17 using the runbook, and compare fingerprints.
 3. During that run, verify:
-   - `PROVIDER_SCHEMAS`;
+   - ~~`PROVIDER_SCHEMAS`~~: checked 2026-10-02 against the synthetic project's real schema list [M];
    - `--snapshot` through the session pooler;
    - GitHub's asset `digest` field;
    - whether scheduled-run failures notify the owner (GitHub's notification behaviour for scheduled workflows is 未核实).
-4. M6:
+4. **Production role and RLS (found 2026-10-02).** With the RLS backstop of the Auth design, `pg_dump` (default `row_security=off`) errors for a role without BYPASSRLS. That is fail-closed, not silently partial. So the Production `pft_backup` role needs **BYPASSRLS**.
+   - Do **not** use `--enable-row-security`: dump and fingerprint would both see only policy-visible rows and agree on an incomplete backup.
+   - On the synthetic project, `postgres` has CREATEROLE and BYPASSRLS [M]. Under PostgreSQL 16+ rules it should therefore be able to create a BYPASSRLS role [E]. Test this in M7.
+5. M6:
    - a `backup_runs` outcome row written by the backup role, for honest status and the 25-hour overdue warning;
    - failure tests from plan §16 "Tests": temp space, expired credentials, quota denial, paused DB, pruning failure.
 

@@ -41,6 +41,7 @@ jobs:
       PGPORT: ${{ vars.PFT_BACKUP_PGPORT }}         # 5432 (session mode)
       PGUSER: ${{ vars.PFT_BACKUP_PGUSER }}         # read-only pft_backup role
       PGDATABASE: ${{ vars.PFT_BACKUP_PGDATABASE }} # also the expected database name
+      PFT_BACKUP_SCHEMAS: ${{ vars.PFT_BACKUP_SCHEMAS }}
       PGSSLMODE: verify-full
       PGCONNECT_TIMEOUT: "20"
     steps:
@@ -70,13 +71,19 @@ jobs:
         run: |
           set -euo pipefail
           sha256sum -c runner/SHA256SUMS
-          # Add "--schema pft_ops" once that schema exists (M6). The runner fails
-          # closed while any non-provider schema is unselected.
+          # Schemas to back up, space separated (repository variable
+          # PFT_BACKUP_SCHEMAS). Synthetic M5 project:
+          # "pft_m5_bench_2610 pft_m5_bench_35600 pft_m5_probe public".
+          # The runner fails closed while any non-provider schema is unselected.
+          schema_args=()
+          for schema in ${PFT_BACKUP_SCHEMAS:?set the PFT_BACKUP_SCHEMAS variable}; do
+            schema_args+=(--schema "$schema")
+          done
           python3 runner/pft_backup_runner.py \
             --store "github:${GITHUB_REPOSITORY}" \
             --recipients config/recipients.txt \
             --expected-database "$PGDATABASE" \
-            --schema public \
+            "${schema_args[@]}" \
             --work-dir "$RUNNER_TEMP" \
             --pg-wrapper "docker run --rm -i --network host --user $(id -u):$(id -g) \
               -v $RUNNER_TEMP:$RUNNER_TEMP -v $GITHUB_WORKSPACE/config:$GITHUB_WORKSPACE/config:ro \

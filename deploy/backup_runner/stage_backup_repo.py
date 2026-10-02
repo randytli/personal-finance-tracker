@@ -8,19 +8,25 @@ target directory, normally a fresh local clone of the backup repository:
     RESTORE.md
     config/recipients.txt.example
 
+    config/supabase-ca.crt   (only after its certificate fingerprint matches CA_SHA256)
+
 It then verifies ``runner/SHA256SUMS`` and writes ``STAGED_FROM.txt`` naming
 the PFT commit. It never creates ``config/recipients.txt`` (the owner adds the
-two real public keys) or ``config/supabase-ca.crt``, and never runs git:
-committing and pushing stay manual and approved. Standard library only.
+two real public keys) and never runs git: committing and pushing stay manual
+and approved. Standard library only.
 """
 import argparse
 import hashlib
+import ssl
 from pathlib import Path
 import shutil
 import subprocess
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
+# Supabase Root 2021 CA (public certificate, expires 2031-04-26). SHA-256 of
+# the DER certificate, as recorded in docs/PFT_M5_CLOUD_RUN_2026-10-01.md.
+CA_SHA256 = "807025ad50d4ed219d2c9c7d299c004f824eb00cf7f65afef607d07b72e6cafa"
 RUNNER_FILES = ("pft_backup_runner.py", "release_store.py", "snapshot_dump.sql", "fingerprint.sql",
                 "SHA256SUMS")
 EXAMPLE_RECIPIENTS = """\
@@ -47,6 +53,10 @@ def stage(target, *, commit):
     plan = {target / ".github" / "workflows" / "pft-backup.yml": HERE / "pft-backup.yml",
             target / "RESTORE.md": ROOT / "docs" / "PFT_BACKUP_RESTORE_RUNBOOK.md"}
     plan.update({target / "runner" / name: HERE / name for name in RUNNER_FILES})
+    plan[target / "config" / "supabase-ca.crt"] = HERE / "supabase-ca.crt"
+    pem = (HERE / "supabase-ca.crt").read_text()
+    if "PRIVATE KEY" in pem or hashlib.sha256(ssl.PEM_cert_to_DER_cert(pem)).hexdigest() != CA_SHA256:
+        raise StageError("supabase-ca.crt does not match the pinned certificate fingerprint")
     existing = [str(path.relative_to(target)) for path in plan if path.exists()]
     if existing:
         raise StageError("refusing to overwrite: " + ", ".join(sorted(existing)))
@@ -64,8 +74,7 @@ def stage(target, *, commit):
     (target / "STAGED_FROM.txt").write_text(
         f"Staged from personal-finance-tracker commit {commit} by deploy/backup_runner/stage_backup_repo.py.\n"
         "Update only by re-staging from a reviewed commit.\n")
-    missing = [name for name in ("config/recipients.txt", "config/supabase-ca.crt")
-               if not (target / name).exists()]
+    missing = [name for name in ("config/recipients.txt",) if not (target / name).exists()]
     return {"staged": sorted(str(p.relative_to(target)) for p in plan) + ["config/recipients.txt.example",
                                                                          "STAGED_FROM.txt"],
             "still_required_before_first_run": missing}

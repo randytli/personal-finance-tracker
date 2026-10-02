@@ -147,7 +147,7 @@ Verification rules, applied in one shared dependency on every financial route:
 | `pft_reader` | Vercel FastAPI, read-only mode | SELECT on app tables; **column grant on `items` excluding `access_token`** (plan §15.1); `default_transaction_read_only=on`; connection limit | Any write, TEMP, Plaid key |
 | `pft_writer` | FastAPI read/write mode (M8d) | Reader grants, plus INSERT/UPDATE/DELETE on manual override/label/benefit tables and `sync_runtime_state` request fields (via a narrow function if needed) | Raw/normalized transaction writes, `access_token`, DDL |
 | `pft_jobs` | Vercel jobs (one-shot tick) | Read/write on the financial tables that `sync_all` and `tick` touch, including `items.access_token`; INSERT/DELETE on `pft_ops.trigger_nonces`; advisory-lock functions | DDL, Auth schema |
-| `pft_backup` | Backup runner | SELECT on all app tables including token ciphertext (the backup must be complete); INSERT on a `backup_runs` table; read-only default | Writes to financial tables, Plaid or Fernet key |
+| `pft_backup` | Backup runner | SELECT on all app tables including token ciphertext (the backup must be complete); **BYPASSRLS**, because pg_dump refuses RLS-protected tables otherwise and `--enable-row-security` could hide rows (backup design §7); INSERT on a `backup_runs` table; read-only default | Writes to financial tables, Plaid or Fernet key |
 | `anon`, `authenticated` | Supabase Auth / Data API | Nothing on app schemas | — |
 | `service_role` key | — | Not stored in any PFT project | — |
 

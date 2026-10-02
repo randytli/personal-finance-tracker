@@ -123,6 +123,28 @@
 - **备份仓库**：`randytli/pft-backups`，由你在 2026-10-02 创建，private，已有初始 README。匿名访问 API 返回 404，而该用户本身存在，说明仓库确实不公开（实测）。`deploy/backup_runner/stage_backup_repo.py` 会把应放进该仓库的文件按目录排好，并校验 `SHA256SUMS`，但它不会运行 git，也不会 push。安装顺序见 `deploy/backup_runner/README.md`：密钥 → 备份角色、variables 和 secret → CA 证书 → 暂存、审阅、push → 手动触发首次运行并在另一台机器上恢复 → 恢复成功后再启用每日定时。所有密钥都在测试中临时生成，用完删除。
 - **本地没测到的部分**：真实的 docker 运行 PG17 镜像（测试里用 `env` 代替这层包装）、真实的 GitHub API（测试用本地假 API）、到 Supabase 的 verify-full TLS、`--snapshot` 能否穿过 Supavisor。这些都要等你批准的真实运行来验证。
 
+### 7. 已执行的批准（2026-10-02 白天）
+
+owner 说明“密钥稍后再做，其余批准”。据此执行了以下操作，只涉及 M5 合成项目和本地文件：
+- **Supabase（只在合成项目 `acyghoemtdrilsdszolq` 上）**：
+  - 先只读确认项目身份：`pft-m5-synthetic-20261001`，PG 17.11，ACTIVE_HEALTHY。
+  - **核实了 `PROVIDER_SCHEMAS`**：项目中实际存在的服务商 schema 都在列表里；非服务商 schema 只有 3 个 `pft_m5_*`，另有一个空的 `public`。
+  - 通过 migration `m5_backup_role` 创建了只读角色 `pft_backup`：
+    - **暂时不设密码**（不能登录认证），等密钥就绪后再设，避免过早生成凭据；
+    - 只有 31 张表的 SELECT，没有任何其他表权限；`default_transaction_read_only=on`；连接上限 2；
+    - 看不到 `auth`，不能 CREATE；
+    - security advisor 没有任何告警。
+  - 只读确认 `postgres` 角色具备 CREATEROLE 和 BYPASSRLS（见下面的新发现）。
+- **CA 证书**：已核对指纹 `807025AD…CAFA`（Supabase Root 2021 CA，2031-04-26 到期，文件中没有私钥），复制为 `deploy/backup_runner/supabase-ca.crt`。staging 脚本会再校验一次指纹，不一致就什么都不复制。
+- **workflow**：要备份的 schema 改由仓库变量 `PFT_BACKUP_SCHEMAS` 指定（合成项目上是 `pft_m5_bench_2610 pft_m5_bench_35600 pft_m5_probe public`）。
+- **P2-1 到 P2-3、P3-1 到 P3-4**：按我的建议记为已批准。P4-1 和 P4-2 不在那次的清单里，仍然待定。
+- **新发现**：生产环境按 Auth 设计会给所有表启用 RLS 兜底，`pg_dump` 遇到受 RLS 保护的表会直接报错（这是 fail-closed，不会静默备份不全），所以生产环境的 `pft_backup` 需要 BYPASSRLS。不能用 `--enable-row-security`，否则 dump 和指纹会在同一份“不完整”的数据上互相印证。已写入备份设计 §7 和 Auth 设计 §7。
+- **没有做的**：
+  - 没有 push 到 `randytli/pft-backups`：`gh` 没有登录，而且按安装顺序，密钥和 recipients 就绪之前推送 workflow，会导致每天定时失败；
+  - 没有设置密码或 secret；
+  - 没有运行 workflow；
+  - 没有合并或 push 本分支，因为“是否合并或 push”是一个问题而不是批准，需要你明确说一声。
+
 ## 待决（需要 owner 拍板或批准）
 
 ### 任务 1：备份
@@ -147,22 +169,22 @@
 
 ### 任务 2：Cron
 
-- **P2-1 节拍**。建议：先用 5 分钟（每月 8,640 次，计划给的起点）。1 分钟（每月 43,200 次）能恢复今天 ≤60 s 的手动延迟，但 CPU 和连接成本未测，等云端实测后再决定。
-- **P2-2 接受“可能被暂停”**。官方给出的防止办法是付费升级，计划又禁止保活流量。建议接受：真实的同步流量本身大概率能维持活跃（推测）。一旦暂停，靠官方的警告邮件和 PFT 的过期告警发现，然后手动恢复。
-- **P2-3 pg_net 怎样穿过 Vercel 部署保护**。可选：(a) 部署到不受保护的 production 目标，只靠 HMAC 保护；(b) 使用 automation bypass 头，多一个存在 Vault 里的秘密。建议 (a) 加 HMAC，因为 bypass 头只是静态秘密，比 HMAC 弱。这需要你确认 production 目标不暴露任何其他路由。
+- **P2-1 节拍 — 已批准（2026-10-02，按建议）**。建议：先用 5 分钟（每月 8,640 次，计划给的起点）。1 分钟（每月 43,200 次）能恢复今天 ≤60 s 的手动延迟，但 CPU 和连接成本未测，等云端实测后再决定。
+- **P2-2 接受“可能被暂停” — 已批准（2026-10-02，按建议）**。官方给出的防止办法是付费升级，计划又禁止保活流量。建议接受：真实的同步流量本身大概率能维持活跃（推测）。一旦暂停，靠官方的警告邮件和 PFT 的过期告警发现，然后手动恢复。
+- **P2-3 pg_net 怎样穿过 Vercel 部署保护 — 已批准（2026-10-02，按建议选 (a)：production 目标 + HMAC，前提是在部署前确认 production 目标不暴露其他路由）**。可选：(a) 部署到不受保护的 production 目标，只靠 HMAC 保护；(b) 使用 automation bypass 头，多一个存在 Vault 里的秘密。建议 (a) 加 HMAC，因为 bypass 头只是静态秘密，比 HMAC 弱。这需要你确认 production 目标不暴露任何其他路由。
 - **需要批准的操作**：在 M5 合成项目上启用 pg_cron、pg_net 和 Vault，部署带校验的 jobs preview，跑一次真实的节拍、重复投递和超时测试（见设计 §5）。
 
 ### 任务 3：Auth
 
-- **P3-1 会话模型**。建议：Supabase SDK cookie 加 Next.js 服务器代理，而不是完整的 BFF。理由：
+- **P3-1 会话模型 — 已批准（2026-10-02，按建议）**。建议：Supabase SDK cookie 加 Next.js 服务器代理，而不是完整的 BFF。理由：
   - 完整 BFF 只能防 XSS 偷 token，防不了 XSS 冒用当前会话；
   - 它还要额外实现会话表、加密密钥、CSRF、刷新串行化，对单用户来说是更多的安全关键代码；
   - 计划允许在明确接受这一取舍后使用这个模型。
 
   配套措施：严格 CSP、MFA、短 JWT 有效期。
-- **P3-2 Python JWT 库**。建议 PyJWT（它会用到已经固定版本的 `cryptography`），版本在 M6 固定。这会新增一个依赖。
-- **P3-3 账号恢复**。建议走完全不经邮件的路径：先登录 Supabase 控制台（控制台账号必须开 MFA），再在可信机器上用 secret/service_role key 调用 `auth.admin.updateUserById` 重设密码。官方文档有这个设置 password 的示例，并要求只在服务器端调用（已核实，2026-10-02）。默认 SMTP 只能发给团队成员，每小时 2 封，而且是尽力投递，不宜作为主路径。通过 admin API 删除丢失的 TOTP 因子，未核实。
-- **P3-4 aal2 范围**。建议所有金融路由都要求 aal2。
+- **P3-2 Python JWT 库 — 已批准（2026-10-02，按建议）**。建议 PyJWT（它会用到已经固定版本的 `cryptography`），版本在 M6 固定。这会新增一个依赖。
+- **P3-3 账号恢复 — 已批准（2026-10-02，按建议）**。建议走完全不经邮件的路径：先登录 Supabase 控制台（控制台账号必须开 MFA），再在可信机器上用 secret/service_role key 调用 `auth.admin.updateUserById` 重设密码。官方文档有这个设置 password 的示例，并要求只在服务器端调用（已核实，2026-10-02）。默认 SMTP 只能发给团队成员，每小时 2 封，而且是尽力投递，不宜作为主路径。通过 admin API 删除丢失的 TOTP 因子，未核实。
+- **P3-4 aal2 范围 — 已批准（2026-10-02，按建议）**。建议所有金融路由都要求 aal2。
 - **需要批准的操作（仅限合成项目）**：建 owner 用户并关闭注册、启用 TOTP、迁移到非对称签名密钥、关闭 Data API、建上述角色，然后跑反向测试矩阵。
 
 ### 任务 4：切换

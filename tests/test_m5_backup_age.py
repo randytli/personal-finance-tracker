@@ -101,8 +101,9 @@ class RunnerBundleTests(unittest.TestCase):
         (target / "README.md").write_text("initial commit")
         result = stage_backup_repo.stage(target, commit="abc123")
         self.assertIn(".github/workflows/pft-backup.yml", result["staged"])
-        self.assertEqual(result["still_required_before_first_run"],
-                         ["config/recipients.txt", "config/supabase-ca.crt"])
+        self.assertEqual(result["still_required_before_first_run"], ["config/recipients.txt"])
+        self.assertEqual((target / "config" / "supabase-ca.crt").read_bytes(),
+                         (runner.HERE / "supabase-ca.crt").read_bytes())
         self.assertEqual((target / "README.md").read_text(), "initial commit")
         self.assertEqual((target / "RESTORE.md").read_text(),
                          (runner.HERE.parents[1] / "docs" / "PFT_BACKUP_RESTORE_RUNBOOK.md").read_text())
@@ -113,6 +114,12 @@ class RunnerBundleTests(unittest.TestCase):
             runner.read_recipients(target / "config" / "recipients.txt.example")
         with self.assertRaisesRegex(stage_backup_repo.StageError, "refusing to overwrite"):
             stage_backup_repo.stage(target, commit="abc123")
+        other = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, other)
+        with patch.object(stage_backup_repo, "CA_SHA256", "0" * 64), \
+             self.assertRaisesRegex(stage_backup_repo.StageError, "fingerprint"):
+            stage_backup_repo.stage(other, commit="abc123")
+        self.assertEqual(list(other.iterdir()), [])  # nothing staged on a bad certificate
 
     def test_workflow_pins_and_never_lives_in_github_workflows(self):
         text = (runner.HERE / "pft-backup.yml").read_text()

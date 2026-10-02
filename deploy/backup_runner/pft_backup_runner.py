@@ -39,8 +39,11 @@ ASSETS = ("backup.dump", "manifest.json", "fingerprint.txt")
 X25519_RECIPIENT = re.compile(r"age1[02-9ac-hj-np-z]{58}")
 SCHEMA = re.compile(r"[a-z_][a-z0-9_]{0,62}")
 SYSTEM_SCHEMAS = {"pg_catalog", "information_schema", "pg_toast"}
-# Supabase-managed schemas: never dumped or restored over (plan §15.1). This list
-# is NOT yet verified against a real project; unknown schemas fail closed.
+# Supabase-managed schemas: never dumped or restored over (plan §15.1). Checked
+# against the synthetic M5 project (PG 17.11) on 2026-10-02: auth, extensions,
+# graphql, graphql_public, pgbouncer, realtime, storage, supabase_migrations and
+# vault were present. The rest appear only when features are enabled (cron, net).
+# Unknown schemas still fail closed.
 PROVIDER_SCHEMAS = {"auth", "storage", "extensions", "graphql", "graphql_public", "realtime",
                     "_realtime", "supabase_functions", "supabase_migrations", "vault", "pgsodium",
                     "pgsodium_masks", "net", "cron", "pgbouncer", "_analytics"}
