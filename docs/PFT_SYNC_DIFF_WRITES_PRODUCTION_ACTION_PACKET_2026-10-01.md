@@ -1,11 +1,11 @@
 # Sync diff-writes — local Production action packet — 2026-10-01
 
-**Status: PREPARED, NOT EXECUTED.** Only the read-only Appendix A1/A2 queries have been run. Every step marked as changing state requires the owner's explicit approval at execution time. Each phase's controlled sync makes a real Production Plaid call and Production financial writes; each needs its own approval.
+**Status: IN PROGRESS.** Read-only work done so far: Appendix A1/A2 (2026-10-01) and Phase 1 step 0 (2026-10-02). No [STATE] command has run. Every step marked as changing state requires the owner's explicit approval at execution time. Each phase's controlled sync makes a real Production Plaid call and Production financial writes; each needs its own approval.
 
-Scope: deploy the [sync round-trip amplification fix](PFT_M5_SYNC_ROUND_TRIP_FIX_2026-10-01.md) (`a5f2dfd`, `b646fb9`) to the local Production runtime, Compose project `pft-runtime`, in **two phases**. Only `api` and `jobs` are recreated. `db` and `web` are not touched. There is no schema change and no migration.
+Scope: deploy the [sync round-trip amplification fix](PFT_M5_SYNC_ROUND_TRIP_FIX_2026-10-01.md) (`a5f2dfd`, `b646fb9`) to the local Production runtime, Compose project `pft-runtime`, in **two phases**. Phase 1 recreates only `jobs`; Phase 2 recreates only `api` and `jobs`. `db` and `web` are not touched. There is no schema change and no migration.
 
-- **Phase 1 — align.** Rebuild `api` and `jobs` from `a047b0f4b32c2db23203fbab9b25cd5fe7678400`, the `main` commit before A/B. This only aligns the running images with repository code. It goes ahead only after the owner reviews a per-file, function-grouped difference between the running containers and that commit.
-- **Phase 2 — fix.** Only after Phase 1 verifies: merge A/B into `main` and deploy them with the same procedure.
+- **Phase 1 — align jobs (owner-selected option 1, 2026-10-02).** Align the running images with `a047b0f4b32c2db23203fbab9b25cd5fe7678400`, the `main` commit before A/B. Step 0 found the API image already byte-identical to it, and the jobs image differing only in `api/labels.py`. So `api` is neither rebuilt nor recreated. `jobs` gets a **single-file overlay** on its running image (`FROM` the image ID, `COPY` that commit's `api/labels.py`), the same method as the card-fee release. Base image, Python and dependency versions stay unchanged.
+- **Phase 2 — fix.** Only after Phase 1 verifies: merge A/B into `main` and deploy them with the same procedure. How Phase 2 builds its images is decided separately before Phase 2 starts. Recommended: the same single-file overlay of `api/services/derivation.py` on the then-running api and jobs images. A full `compose build` would pull an uncached `python:3.12-slim` base and could change unpinned transitive dependencies.
 
 Authority: AGENTS.md, pft-safe-development, and existing Production practice in the [M1 action packet](PFT_PHASE_2_M1_PRODUCTION_ACTION_PACKET_2026-09-24.md), [M2 runtime](PFT_PHASE_2_M2_RUNTIME_2026-09-29.md), [M3 runtime/recovery](PFT_M3_RUNTIME.md), [M6 cutover](PFT_M6_CUTOVER_STAGE1_2026-09-23.md) and [card-fee release](PFT_CARD_FEE_MEMBERSHIP_DEPLOYMENT_2026-09-30.md).
 
@@ -30,7 +30,13 @@ Conclusion: with real payloads, current egress is about **150 MB per month** at 
 
 ## Known issues
 
-- **api and jobs may run different derivation logic.** The running API image was produced by the card-fee release, which layered one file on an older API image. The jobs image may have been built from a different, older commit. Normalization and classification code (`api/services/derivation.py`, `api/classification_rules.py`, `api/statement_semantics.py`, labels/categories modules) can therefore differ between the two. Activation and the legacy normalize/classify routes run in `api`; scheduled syncs run in `jobs`. Phase 1 exists to remove this divergence before the fix is measured.
+- **api and jobs may run different derivation logic — checked 2026-10-02, divergence limited to an unused path.** The running API image was produced by the card-fee release, which layered one file on an older image, and the jobs image came from the M3 dining release. Phase 1 step 0 compared all 34 `.py` files in each container with `a047b0f` [M]:
+  - api is identical;
+  - jobs differs only in `api/labels.py`, the pre-card-fee Membership description list (`1c2bcd9`). In jobs, that file is used only for `LABEL_CHECK`, which is identical in both versions. Membership label evaluation runs only in the API's analytics and review routes.
+  - Derivation and classification code is therefore identical in both containers.
+  - Installed packages (24) are identical in both containers and match `api/requirements.txt`.
+  - Runtime versions: api Python 3.12.14; jobs Python 3.13.5 with `pg_dump` 16.15, matching the DB server.
+- **`:latest` tags are stale; containers run pinned images.** Each Production container was created with release-packet override files that pin image IDs: the card-fee `current-images.yml`/`api-new.yml` for api, and the M3 dining `forward-images.yml` for jobs, plus the M4 `web-new.yml` for web. `pft-runtime-jobs:latest` (2026-09-23) and `pft-runtime-api:latest` (2026-09-29) are **not** the running images. Every `compose` command here therefore includes a pin file (`current-images.yml`) reproducing the running image IDs. A changed service gets an additional `*-new.yml`, and each change has a matching `*-rollback.yml`. `pull_policy: never` is set throughout.
 - **Interrupted syncs.** Stopping jobs during a sync leaves a `running` run row until the next sync owner reconciles it (see the [M5 latency record](PFT_M5_REAL_CLOUD_LATENCY_2026-10-01.md)). Stop jobs only when no sync or backup is running.
 
 ## Why jobs is stopped in each phase
@@ -56,8 +62,14 @@ export ALIGN_SHA=a047b0f4b32c2db23203fbab9b25cd5fe7678400
 export STAMP=$(date -u +%Y%m%dT%H%M%SZ)
 export P=/tmp/pft-sync-diff-writes-release-$STAMP       # private evidence; never commit
 (umask 077; mkdir "$P" "$P/phase1" "$P/phase2")
-compose() { docker compose -f compose.runtime.yml -f docker-compose.production.yml -p pft-runtime "$@"; }
+export PFT_APP_COMMIT=pinned-by-override   # interpolation only; each jobs pin file sets the real value
+# PH is the phase directory ($P/phase1 or $P/phase2). Its current-images.yml pins every service to the
+# image ID that is running when the phase starts (generated from docker inspect, then reviewed).
+compose() { env -u PFT_ALLOWED_HOSTS -u PFT_ALLOWED_ORIGINS docker compose -p pft-runtime \
+  -f compose.runtime.yml -f docker-compose.production.yml -f "$PH/current-images.yml" "$@"; }
 ```
+
+Before any [STATE] step, confirm read-only that `compose config --images` resolves exactly the four running image IDs. Like the card-fee release, `env -u` keeps stale shell values for the HTTP allowlists from overriding the private env file.
 
 Everything in `$P` (fingerprints, row hashes, transaction IDs, source diffs) is private. Keep it at mode 0600/0700, never commit it, and delete it after the retention decision.
 
@@ -101,7 +113,7 @@ Re-check `/sync/status`: jobs `stopped`, no `running` run.
 ### Step 2 — Backup and restorability
 
 1. **[STATE: writes one new backup file and manifest to the protected Windows Production backup directory]**
-   Jobs is stopped, so use a one-off container with a command override. This is the M6 cutover pattern, and it does not start the scheduler. `compose run` uses the `pft-runtime-jobs:latest` tag, so first confirm that `docker image inspect -f '{{.Id}}' pft-runtime-jobs:latest` equals the stopped container's `{{.Image}}`. If it does not, take this backup with `compose exec -T jobs python -m api.backup create --kind extra` **before** step 1 instead, and expect `sync_runtime_state` (heartbeat) to differ in the restore comparison.
+   Jobs is stopped, so use a one-off container with a command override. This is the M6 cutover pattern, and it does not start the scheduler. Because `compose()` includes `current-images.yml`, the one-off container uses the pinned running jobs image, not the stale `:latest`.
    `compose run --rm --no-deps -T jobs python -m api.backup create --kind extra | tee $P/<PH>/backup.json`
    The command validates the archive listing and publishes a SHA-256 manifest with schema fingerprint and application commit. `extra` has its own retention group (effectively unlimited) and does not prune daily/weekly/monthly checkpoints.
 2. **[READ-ONLY]** Verify the manifest SHA-256 against the dump, and `/usr/lib/postgresql/16/bin/pg_restore -l <dump> > /dev/null`.
@@ -137,6 +149,19 @@ Re-check `/sync/status`: jobs `stopped`, no `running` run.
 
 ### Step 4 — Preserve and build
 
+**Phase 1 (jobs-only overlay):**
+
+1. **[STATE: new image tag only]** `docker image tag "$(docker inspect -f '{{.Image}}' pft-runtime-jobs-1)" pft-runtime-jobs:sdw-p1-pre-$STAMP`. Stop if the tag exists. Api is untouched in Phase 1, so it needs no tag.
+2. **[STATE: builds one new image; containers untouched]** The build context `$PH/overlay/` contains only `Dockerfile` (`FROM <running jobs image ID>` / `COPY labels.py /app/api/labels.py`) and `labels.py` taken from `git show $ALIGN_SHA:api/labels.py`:
+   `docker build --pull=false -t pft-runtime-jobs:sdw-p1-align-$STAMP $PH/overlay`
+   Write the new image ID into `$PH/jobs-new.yml`, from the template, with `PFT_APP_COMMIT: sdw-p1-a047b0f-labels-over-<old image ID>`. `$PH/jobs-rollback.yml` pins the old image and its original `PFT_APP_COMMIT`.
+3. **[READ-ONLY]** For the new image:
+   - all 34 `.py` files equal `$ALIGN_SHA` (Appendix C via `docker run --rm --entrypoint sh <image> -c '...'`);
+   - `pip freeze`, Python and `pg_dump` versions are identical to the running jobs image;
+   - `/app/api/labels.py` is `root:root 0644`, like the original.
+
+**Phase 2 (method decided before Phase 2; if full build):**
+
 1. **[STATE: new image tags only]** Tag the exact running images. These are the containers' image IDs, not `:latest`; the API currently runs the card-fee release image. Stop if the tag already exists.
 
    ```bash
@@ -146,21 +171,27 @@ Re-check `/sync/status`: jobs `stopped`, no `running` run.
    ```
 
    The jobs container is stopped but still exists, so its image ID is still available.
-2. **[STATE: builds new `pft-runtime-api:latest` and `pft-runtime-jobs:latest` images; containers untouched]** `compose build api jobs`.
+2. **[STATE: builds new `pft-runtime-api:latest` and `pft-runtime-jobs:latest` images; containers untouched]** Build **without** the pin file, because a pinned `image: sha256:…` cannot be a build tag: `env -u PFT_ALLOWED_HOSTS -u PFT_ALLOWED_ORIGINS docker compose -p pft-runtime -f compose.runtime.yml -f docker-compose.production.yml build api jobs`. Record the new image IDs in `$PH/api-new.yml` and `$PH/jobs-new.yml`, and the running ones in the matching `*-rollback.yml`.
 3. **[READ-ONLY]** Verify that both new images' `/app` sources equal `<SHA>` byte for byte. Use Appendix C with `docker run --rm --entrypoint sh <image> -c '...'`.
 
 ### Step 5 — Recreate api; recreate jobs without starting it
 
-**[STATE: recreates `pft-runtime-api-1` (short API interruption); replaces `pft-runtime-jobs-1` with a new, stopped container]**
+**Phase 1 [STATE: replaces `pft-runtime-jobs-1` with a new, stopped container from the overlay image; api untouched]:**
 
 ```bash
-compose up -d --no-deps --no-build --force-recreate --wait --wait-timeout 120 api
-compose up --no-deps --no-build --force-recreate --no-start jobs
+compose -f "$PH/jobs-new.yml" up --no-deps --no-build --pull never --force-recreate --no-start jobs
+```
+
+**Phase 2 [STATE: recreates `pft-runtime-api-1` (short API interruption); replaces `pft-runtime-jobs-1` with a new, stopped container]**. The new images are pinned with `$PH/api-new.yml` and `$PH/jobs-new.yml`:
+
+```bash
+compose -f "$PH/api-new.yml" up -d --no-deps --no-build --pull never --force-recreate --wait --wait-timeout 120 api
+compose -f "$PH/api-new.yml" -f "$PH/jobs-new.yml" up --no-deps --no-build --pull never --force-recreate --no-start jobs
 ```
 
 Do **not** use the card-fee packet's `deploy-api.sh`; its rollback target predates both phases.
 
-**[READ-ONLY]** API healthy. `curl http://127.0.0.1:3000/` and `/api/pft/sync/status` return 200, with jobs `stopped`. The API startup log shows read-only schema verification and no migration. Web and DB keep their container IDs, images, start times and restart counts; compare with `containers-before.txt`.
+**[READ-ONLY]** The new jobs container is `created` with the expected image ID. API healthy (in Phase 1, the API container ID and start time must be unchanged). `curl http://127.0.0.1:3000/` and `/api/pft/sync/status` return 200, with jobs `stopped`. The API startup log shows read-only schema verification and no migration. Web and DB keep their container IDs, images, start times and restart counts; compare with `containers-before.txt`.
 
 ### Step 6 — Controlled sync
 
@@ -216,12 +247,20 @@ compose start jobs
 
 1. **Services [STATE: recreates api, and jobs if needed, from that phase's preserved tags]**
 
+   Phase 1 (jobs only):
+
    ```bash
-   docker image tag pft-runtime-api:<TAG>  pft-runtime-api:latest
-   docker image tag pft-runtime-jobs:<TAG> pft-runtime-jobs:latest
-   PFT_APP_COMMIT=<previous commit> compose up -d --no-deps --no-build --force-recreate --wait --wait-timeout 120 api
-   PFT_APP_COMMIT=<previous commit> compose up --no-deps --no-build --force-recreate --no-start jobs
+   compose -f "$PH/jobs-rollback.yml" up --no-deps --no-build --pull never --force-recreate --no-start jobs
    ```
+
+   Phase 2 (api and jobs, back to the Phase 1 images):
+
+   ```bash
+   compose -f "$PH/api-rollback.yml" up -d --no-deps --no-build --pull never --force-recreate --wait --wait-timeout 120 api
+   compose -f "$PH/api-rollback.yml" -f "$PH/jobs-rollback.yml" up --no-deps --no-build --pull never --force-recreate --no-start jobs
+   ```
+
+   The rollback files pin the image IDs preserved by that phase's `sdw-p<N>-pre-$STAMP` tags; `:latest` is never used.
 
    Start jobs (step 8) only after verification. Phase 2 rolls back to the Phase 1 images (`sdw-p2-pre-*`). Phase 1 rolls back to the original images (`sdw-p1-pre-*`). Rolling back both phases means Phase 2's rollback first, then Phase 1's.
 2. **Code [LOCAL; Phase 2 only]** Require `git status --short` to show no modified tracked files. Then `git switch main && git reset --hard $PRE_MERGE_SHA`. Nothing was pushed, and the branch keeps the commits. A non-destructive alternative is `git revert --no-edit $PRE_MERGE_SHA..$MERGE_SHA`. Phase 1 changes no Git state.
