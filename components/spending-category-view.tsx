@@ -83,7 +83,8 @@ export default function SpendingCategoryView({ categories, metric, selectedCateg
           <CardDescription className="text-[13px]">Select a category for its transactions, or expand it for the breakdown. Credits use their own posted month and category.</CardDescription>
         </CardHeader>
         <CardContent className="p-0 pb-2">
-          <CategoryDonut categories={included} field={column.field} title={column.title} />
+          <CategoryDonut categories={included} field={column.field} title={column.title} money={money}
+            isSelected={selected} onSelect={category => onSelect(category, metric)} />
           {desktop ? <table aria-label={`${column.title} by Category`} className="w-full table-fixed text-sm">
             <thead className="text-xs text-muted-foreground"><tr>
               <th scope="col" className="w-[48%] px-4 pb-1.5 pt-2 text-left font-semibold sm:px-5">Category</th>
@@ -167,39 +168,112 @@ function ShareBar({ category, percent }: { category: string; percent: number }) 
   </span>
 }
 
-// Donut of each category's share of the positive total; credits that net below zero are listed but not drawn.
-function CategoryDonut({ categories, field, title }: {
+// Donut of each category's share of the positive total; credits at or below zero are listed but
+// not drawn, and small slices keep their true size (the list reaches them). Each segment selects
+// its category exactly like the row does.
+const TAU = Math.PI * 2
+const INNER = 60
+const OUTER = 88
+const OUTER_SELECTED = 95
+// About 2px of surface between segments at the rendered size, never more than a slice can spare.
+const GAP = 0.017
+
+function arcPoint(radius: number, angle: number) {
+  return `${(100 + radius * Math.sin(angle)).toFixed(3)} ${(100 - radius * Math.cos(angle)).toFixed(3)}`
+}
+
+function arcPath(start: number, end: number, outer: number) {
+  if (end - start >= TAU - 1e-6) {
+    return `M100 ${100 - outer}A${outer} ${outer} 0 1 1 100 ${100 + outer}A${outer} ${outer} 0 1 1 100 ${100 - outer}Z`
+      + `M100 ${100 - INNER}A${INNER} ${INNER} 0 1 0 100 ${100 + INNER}A${INNER} ${INNER} 0 1 0 100 ${100 - INNER}Z`
+  }
+  const large = end - start > Math.PI ? 1 : 0
+  return `M${arcPoint(outer, start)}A${outer} ${outer} 0 ${large} 1 ${arcPoint(outer, end)}`
+    + `L${arcPoint(INNER, end)}A${INNER} ${INNER} 0 ${large} 0 ${arcPoint(INNER, start)}Z`
+}
+
+function sharePercent(share: number) {
+  if (share > 0 && share < 0.5) return '<1%'
+  if (share < 100 && share > 99.5) return '>99%'
+  return `${Math.round(share)}%`
+}
+
+function CategoryDonut({ categories, field, title, money, isSelected, onSelect }: {
   categories: NetCategory[]; field: (typeof netColumns)[number]['field']; title: string
+  money: (value: string) => string; isSelected: (category: string) => boolean; onSelect: (category: string) => void
 }) {
-  const positive = categories.map(category => ({ category: category.category, value: Number(category[field]) }))
+  const [hovered, setHovered] = useState<string | null>(null)
+  const [focused, setFocused] = useState<string | null>(null)
+  const pointerFocus = useRef(false)
+  const positive = categories.map(category => ({ category: category.category, value: Number(category[field]), amount: category[field] }))
     .filter(entry => entry.value > 0)
-  const total = positive.reduce((sum, entry) => sum + entry.value, 0)
-  if (total <= 0) return null
-  const percent = (value: number) => value / total * 100
-  const format = (value: number) => `${percent(value) >= 99.95 || percent(value) < 0.05 ? percent(value).toFixed(0) : percent(value).toFixed(1)}%`
-  const top = positive[0]
-  let offset = 0
+  const drawnTotal = positive.reduce((sum, entry) => sum + entry.value, 0)
+  if (drawnTotal <= 0) return null
+  const totalCents = categories.reduce((sum, category) => sum + Math.round(Number(category[field]) * 100), 0)
+  const label = (category: string) => categoryMetadata(category).label
+  const share = (value: number) => sharePercent(value / drawnTotal * 100)
+
+  let start = 0
   const segments = positive.map(entry => {
-    const length = percent(entry.value)
-    const segment = { ...entry, length, offset }
-    offset += length
+    const sweep = entry.value / drawnTotal * TAU
+    const pad = positive.length > 1 ? Math.min(GAP, sweep * 0.3) : 0
+    const segment = { ...entry, start: start + pad / 2, end: start + sweep - pad / 2, middle: start + sweep / 2 }
+    start += sweep
     return segment
   })
+  const selectedEntry = categories.find(category => isSelected(category.category))
+  const anySelected = selectedEntry !== undefined
+  const tipCategory = hovered ?? focused
+  const tip = segments.find(segment => segment.category === tipCategory)
   const negativeCount = categories.length - positive.length
-  return <div className="flex items-center gap-4 px-4 pb-2 pt-1 sm:gap-5 sm:px-5">
-    <svg role="img" viewBox="0 0 42 42" className="size-28 shrink-0 -rotate-90"
-      aria-label={`Share of ${title} by category: ${positive.map(entry => `${categoryMetadata(entry.category).label} ${format(entry.value)}`).join(', ')}`}>
-      <circle cx="21" cy="21" r="15.915" fill="none" stroke="hsl(var(--muted))" strokeWidth="5" />
-      {segments.map(segment => <circle key={segment.category} cx="21" cy="21" r="15.915" fill="none" strokeWidth="5"
-        stroke={categoryColor(categoryMetadata(segment.category))}
-        strokeDasharray={`${segments.length > 1 ? Math.max(segment.length - 0.8, 0.2) : segment.length} 100`} strokeDashoffset={-segment.offset} />)}
-    </svg>
-    <div aria-hidden="true" className="min-w-0 text-sm">
-      <p className="text-xs font-semibold text-muted-foreground">Largest share</p>
-      <p className="money mt-0.5 text-xl font-bold">{format(top.value)}</p>
-      <p className="truncate font-medium" title={categoryMetadata(top.category).label}>{categoryMetadata(top.category).label}</p>
-      {negativeCount > 0 && <p className="mt-1 text-xs text-muted-foreground">{negativeCount} below zero not drawn</p>}
+
+  const centreAmount = selectedEntry ? money(selectedEntry[field]) : money((totalCents / 100).toFixed(2))
+  // Long amounts step down so they stay on one line inside the ring.
+  const amountSize = centreAmount.length <= 9 ? 'text-[9cqw]' : centreAmount.length <= 12 ? 'text-[7.4cqw]' : 'text-[6.2cqw]'
+  const selectedValue = selectedEntry ? Number(selectedEntry[field]) : 0
+
+  return <div className="px-4 pb-3 pt-2 sm:px-5">
+    <div className="relative mx-auto aspect-square w-full max-w-[18.5rem] [container-type:inline-size] md:max-w-[17rem]">
+      <svg viewBox="0 0 200 200" role="group" aria-label={`Share of ${title} by category`} className="block size-full overflow-visible">
+        {segments.map(segment => {
+          const selected = isSelected(segment.category)
+          const color = categoryColor(categoryMetadata(segment.category))
+          const name = `${label(segment.category)}, ${share(segment.value)}, ${money(segment.amount)}`
+          return <path key={segment.category} d={arcPath(segment.start, segment.end, selected ? OUTER_SELECTED : OUTER)}
+            fill={color} fillRule="evenodd" role="button" tabIndex={0} aria-pressed={selected} aria-label={name}
+            data-category={segment.category}
+            className={cn('cursor-pointer outline-none transition-opacity motion-reduce:transition-none focus-visible:[stroke-width:2.5px] focus-visible:[stroke:hsl(var(--ring))]',
+              anySelected && !selected && 'opacity-30', anySelected && !selected && hovered === segment.category && 'opacity-60',
+              !anySelected && hovered === segment.category && 'brightness-125')}
+            onClick={() => onSelect(segment.category)}
+            onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onSelect(segment.category) } }}
+            onPointerDown={() => { pointerFocus.current = true }}
+            onPointerEnter={event => { if (event.pointerType === 'mouse') setHovered(segment.category) }}
+            onPointerLeave={() => setHovered(current => current === segment.category ? null : current)}
+            onFocus={() => { if (!pointerFocus.current) setFocused(segment.category); pointerFocus.current = false }}
+            onBlur={() => setFocused(current => current === segment.category ? null : current)} />
+        })}
+      </svg>
+      <div className="pointer-events-none absolute inset-[24%] flex flex-col items-center justify-center text-center">
+        {selectedEntry ? <>
+          <p className="line-clamp-2 max-w-full text-[4.6cqw] font-semibold leading-tight">{label(selectedEntry.category)}</p>
+          <p className={cn('money mt-0.5 font-bold leading-tight tracking-tight', amountSize)}>{centreAmount}</p>
+          <p className="mt-0.5 text-[4.2cqw] font-medium text-muted-foreground">{selectedValue > 0 ? `${share(selectedValue)} of ${title}` : 'Not drawn'}</p>
+        </> : <>
+          <p className={cn('money font-bold leading-tight tracking-tight', amountSize)}>{centreAmount}</p>
+          <p className="mt-0.5 text-[4.6cqw] font-medium text-muted-foreground">All categories</p>
+        </>}
+      </div>
+      {tip && <div role="tooltip" className="pointer-events-none absolute z-10 w-max max-w-[12rem] -translate-x-1/2 -translate-y-[115%] rounded-lg border bg-popover px-2.5 py-1.5 text-left shadow-lg"
+        style={{ left: `${(100 + (OUTER + 4) * Math.sin(tip.middle)) / 2}%`, top: `${(100 - (OUTER + 4) * Math.cos(tip.middle)) / 2}%` }}>
+        <p className="money text-sm font-bold">{money(tip.amount)}</p>
+        <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <span aria-hidden="true" className="h-0.5 w-3 rounded-full" style={{ background: categoryColor(categoryMetadata(tip.category)) }} />
+          {label(tip.category)}, {share(tip.value)}
+        </p>
+      </div>}
     </div>
+    {negativeCount > 0 && <p className="mt-2 text-center text-xs text-muted-foreground">{negativeCount} at or below zero not drawn</p>}
   </div>
 }
 
