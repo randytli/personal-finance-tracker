@@ -47,6 +47,28 @@
   - 恢复时新库已经自带 `public` schema，导致冲突。改为用 `pg_restore -L` 跳过 dump 里的 `CREATE SCHEMA public`，不做 `DROP SCHEMA public`（计划 §15.3 禁止对托管项目这样做）。
   - PG 恢复后会把 CHECK 约束里的 varchar 数组写法改成等价形式。只对这一种形式做规范化，并加测试证明真正的改动仍会被检出。
 
+- commit：`4beb749`
+
+### 2. 定时触发（Cron）
+
+- 产出：[设计文档](PFT_M5_CRON_TRIGGER_DESIGN_2026-10-02.md)、`api/trigger_auth.py`（未挂到 `api/main.py`，Windows runtime 不受影响）、`experiments/m5_cloud/trigger_cron.sql.template`（SQL 签名函数、nonce 表，schedule 只以注释形式给出）、`tests/test_m5_trigger_auth.py`（10 个测试）。
+- 结论：
+  - **Vercel Hobby 不可用**（官方原文：每天一次、±59 分钟、失败不重试、尽力投递且可能重复）。15 分钟、1 小时、6 小时的重试会退化成“第二天”，手动同步最多要等 24 h。
+  - **建议用 Supabase Cron**：每 5 分钟一次，通过 pg_net 直接调用受保护的 Python jobs 端点。`timeout_milliseconds` 不小于 300 s；pg_net 默认 2 s，上限未核实。完成与否以 durable 状态为准，不看 net 响应。另设一个每日清理 `cron.job_run_details` 的任务（官方写明它永不自动清理）。
+  - 和现有语义的对应：24 h 变成 24 h 至 24 h 5 min；15 分钟重试变成 15–20 分钟；手动同步从 ≤60 s 变成 ≤5 分钟。
+- 暂停规则（官方原文）：Free 项目“1 周不活跃”就会暂停；不活跃的定义是“没有足够的用户数据库活动”；“每天几次用户请求通常就够”；官方给出的防止办法是升级 Pro；暂停后 1 年内可以恢复。
+  - pg_cron 自身的活动算不算，文档没说，**未核实**。
+  - 真实同步会从 Vercel 经 Supavisor 回连数据库，属于真实的应用流量，大概率算活动（推测）。
+  - 按计划，不加任何保活 ping。
+  - 暂停后 cron 也会随之停止，需要你手动恢复。
+- 鉴权：
+  - HMAC-SHA256 签名覆盖 audience、key id、时间戳（±300 s）、单次 nonce、方法、固定路径和规范化 body。
+  - 校验在任何 DB 工作之前完成；nonce 在独立事务中提交，重放返回 409，伪造请求连 nonce 表都碰不到。
+  - 可以同时接受两个 key id，用于轮换。
+  - 与 advisory lock 的配合已实测：两个并发的合法投递，第二个返回 `busy`，只跑一次 sync；锁释放后可以再次执行。
+  - SQL 签名（pgcrypto）与 Python 校验一致，已在本地实测。
+- 测试：触发器 10 个，加上回归的 scheduler draft 和 M4 jobs，共 33 个全部通过。
+
 ## 待决（需要 owner 拍板或批准）
 
 ### 任务 1：备份
@@ -69,6 +91,13 @@
   - 在合成项目上跑一次真实的“PG17 dump → 上传 → 换机下载 → 恢复 → 指纹比对”；
   - 核实 `PROVIDER_SCHEMAS` 列表（目前未核实，原型遇到未知 schema 会直接失败）。
 
+### 任务 2：Cron
+
+- **P2-1 节拍**。建议：先用 5 分钟（每月 8,640 次，计划给的起点）。1 分钟（每月 43,200 次）能恢复今天 ≤60 s 的手动延迟，但 CPU 和连接成本未测，等云端实测后再决定。
+- **P2-2 接受“可能被暂停”**。官方给出的防止办法是付费升级，计划又禁止保活流量。建议接受：真实的同步流量本身大概率能维持活跃（推测）。一旦暂停，靠官方的警告邮件和 PFT 的过期告警发现，然后手动恢复。
+- **P2-3 pg_net 怎样穿过 Vercel 部署保护**。可选：(a) 部署到不受保护的 production 目标，只靠 HMAC 保护；(b) 使用 automation bypass 头，多一个存在 Vault 里的秘密。建议 (a) 加 HMAC，因为 bypass 头只是静态秘密，比 HMAC 弱。这需要你确认 production 目标不暴露任何其他路由。
+- **需要批准的操作**：在 M5 合成项目上启用 pg_cron、pg_net 和 Vault，部署带校验的 jobs preview，跑一次真实的节拍、重复投递和超时测试（见设计 §5）。
+
 ## 未完成或受阻
 
 （随各项更新）
@@ -78,3 +107,4 @@
 - 23:55 开始；创建分支；读完全部 M5 文档与计划 §12–§16。
 - 23:58 任务 1 开始：查官方文档，在 scratchpad 起一次性 PG16（127.0.0.1:55439）。
 - 00:07 任务 1 测试与实测完成。
+- 00:08 任务 2 开始；00:12 测试全部通过。
