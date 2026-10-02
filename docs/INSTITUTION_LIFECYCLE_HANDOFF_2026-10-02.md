@@ -16,18 +16,21 @@
 | 6a 设计 | `5e273e7` | `docs/PFT_INSTITUTION_LIFECYCLE_DESIGN_2026-10-02.md`：盘点及三类范围归类表、状态模型、关键规则、激活影响预览、pre-activation checks、与锁/cursor 的关系、Remove institution data（只写设计） |
 | 6b 后端 | `a889826` | 迁移、生命周期服务、API、测试、迁移彩排脚本和证据；设计文档 §2 按实现修订，并新增 §11 验证结果 |
 | 6c 前端 | `f59dca1` | `/plaid/items/<item_id>` 页面、确认弹窗、Jest 测试、浏览器 QA 脚本 |
-| 文档 | 本次提交 | runbook 激活步骤改为“预览 + 确认”；本交接文档 |
+| 文档 | `a591ce2` | runbook 激活步骤改为“预览 + 确认”；本交接文档 |
+| D1–D4 | 见 git log | 按 owner 决定实现：Production 迁移只读闸门、Pending 排除出所有同步路径、退役 PATCH、Rejected 必须先 retry-onboarding |
 
 ### 关键实现
 
-- **状态模型**：`status` 是唯一会被写入的字段；`sync_enabled = status IN (pending, active)`，`published = status IN (active, deactivated)`，两者都是 PostgreSQL STORED 生成列。同步范围看 `sync_enabled`（定时同步还要求 `published`），账本和分类输入都看 `published`。原计划是“可写布尔列 + CHECK”，但现有测试和旧镜像都只写 `status`，会大面积违反约束，所以改为生成列。设计文档 §2 已说明。
+- **状态模型**：`status` 是唯一会被写入的字段；`sync_enabled = status = 'active'`（D2），`published = status IN (active, deactivated)`，两者都是 PostgreSQL STORED 生成列。同步（定时、catch-up、手动）看 `sync_enabled`，账本和分类输入看 `published`；Pending 的摄取只走显式 onboarding（`INGESTION_STATUSES`）。原计划是“可写布尔列 + CHECK”，但现有测试和旧镜像都只写 `status`，会大面积违反约束，所以改为生成列。设计文档 §2 已说明。
 - **规则**：Deactivated 继续计入 analytics 和分类，定时同步跳过它，cursor 和 token 原样保留。Pending 不进入已发布分类的输入。
-- **激活和停用**：预览在一个最终会回滚的事务里**执行真实的转换代码**，比较转换前后的全账本快照（每笔交易的有效分类和类别，加上每月的 `summarize_monthly_transactions`），并返回 digest。真正执行时，在同一把派生锁下重新计算；digest 不一致就返回 409 并回滚，所以预览和实际执行由构造保证一致。旧的 `PATCH /status {"status":"active"}` 现在返回 409。
+- **激活和停用**：预览在一个最终会回滚的事务里**执行真实的转换代码**，比较转换前后的全账本快照（每笔交易的有效分类和类别，加上每月的 `summarize_monthly_transactions`），并返回 digest。真正执行时，在同一把派生锁下重新计算；digest（包含转换类型）不一致就返回 409 并回滚，所以预览和实际执行由构造保证一致。三个显式操作各自只接受一种源状态：activate 只接受 pending，reactivate 只接受 deactivated，deactivate 只接受 active。reject（pending → disabled）和 retry-onboarding（disabled → pending）在派生锁下执行，并断言账本不变。通用的 `PATCH /status` 已退役，返回 410（D3）。
+- **迁移闸门（D1）**：`init_db` 第一步就是只读 preflight。Production 下，迁移应用前只要有非 active 的 Item 就停止，不做任何 DDL；独立命令 `python -m api.lifecycle_preflight` 做同样的只读检查，阻止时退出码为 2。
 - **Checks**：已实现 K1、K2、K3（含 K4）、K5、K6、K7、K8、K10、K12。fail 级别的检查会阻止预览和激活。
 
 ## 验证（全部只在临时集群和合成数据上）
 
-- Python：全套 313 个测试 OK（含所有 DB opt-in，以及新增的 `PFT_LIFECYCLE_SYNTHETIC_TEST`）；compileall、`git diff --check` 通过。
+- **D1–D4 之后**：Python 全套 318 个测试 OK（lifecycle 测试从 9 项增加到 14 项，覆盖 D1–D4，并做了变异检查）；Jest 69 个测试、tsc、build、三种宽度的浏览器 QA（新增重新激活流程）全部通过。彩排库：严格 preflight 退出码 2，Production 下 `init_db` 在 DDL 前停止，库不变；旧代码与新代码指纹仍然一致。
+- Python（D1–D4 之前）：全套 313 个测试 OK（含所有 DB opt-in，以及新增的 `PFT_LIFECYCLE_SYNTHETIC_TEST`）；compileall、`git diff --check` 通过。
 - 迁移彩排：用 `main` 代码建库、灌数、分类，再用本分支代码迁移两次。迁移前后（以及各自重新分类后）四份指纹完全一致：transactions/raw md5、Item cursor/token 摘要、分类哈希、analytics 哈希（284 行、6 个月）。证据在 `docs/evidence/institution-lifecycle-2026-10-02/`。
 - 同一个库上的 Ally 激活预览：6 笔 Chase Zelle 收入变成内部转账，每月 income −75。预览不改变数据库。
 - 你要求的 5 个场景都有测试：跨机构配对时预览 = 实际；停用后 analytics 和分类不变；停用后定时同步跳过；重新激活从原 cursor 继续；中途失败整体回滚。另外还测了：预览过期被拒、checks 阻止激活、Pending 隔离、迁移后指纹一致。变异检查：把 `published` 改成只看 active 时，2 项测试失败。
@@ -45,11 +48,9 @@
 
 ## 待决（需要你拍板）
 
+已决定并实现（2026-10-02）：D1 强制只读迁移闸门；D2 Pending 排除出定时、catch-up 和手动同步；D3 退役 PATCH，fail closed（410）；D4 Rejected 必须先 retry-onboarding 回到 Pending。
+
 设计问题（详见设计文档 §10）：
-- **D1** Production 迁移前，只读确认是否全部 Item 都是 `active`、有没有 `disabled` 行。
-- **D2** Pending 是否进入定时同步。默认否。
-- **D3** 旧的 `PATCH status=active`：现在返回 409，要求走预览。是否改为 410，或者干脆删掉？
-- **D4** Rejected（`disabled`）的 Item 能否激活。现在 K1 判 fail；目前没有“恢复为 Pending”的端点。
 - **D5** 重新激活时 cursor 失效，是否允许受控重置。默认否。
 - **D6** Deactivated 的机构能否继续导入账单。默认否。
 - **D7** 页面是否提供 Pending 的拉取/规范化按钮（会调用 Plaid）。默认不提供。
@@ -64,9 +65,11 @@
 - **D13** 旧的 `GET /items/{id}/classification-preview` 还保留着，是否删除？
 - **D14** App 里还没有通往 `/plaid/items/<id>` 的入口（没有机构列表页），只能直接输入 URL。是否从 Overview 或同步状态区链接过去？
 - **D15** 迁移彩排的合成库里没有账单导入行（statement import），这是覆盖缺口。
+- **D16** 逐 Item 的直连端点（`POST /plaid/accounts`、`/plaid/transactions`、`/plaid/transactions/normalize`）对 **Active** Item 仍然可用（现有测试和工具依赖这一点），而它们绕过了 `sync_all` 的原子流程。是否也限制为只用于 Pending onboarding？
+- **D17** 页面上没有 reject / retry-onboarding 按钮（只能通过 API），Rejected 页面只显示提示。是否需要按钮，是否需要确认弹窗？
 
 ## 下一步（都需要你批准）
 
 1. 审阅三个 commit：`git -C /home/randyli/code/pft-institution-lifecycle log --stat 47183eb..HEAD`。
-2. 先拍板 D1–D4，再决定是否合并到 `main`（合并和 push 由你执行）。
-3. Production 迁移和发布：按照 D10、D11 另写 action packet，逐条命令批准。
+2. 决定是否合并到 `main`（合并和 push 由你执行）。
+3. Production 迁移和发布：按照 D10、D11 另写 action packet，逐条命令批准；第一步是在 Production 上只读运行 `python -m api.lifecycle_preflight`（需要你批准）。

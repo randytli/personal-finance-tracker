@@ -28,12 +28,23 @@ published classification until explicitly activated. Never reconnect Chase.
    whole-ledger impact preview, and confirm. Over the API this is
    `POST /plaid/items/{amex_item_id}/activation-preview`, then
    `POST /plaid/items/{amex_item_id}/activate` with `{"preview_digest": ...}`;
-   a changed ledger returns 409 and needs a new preview. `PATCH .../status`
-   with `{"status":"active"}` is refused. Re-run analytics checks afterwards.
+   a changed ledger returns 409 and needs a new preview. The generic
+   `PATCH .../status` is retired and returns 410. Re-run analytics checks afterwards.
+
+Pending Items never join scheduled, catch-up or normal manual sync; steps 4 and
+5 are the only way they ingest. To reject a reviewed Pending Item use
+`POST /plaid/items/{id}/reject`; a rejected Item cannot be activated and must
+first return to Pending with `POST /plaid/items/{id}/retry-onboarding`, then
+repeat steps 4–6.
 
 Deactivating an active Item (`/deactivation-preview`, then `/deactivate`) stops
-its sync but keeps its transactions in analytics and classification; activating
-it again resumes from the saved cursor. See
+its sync but keeps its transactions in analytics and classification;
+reactivation (`/reactivation-preview`, then `/reactivate`) resumes from the saved
+cursor.
+
+Before the lifecycle migration runs in Production, run the read-only gate
+`python -m api.lifecycle_preflight`. It exits 2 unless every Item is active, and
+`init_db` refuses to migrate in that case too; nothing is promoted automatically. See
 `docs/PFT_INSTITUTION_LIFECYCLE_DESIGN_2026-10-02.md`.
 
 Do not call Link for Capital One, revoke/reconnect an Item, reset a cursor, or copy

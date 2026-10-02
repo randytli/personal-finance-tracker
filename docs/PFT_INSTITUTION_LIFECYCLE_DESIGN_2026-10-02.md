@@ -1,5 +1,7 @@
 # Institution lifecycle：Pending / Active / Deactivated 设计
 
+> 2026-10-02 修订：owner 已拍板 D1–D4（见 §10），本文按决定更新。
+
 日期：2026-10-02（无人值守夜间任务 6a）。分支：`feature/institution-lifecycle`，从 `main` @ `47183eb` 创建，与 M5 分支互不依赖。
 范围：只写设计。本节不包含任何 Production 操作、Plaid 调用或云端写入。
 
@@ -28,11 +30,11 @@
 
 | # | 位置 | 现有条件 | 类别 | 新条件 |
 |---|---|---|---|---|
-| S1 | `api/jobs.py` `request_sync` 选定 Item 校验 | `status='active'` | 同步 | `sync_enabled AND published`（即 Active） |
-| S2 | `api/jobs.py` `tick` 到期 Item | `status='active' AND NOT sync_paused` | 同步 | `sync_enabled AND published AND NOT sync_paused` |
+| S1 | `api/jobs.py` `request_sync` 选定 Item 校验 | `status='active'` | 同步 | `sync_enabled`（只有 Active 为 true，D2） |
+| S2 | `api/jobs.py` `tick` 到期 Item（含启动后 catch-up） | `status='active' AND NOT sync_paused` | 同步 | `sync_enabled AND NOT sync_paused` |
 | S3 | `api/services/sync_all.py` `sync_all` 选 Item | 同上 | 同步 | 同上 |
 | S4 | `api/services/sync_all.py` `_revalidate` 发布前复核 | `status != 'active'` 即 stale | 同步 | 复核同一谓词；Item 在 fetch 与 publish 之间被停用 → `stale_item`，整 Item 回滚，cursor 不动 |
-| S5 | `api/routes/plaid.py` `POST /plaid/transactions`、`/accounts` | pending/active | 同步（onboarding 手动拉取） | `sync_enabled`（Pending、Active）；Deactivated 拒绝（409，需先重新激活） |
+| S5 | `api/routes/plaid.py` `POST /plaid/transactions`、`/accounts` | pending/active | 摄取（Pending 的显式 onboarding 动作；Active 的逐 Item 直连端点） | `status IN INGESTION_STATUSES`（pending、active）；Deactivated、Rejected 拒绝 |
 | S6 | `api/services/persistence.py` `persist_consumer_transactions`、`persist_account_metadata` | pending/active | 同步 | 同 S5 |
 | S7 | `api/services/derivation.py` `normalize_item_transactions` | pending/active | 同步（派生，紧跟拉取） | 同 S5 |
 | S8 | `api/routes/sync.py` `/sync/status` 列表 | 展示 status | 只读展示 | 增加 `sync_enabled`、`published` 字段 |
@@ -47,7 +49,7 @@
 | C1 | `api/services/derivation.py` `classify_active_transactions`（锁 + 输入 + 写入） | `status='active'` | 分类输入 | `published` |
 | C2 | `_classification_inputs` 的 credit / Amex 权益账户集合 | 随 C1 的 scope | 分类输入 | 随 C1 |
 | C3 | `preview_pending_classification` | active ∪ {pending} | 分类输入（预览） | 由 §4 的激活影响预览替代；旧端点保留为兼容 |
-| C4 | `activate_item` | pending/active/disabled | 状态转换 | §5 |
+| C4 | `activate_item` | pending/active/disabled | 状态转换 | 拆成 activate / reactivate / deactivate / reject / retry-onboarding，见 §6 |
 | X1 | `api/routes/plaid.py` `_institution_exists` | 不看状态 | 唯一性 | 不变：Deactivated 的机构不能重新 Link，只能重新激活 |
 | X2 | `scripts/pft_m6_fingerprint.py`、`pft_m5_benchmark.py` | 读/写 status | 工具 | 指纹加入新列；benchmark 写入时补齐新列 |
 
@@ -60,19 +62,19 @@
 `status` 是唯一被写入的生命周期字段；`sync_enabled` 和 `published` 是 PostgreSQL 的 **STORED 生成列**，由 `status` 推导，不能直接写：
 
 ```sql
-sync_enabled BOOLEAN NOT NULL GENERATED ALWAYS AS (status IN ('pending','active')) STORED
+sync_enabled BOOLEAN NOT NULL GENERATED ALWAYS AS (status = 'active') STORED
 published    BOOLEAN NOT NULL GENERATED ALWAYS AS (status IN ('active','deactivated')) STORED
 ```
 
 | 状态 | `status` | `sync_enabled` | `published` | 同步 | 账本 | 分类输入 |
 |---|---|---|---|---|---|---|
-| Pending | `pending` | true | false | 只允许 onboarding 手动拉取 | 否 | 否（只出现在预览里） |
+| Pending | `pending` | false | false | 只能通过显式 onboarding 动作摄取（D2） | 否 | 否（只出现在预览里） |
 | Active | `active` | true | true | 定时 + 手动 | 是 | 是 |
 | Deactivated | `deactivated` | false | true | 否 | 是 | 是 |
 | Rejected（旧 `disabled`） | `disabled` | false | false | 否 | 否 | 否 |
 
 理由：
-- 每类范围只看一列：同步看 `sync_enabled`（定时同步再加 `published`，见 2.3），账本和分类输入都看 `published`。三类查询不会再各自解释 `status`。
+- 每类范围只看一列：同步（定时、catch-up、手动）看 `sync_enabled`，只有 Active 为 true；账本和分类输入都看 `published`。三类查询不会再各自解释 `status`。Pending 的摄取不属于同步范围，只走显式 onboarding 动作，代码里用 `INGESTION_STATUSES` 明确写出。
 - 最初的设计是“两个可写布尔列 + CHECK 约束”。实现时发现：现有测试、脚本和旧镜像都只写 `status`（包括 raw SQL 插入），可写列加 CHECK 会让它们全部违反约束。改用生成列后，标志位与 `status` 在数据库层面不可能不一致。
 - 回滚安全：旧镜像只写 `status`，生成列照常推导。迁移前不存在 `deactivated`，所以 `published` ⇔ `status='active'`，与旧的过滤条件逐行等价。
 - 另加审计列：`activated_at`、`deactivated_at`（TIMESTAMPTZ，可空），以及 `activation_digest`（最近一次激活所确认的预览摘要）。
@@ -81,6 +83,7 @@ published    BOOLEAN NOT NULL GENERATED ALWAYS AS (status IN ('active','deactiva
 
 ### 2.2 迁移（`migrate_institution_lifecycle`，幂等，已实现）
 
+0. **强制只读 preflight（D1）**：`init_db` 的第一步就是 `require_lifecycle_preflight`，在任何 DDL 之前执行。`PLAID_ENV=production` 且迁移尚未应用时，只要有任何 Item 不是 `active`（包括 NULL 或未知状态），就抛出 `LifecyclePreflightBlocked` 并停止，不提升、不改写、不猜。部分应用（只有一部分生命周期列）、未知状态、标志位与 status 不一致，在任何环境下都会阻止。迁移应用之后，之后新接入的 Pending Item 不会再挡住 `init_db` 重跑。独立命令 `python -m api.lifecycle_preflight` 在 REPEATABLE READ READ ONLY 事务里执行同样的检查（总是按 Production 规则），只输出各状态的数量，阻止时退出码为 2。
 1. 如果存在四个值之外的 `status`，直接 `RAISE`，不猜。
 2. `ck_items_status` 扩展为 `pending/active/deactivated/disabled`；已经扩展过则跳过。
 3. `ADD COLUMN IF NOT EXISTS sync_enabled/published ... GENERATED ALWAYS AS (...) STORED`。这一步会重写 `items` 表；表很小（每个机构一行），但会短暂持有 ACCESS EXCLUSIVE 锁，所以应在没有同步运行时执行。
@@ -88,7 +91,7 @@ published    BOOLEAN NOT NULL GENERATED ALWAYS AS (status IN ('active','deactiva
 5. 索引 `ix_items_user_lifecycle (user_id, sync_enabled, published)`。
 6. 不改任何交易、分类、cursor、token。
 
-预期 Production 现状：全部 Item 都是 `active` → 迁移后全部为 Active + published。这一点在 Production 执行前需要只读确认（待决 D1），今晚不连 Production。
+预期 Production 现状：全部 Item 都是 `active` → 迁移后全部为 Active + published。这由第 0 步的 preflight 强制保证（D1）。
 
 旧镜像兼容性（回滚时）：旧代码不知道 `deactivated`，会把 Deactivated 的 Item 排除出 analytics（等同于旧的 disabled）。只要还没有停用过任何 Item，回滚就没有影响。
 
@@ -103,7 +106,7 @@ published    BOOLEAN NOT NULL GENERATED ALWAYS AS (status IN ('active','deactiva
 
 6b 已在临时集群上验证（见 §11）。合成库的形状：Chase（checking + credit + 禁用的投资账户）、Amex（权益账户）、一个带数据的 pending（Ally）、一个 disabled，加上手动分类 override、手动类别 override、已删除行、退款对、信用卡还款对、Zelle 对。账单导入行没有放进合成库，属于缺口。
 
-定时同步谓词用 `sync_enabled AND published`，而不是只看 `sync_enabled`：现状是 pending 只靠手动拉取，不进定时同步。是否改为让 Pending 也进定时同步，列为待决 D2。
+D2 已决定：Pending 不参与定时同步、启动 catch-up 和普通的 Active 手动同步，所以 `sync_enabled` 直接定义为 `status = 'active'`。
 
 ## 3. 关键规则
 
@@ -151,7 +154,7 @@ published    BOOLEAN NOT NULL GENERATED ALWAYS AS (status IN ('active','deactiva
 
 | # | 检查 | 判定 | 级别 |
 |---|---|---|---|
-| K1 | 状态可激活 | `status IN ('pending','deactivated')`；`disabled` 必须先改回 pending（待决 D4） | fail |
+| K1 | 状态可激活 | `pending`（对应 activate）或 `deactivated`（对应 reactivate）；`disabled` 判 fail，必须先 retry-onboarding 回到 pending（D4） | fail |
 | K2 | 已发现账户 | 至少一个 `consumer_transactions_enabled` 账户 | fail |
 | K3 | 账户归属一致 | `validate_consumer_activation` 的归属校验（raw 与 normalized 的 account 一致，账户属于该 Item） | fail |
 | K4 | 禁用账户上没有新消费数据 | 同上，与 `legacy_consumer_rows` 比对（实现中与 K3 合并为一项） | fail |
@@ -170,10 +173,14 @@ published    BOOLEAN NOT NULL GENERATED ALWAYS AS (status IN ('active','deactiva
 
 | 转换 | 端点 | 做什么 | cursor |
 |---|---|---|---|
-| Pending → Active | `POST /items/{id}/activate`（带 digest） | checks K1–K7 → `(sync_enabled, published) = (true, true)`，`activated_at=now()` → `classify_active_transactions` → 校验摘要 → 提交。任何一步失败，整体回滚 | 不动 |
-| Active → Deactivated | `POST /items/{id}/deactivate` | `(false, true)`，`deactivated_at=now()`；**不重新分类**（输入不变）；断言分类写入集为空 | 不动；token 也不动；不调用 Plaid `/item/remove` |
-| Deactivated → Active（重新激活） | `POST /items/{id}/activate`（带 digest） | 同 Pending → Active。由于 Deactivated 已经 published，预览差异通常为空，但仍然要求确认 | 不动；下一次定时同步从**已保存的 cursor** 增量拉取，补上停用期间的 added/modified/removed |
-| Pending → Rejected | 保留 `PATCH .../status {"status":"disabled"}` | 现状 | 不动 |
+| Pending → Active（activate） | `POST /items/{id}/activation-preview`，再 `POST /items/{id}/activate`（带 digest） | 只接受 `pending`。checks → `status='active'`，`activated_at=now()` → `classify_active_transactions` → 校验摘要 → 提交。任何一步失败，整体回滚 | 不动 |
+| Active → Deactivated（deactivate） | `/deactivation-preview`，再 `/deactivate`（带 digest） | 只接受 `active`。`status='deactivated'`，`deactivated_at=now()`；分类输入不变，写入集为空 | 不动；token 也不动；不调用 Plaid `/item/remove` |
+| Deactivated → Active（reactivate） | `/reactivation-preview`，再 `/reactivate`（带 digest） | 只接受 `deactivated`，checks 与 activate 相同。由于 Deactivated 一直是 published，预览差异通常为空，但仍要求确认 | 不动；下一次定时同步从**已保存的 cursor** 增量拉取，补上停用期间的 added/modified/removed |
+| Pending → Rejected（reject） | `POST /items/{id}/reject` | 只接受 `pending`；派生锁下执行；两边都未发布，执行前后断言账本快照不变 | 不动 |
+| Rejected → Pending（retry-onboarding） | `POST /items/{id}/retry-onboarding` | 只接受 `disabled`（D4）；同上断言。回到 Pending 后，必须重新通过 onboarding 准备、checks、预览和确认激活 | 不动 |
+| 通用 status 写入 | `PATCH /items/{id}/status` | **已退役（D3）**：没有必需的调用方，fail closed，一律返回 410，不读也不写数据库 | — |
+
+digest 中包含转换类型，所以 activate 的预览不能拿去确认 reactivate，反之亦然。
 
 与 `sync_all` 的交互：
 - `sync_all` 在 fetch 前按 S3 选 Item，发布前在锁内用 S4 `_revalidate` 复核。若 Item 在 fetch 期间被停用，`_revalidate` 判定 `stale_item`：该 Item 的 buffer 被丢弃，cursor 不推进，其他 Item 正常发布。
@@ -209,20 +216,27 @@ Plaid cursor 有效期：Plaid 文档没有承诺 cursor 永久有效。如果�
 | GET | `/plaid/items/{id}/activation-checks` | §5 |
 | POST | `/plaid/items/{id}/activation-preview` | §4，返回差异 + digest（POST，因为它会取锁并执行再回滚） |
 | POST | `/plaid/items/{id}/activate` | body `{"preview_digest"}` |
-| POST | `/plaid/items/{id}/deactivate-preview` | 返回停用影响（预期为空）+ digest |
+| POST | `/plaid/items/{id}/reactivation-preview` | 重新激活的影响 + digest（预期为空） |
+| POST | `/plaid/items/{id}/reactivate` | body `{"preview_digest"}` |
+| POST | `/plaid/items/{id}/deactivation-preview` | 返回停用影响（预期为空）+ digest |
 | POST | `/plaid/items/{id}/deactivate` | body `{"preview_digest"}` |
-| PATCH | `/plaid/items/{id}/status` | 兼容：`disabled` 保留；`active` 改为要求 digest（或 410），见待决 D3 |
+| POST | `/plaid/items/{id}/reject` | Pending → Rejected |
+| POST | `/plaid/items/{id}/retry-onboarding` | Rejected → Pending |
+| PATCH | `/plaid/items/{id}/status` | 已退役：410（D3） |
 
 ## 9. 前端（6c）
 
-`/plaid/items/<item_id>`：头部（机构、状态徽章、同步时间）→ “Prepare for review”：说明当前状态和下一步（Pending 需要先在后端完成拉取和规范化；今晚**不在页面上提供拉取按钮**，避免页面触发 Plaid 调用，待决 D7）→ 交易预览表 → Pre-activation checks → Activate 按钮。点击后先打开弹窗，弹窗里取预览并展示影响，用户手动点“确认激活”才会提交 digest。Deactivate 走同样的流程，用确认弹窗。Activate **永远**需要手动确认，页面上不会自动触发。
+`/plaid/items/<item_id>`：头部（机构、状态徽章、同步时间）→ “Prepare for review”：说明当前状态和下一步（Pending 需要先在后端完成拉取和规范化；今晚**不在页面上提供拉取按钮**，避免页面触发 Plaid 调用，待决 D7）→ 交易预览表 → Pre-activation checks → Activate 按钮。点击后先打开弹窗，弹窗里取预览并展示影响，用户手动点“确认激活”才会提交 digest。Deactivate 和 Reactivate 走同样的流程（各自的预览端点和确认按钮）。Activate **永远**需要手动确认，页面上不会自动触发。Rejected 的机构不提供任何生命周期按钮，只提示先 retry-onboarding。
 
 ## 10. 需要 owner 拍板的设计问题
 
-- **D1** Production 迁移前做只读确认：是否全部 Item 都是 `active`？是否存在 `disabled` 行？（今晚不连 Production。）
-- **D2** Pending 是否进入定时同步？默认否（保持现状：只有手动拉取）。改为是会自动产生 Plaid 调用。
-- **D3** 旧的 `PATCH /items/{id}/status {"status":"active"}`（不带预览）怎么处理：保留、改为要求 digest，还是返回 410？默认：要求 digest，缺失时返回 409。
-- **D4** Rejected（`disabled`）能否直接激活？现状可以。默认：必须先恢复为 Pending（需要新的端点，今晚不做），激活检查 K1 判为 fail。
+已决定（2026-10-02，owner）：
+- **D1 ✔** Production 迁移的 preflight 是强制的只读闸门。不自动提升、不悄悄改写任何非 active 的 Item；只要 Production 里有 Item 不处于迁移支持的状态，就在迁移前停止。→ §2.2 第 0 步。
+- **D2 ✔** Pending 不参与定时同步、启动 catch-up 和普通的 Active 手动同步；Pending 的摄取/刷新只能是显式 onboarding 动作。→ `sync_enabled = status='active'`。
+- **D3 ✔** 退役通用的 status PATCH。生命周期转换只能走显式的 activate / deactivate / reactivate 操作，各自带锁、校验和派生/发布语义。旧 PATCH 没有必需的调用方，所以 fail closed（410）。→ §6。
+- **D4 ✔** Rejected 不能直接激活。必须先 retry-onboarding 回到 Pending，再走正常的 onboarding 准备、预览和激活检查。→ §6、K1。
+
+仍待决：
 - **D5** 重新激活时 cursor 失效（Plaid 报错），是否允许受控重置 cursor？默认：否。走现有 `blocked`/`sync_paused` 路径，等 owner 处理。
 - **D6** Deactivated 的机构能否继续导入账单？默认否（L6 保持 Pending/Active）。
 - **D7** 页面上是否提供 Pending 的“拉取/规范化”按钮（会调用 Plaid）？默认不提供，仍然走 runbook。
@@ -253,3 +267,14 @@ Plaid cursor 有效期：Plaid 文档没有承诺 cursor 永久有效。如果�
 - 迁移：从旧形状升级后，指纹和分类哈希完全一致；标志位符合推导规则；不能直接写生成列。
 
 变异检查：把 `published` 改成只看 `active` 后，停用和重新激活两项测试失败。
+
+### D1–D4 落实后的补充验证
+
+- 新增测试 5 项（`tests/test_institution_lifecycle.py` 共 14 项）：
+  - Production preflight 遇到 pending/disabled 时，在任何 DDL 之前阻止 `init_db`，schema 和行都不变；`api.lifecycle_preflight` 退出码为 2，只输出各状态数量；状态修正后放行；迁移应用后再加入的 Pending 不会阻止重跑。
+  - 只有部分生命周期列时阻止迁移。
+  - Pending 不进入定时同步、catch-up tick、全量手动请求，也不能被单独选中请求同步；显式 onboarding 拉取仍然可用。
+  - 退役的 PATCH 对任何 Item 都返回 410，且不改数据库。
+  - Rejected 的 activate/reactivate 预览和执行都返回 409；retry-onboarding 回到 Pending 后，走正常激活成功；reject 和 retry 都不改变账本。
+- 变异检查：关掉 Production 闸门、把 Pending 加回 `sync_enabled`、允许 disabled 激活，各自都有对应测试失败。
+- 彩排库（含 pending 和 disabled）：`python -m api.lifecycle_preflight` 退出码 2；`PLAID_ENV=production` 下 `init_db` 在 DDL 前停止，库保持不变（见 `production-preflight-blocked.json`）。非 Production 迁移后，旧代码与新代码的指纹仍然完全一致。
