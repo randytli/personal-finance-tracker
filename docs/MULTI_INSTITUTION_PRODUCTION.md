@@ -1,8 +1,8 @@
 # Multi-institution Production runbook
 
 The existing Chase Item is the active baseline. New Items are created as `pending`,
-may be synced and classified for transfer matching, and do not contribute to
-analytics until explicitly activated. Never reconnect Chase.
+may be synced manually for review, and do not contribute to analytics or
+published classification until explicitly activated. Never reconnect Chase.
 
 ## Connect Amex manually
 
@@ -23,9 +23,18 @@ analytics until explicitly activated. Never reconnect Chase.
 5. Review Amex accounts, masks, date range, raw/normalized counts, and transfer
    matches. Confirm Chase cursor/token fingerprints, counts, and analytics have not
    changed. Pending Amex data must still be absent from analytics.
-6. Activate only after review with
-   `PATCH /plaid/items/{amex_item_id}/status` and body `{"status":"active"}`.
-   Re-run classification and analytics checks across both active Items.
+6. Activate only after review, from `/plaid/items/{amex_item_id}` in the web app:
+   resolve every failed pre-activation check, open **Activate**, review the
+   whole-ledger impact preview, and confirm. Over the API this is
+   `POST /plaid/items/{amex_item_id}/activation-preview`, then
+   `POST /plaid/items/{amex_item_id}/activate` with `{"preview_digest": ...}`;
+   a changed ledger returns 409 and needs a new preview. `PATCH .../status`
+   with `{"status":"active"}` is refused. Re-run analytics checks afterwards.
+
+Deactivating an active Item (`/deactivation-preview`, then `/deactivate`) stops
+its sync but keeps its transactions in analytics and classification; activating
+it again resumes from the saved cursor. See
+`docs/PFT_INSTITUTION_LIFECYCLE_DESIGN_2026-10-02.md`.
 
 Do not call Link for Capital One, revoke/reconnect an Item, reset a cursor, or copy
 rows between Items as part of this procedure.
