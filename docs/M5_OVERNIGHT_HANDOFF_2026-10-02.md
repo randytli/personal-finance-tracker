@@ -28,7 +28,7 @@
 
 ### 1. 独立加密备份与恢复
 
-- 产出：[设计文档](PFT_M5_INDEPENDENT_BACKUP_DESIGN_2026-10-02.md)、`scripts/pft_m5_backup_drill.py`（原型）、`scripts/pft_m5_backup_fixture.py`（合成数据，15 张表全部有数据）、`tests/test_m5_backup_drill.py`（12 个测试）、[实测结果](evidence/m5-2026-10-02/backup-drill.json)。
+- 产出：[设计文档](PFT_M5_INDEPENDENT_BACKUP_DESIGN_2026-10-02.md)、`scripts/pft_m5_backup_drill.py`（PFTENC3 原型，**已于 2026-10-02 删除，由 age 版本替代**，见下面第 6 项）、`scripts/pft_m5_backup_fixture.py`（合成数据，15 张表全部有数据）、`tests/test_m5_backup_drill.py`（12 个测试）、[实测结果](evidence/m5-2026-10-02/backup-drill.json)。
 - 本地原型链路：同一快照内算指纹 + `pg_dump --snapshot`，然后用 X25519 公钥加密（运行端不持有解密密钥），再上传到本地目录模拟的存储并回读校验哈希，按 GFS 7/4/3 保留，最后下载、认证解密、恢复到全新库并做指纹比对。**实测**（PG16 本地回环，单次）：
   - 2,610 行：备份 0.20 s，恢复加校验 0.36 s；
   - 35,600 行：归档 3.3 MB，备份 1.5 s，恢复加校验 1.8 s；
@@ -104,6 +104,24 @@
 - 验证：全套 326 个测试（含 7 个原有的 PG opt-in 和今晚新增的 2 个），在三种设置下都通过，0 跳过：变量未设置、`leaked-shell-user`、`local-sandbox-user`。
 - 已用泄露值实测全套：除这一处外，没有其他测试依赖 `PLAID_PILOT_USER_ID`。其他环境变量（例如 `PFT_STRICT_LOCAL_HTTP`）是否也会泄露进测试，未排查。
 
+### 6. age 备份 runner、GitHub release 存储适配器和恢复工具（2026-10-02 白天，owner 指示）
+
+- **纠正一处说法**：Windows 本地备份从来不是 PFTENC3。它们是普通的 `pg_dump -Fc` 加 JSON manifest（`api/backup.py`），以及可选的外部加密副本 **PFTENC2**（`api/backup_crypto.py`，密码 + scrypt）。PFTENC3 只是昨晚的原型，已经从分支上删除。按要求，Windows 的这两种格式在 M8c 之前保持不变；恢复工具支持 age、PFTENC2 和普通本地 dump 三种格式。
+- 产出：
+  - `deploy/backup_runner/`（README、workflow 模板 `pft-backup.yml`、runner、存储适配器、`snapshot_dump.sql`、`fingerprint.sql`、`SHA256SUMS`）
+  - `scripts/pft_backup_restore.py`（多格式恢复工具）
+  - [不依赖 PFT 代码的恢复说明](PFT_BACKUP_RESTORE_RUNBOOK.md)
+  - 更新后的[备份设计](PFT_M5_INDEPENDENT_BACKUP_DESIGN_2026-10-02.md) §4.2–§8：age、密钥保管、丢失处理、P1-3 和 P1-5、过渡期
+  - [实测结果](evidence/m5-2026-10-02/backup-age-drill.json)
+- 要点：
+  - **age v1.3.2 固定版本**。官方发布页上给出的 SHA-256 已固定在 workflow 里，下载后先校验再使用；我也在本地下载并重新计算过，一致。age 的发布没有单独的 checksums 文件，另附 Sigsum `.proof` 文件，校验它属于可选的额外加固，没有做。
+  - **两个接收方**：daily 和 emergency 两个 X25519 公钥，少于 2 个就拒绝运行。任何一把私钥都能单独解开所有备份（已实测）。
+  - **workflow 模板**放在 `deploy/backup_runner/`，故意不放进 `.github/workflows`，所以在本仓库里不会运行。三项都固定：`actions/checkout` 固定到 commit SHA；PG17.11 客户端镜像固定到 digest；runner 文件用 `SHA256SUMS` 校验。runner 只用标准库，不需要 pip 安装。
+  - **GitHub 存储**：先建 draft，上传后逐个回读并比对 SHA-256，全部通过才发布；token 不会随重定向发到存储主机。
+  - **快照一致性**：用测试注入一次“导出快照之后、pg_dump 之前”提交的写入，它既不在 dump 里也不在指纹里；去掉 `--snapshot` 的变异版本会让这个测试失败。
+- 测试：`tests/test_m5_backup_age.py` 19 个全部通过。所有密钥都在测试中临时生成，用完删除。
+- **本地没测到的部分**：真实的 docker 运行 PG17 镜像（测试里用 `env` 代替这层包装）、真实的 GitHub API（测试用本地假 API）、到 Supabase 的 verify-full TLS、`--snapshot` 能否穿过 Supavisor。这些都要等你批准的真实运行来验证。
+
 ## 待决（需要 owner 拍板或批准）
 
 ### 任务 1：备份
@@ -116,9 +134,9 @@
 
   风险：GitHub AUP 保留对“过度占用”的处置权；同一个 token 既能上传也能删除。B2 仍是备选，但它的闸门由你关闭，我没有动它。R2 和 GCS 要求结账流程或 billing account，又没有硬上限，所以不建议。
 - **P1-2 备份在哪里跑 — 已拍板（2026-10-02，owner 同意采用 GitHub Actions）**。owner 接受“只读的第二个调度器”作为计划 §12.4 的明确例外。适用范围：只读导出，不拿 advisory lock，不做金融写入，不调用 Plaid，不持有 Fernet key，唯一的写入是一行 `backup_runs` 记录。R3 因此在设计上解决：云端 tick 使用 `backup_fn=None`，Cron 只分派 `tick`。原建议：用 GitHub Actions 定时 workflow，使用固定 digest 的 `postgres:17.11` 镜像，只连只读备份角色。好处是和 `tick` 及 Vercel 的 300 s 完全解耦，消除 R3（备份先于同步、取消后线程仍在跑）。代价是多出一个“只读的第二个调度器”，与计划“一个调度器”的措辞有冲突，需要你接受。如果不接受，就改为由 Supabase Cron 分派一个独立的 Vercel 备份 job kind。
-- **P1-3 第二份副本**。建议：你每周或每月手动下载最新一份，放到 Google Drive 或离线介质，用来防 GitHub 账号丢失。不给自动化任何 Drive 凭据。
-- **P1-4 加密格式**。PFTENC3 由经过审查的原语组合而成，但格式是自定义的。建议在 M6 实现前请人独立审查一次；也可以改用标准的 `age`，代价是每个恢复环境都要多一个二进制。
-- **P1-5 备份频率**。建议：每日一次，外加每次迁移、切换或 schema 变更前手动补一次。每日两次可以把 RPO 减半，成本可以忽略。
+- **P1-3 第二份副本 — 已拍板（2026-10-02，按建议执行）**：每月一次，另在计划内的迁移或切换前加一次。手动下载最新一份的 3 个 `.age` 文件，放到 Google Drive 或离线介质，至少保留最近 3 份。原建议：你每周或每月手动下载最新一份，放到 Google Drive 或离线介质，用来防 GitHub 账号丢失。不给自动化任何 Drive 凭据。
+- **P1-4 加密格式 — 已拍板（2026-10-02）：采用 age（X25519 公钥加密），不用 PFTENC3。** 原文：PFTENC3 由经过审查的原语组合而成，但格式是自定义的。建议在 M6 实现前请人独立审查一次；也可以改用标准的 `age`，代价是每个恢复环境都要多一个二进制。
+- **P1-5 备份频率 — 已拍板（2026-10-02，按建议执行）**：每天 08:23 UTC 一次，另在每次迁移、切换或 schema 变更前手动触发一次。原建议：每日一次，外加每次迁移、切换或 schema 变更前手动补一次。每日两次可以把 RPO 减半，成本可以忽略。
 - **需要批准才能执行的操作**：
   - 创建备份仓库和 workflow；
   - 你离线生成真实密钥对，只把公钥交给 workflow；
@@ -173,7 +191,7 @@
 
 今晚列出的五项任务没有受阻。以下是 M5 仍然开着、需要后续推进的事项（见 [盘点](PFT_M5_REMAINING_INVENTORY_2026-10-02.md)）：
 
-1. **G7 备份**：P1-1 和 P1-2 已拍板；P1-3、P1-4、P1-5 仍待定。之后在合成项目上跑一次真实链路：PG17 dump 经 Supavisor（包括验证 `--snapshot` 能否穿过 session pooler）、上传、换机下载、恢复、指纹比对。
+1. **G7 备份**：P1-1 到 P1-5 已全部拍板；剩下的是需要批准的云端和账号操作（见第 6 项）。之后在合成项目上跑一次真实链路：PG17 dump 经 Supavisor（包括验证 `--snapshot` 能否穿过 session pooler）、上传、换机下载、恢复、指纹比对。
 2. **R4 Cron**：在合成项目上启用 pg_cron、pg_net 和 Vault；核实 `pg_net.max_timeout_ms` 和 body 的实际字节；测重复投递、超时和过期场景。
 3. **G6 Auth**：等 P3-1 到 P3-4 拍板，再进入 M6 实现和反向测试矩阵。
 4. **文档要求但今晚没做的**：R8（云端 catch-up、重试、部分失败的余量测试）、R9（应用 deadline 取值）、R10（取消后 `running` 状态的缺口，需要先给设计和策略）、R11（硬终止）、R13（分类的 O(n²) CPU）、R14（多实例连接预算）、R15（诚实的状态模型）、R19（$0 账单证据）、R21（M5 一次性资源的清理时间）。

@@ -18,7 +18,7 @@ Scope: plan §15.1–15.3 (M8a): **database authority only**. M8b (authenticated
 | --- | --- | --- |
 | C1 | SERVERLESS_GO accepted; M6 code and M7 rehearsal passed on synthetic data, including this exact procedure end to end | plan §12–§14 |
 | C2 | Identity sentinel (`dataset_id`, `deployment_id`) added to Production by an approved additive migration, and checked by every writer and tool | plan §15.1 |
-| C3 | `scripts/pft_m6_fingerprint.py` and the backup drill's fingerprint gain a verified-TLS remote profile (CA + hostname) with identity checks. Today the M6 tool connects without TLS settings | plan §15.2 |
+| C3 | `scripts/pft_m6_fingerprint.py` gains a verified-TLS remote profile (CA + hostname) with identity checks; today it connects without TLS settings. `deploy/backup_runner/fingerprint.sql` already runs over any psql connection (`PGSSLMODE=verify-full`) | plan §15.2 |
 | C4 | Target Supabase project: Data API off, RLS backstop, roles from the [Auth design §7](PFT_M5_AUTH_DESIGN_2026-10-02.md#7-rls-and-database-roles), TLS enforcement on, `anon`/`authenticated` revoked including default privileges | plan §15.1 |
 | C5 | PostgreSQL **17** client and a PG 17 recovery environment. Source is PG 16.15 [M, M6 record]; target 17.11 [M, compatibility pass]. A newer pg_restore reads older archives; the reverse is not assumed | plan §15.1 |
 | C6 | Independent backup path working against the target ([backup design](PFT_M5_INDEPENDENT_BACKUP_DESIGN_2026-10-02.md)), with a successful real restore drill | plan §15.2 |
@@ -71,11 +71,11 @@ export P=/tmp/pft-m8a-cutover-$STAMP                   # private evidence direct
 
 ### Step 3 — Isolated restore proof [LOCAL]
 
-1. Restore that exact archive into a new disposable **PG 17** cluster on loopback, using the drill's procedure:
+1. Restore that exact archive into a new disposable **PG 17** cluster on loopback, using `scripts/pft_backup_restore.py` (local-dump format) or the [restore runbook](PFT_BACKUP_RESTORE_RUNBOOK.md) steps:
    - `createdb` a new database;
    - `pg_restore --exit-on-error --no-owner --no-privileges -L <list without SCHEMA public>`.
 2. **F_iso** = fingerprint of the restore. Require F_iso == F1 for every table count and hash, institution/source breakdown and integrity count.
-3. The catalog digest may differ only by the known varchar-array CHECK rewrite, normalised by `canonical_ddl`. Any other difference stops the cutover.
+3. Also compare `deploy/backup_runner/fingerprint.sql` output of source and restore. It must be identical: it lists CHECK constraints by name only, because PostgreSQL rewrites some CHECK expressions on restore. Any difference stops the cutover.
 4. Never use a stale preflight dump (plan §15.3 step 4).
 
 ### Step 4 — Import into Supabase [STATE: target receives the application object set]

@@ -1,6 +1,6 @@
 # M5 independent encrypted backup and restore — design and local drill (2026-10-02)
 
-**Status: design plus a local synthetic prototype. This does not close SERVERLESS_GO criterion G7.** G7 also needs a real upload, readback and download from the chosen store, and a restore of the managed PostgreSQL 17 object set on a fresh environment. Both need owner approval. No cloud resource was created or contacted. Production, Supabase, Vercel and Plaid were not touched.
+**Status: design plus a local runner, store adapter, restore tool and workflow template (owner decisions P1-1…P1-5 recorded 2026-10-02). This does not close SERVERLESS_GO criterion G7.** G7 also needs a real upload, readback and download from the chosen store, and a restore of the managed PostgreSQL 17 object set on a fresh environment. Both need owner approval. No cloud resource was created or contacted. Production, Supabase, Vercel and Plaid were not touched.
 
 Legend: **[M]** measured tonight; **[D]** quoted from official documentation (link + lookup date); **[E]** estimate or inference; **未核实** not verified.
 
@@ -86,121 +86,214 @@ Original recommendation text: **Recommendation: B**, if the owner accepts a read
 
 ### 4.2 Recommendation — **adopted by the owner 2026-10-02 (P1-1)**
 
-- **Primary:** a dedicated private GitHub repo used only for backups. Each backup is one release asset named `pft-backup-<UTC>-<random>.pftenc3`. It carries no database name, kind or financial identifier (implemented in the prototype `object_name`).
+- **Primary:** a dedicated private GitHub repository used only for backups.
+  - Each backup point is one **release** named `pft-backup-<UTC>-<16 hex>`, with three age-encrypted assets: `backup.dump.age`, `manifest.json.age` and `fingerprint.txt.age`.
+  - Names carry no database name, kind or financial identifier.
 - **Why:** it is the only candidate with a documented hard stop at $0 (Actions) and no stated storage charge (releases). It needs no payment method. It is independent of both Supabase and Vercel.
+- **Store contract** (`deploy/backup_runner/release_store.py`):
+  - create the release as a **draft**;
+  - upload each asset;
+  - download each asset again and compare SHA-256 with the local ciphertext (and with GitHub's reported `digest` when present);
+  - only then publish.
+
+  Drafts are never listed, so a crash mid-upload cannot be mistaken for a backup. Stale drafts older than one day are removed by the next run. The token is sent only to the API/upload hosts. Asset downloads follow the storage redirect **without** `Authorization`.
 - **Risks, stated plainly:**
   - The AUP gives GitHub discretion over undue strain, and backups are not an explicitly documented use [D].
-  - A compromised workflow token can delete releases.
-  - Both are mitigated by the secondary copy, not removed.
+  - The workflow token that can publish can also delete releases.
+  - Both are mitigated by the secondary copy (§4.3), not removed.
 
-### 4.3 Secondary copy
+### 4.3 Secondary copy — **decided 2026-10-02 (P1-3)**
 
-- Weekly or monthly, the owner downloads the newest verified asset and keeps it in Google Drive or offline media. This is manual, so no unattended credential for Drive exists.
-- It covers loss of the GitHub account.
-- **Owner decision (P1-3):** cadence, or whether to skip it.
+- **Monthly**, and in addition before any planned migration or cutover, the owner manually downloads the newest published point's three `.age` files.
+- They go unchanged (still encrypted) to Google Drive **or** offline media.
+- This is manual on purpose: no Drive credential exists in any automation.
+- It covers loss or compromise of the GitHub account.
+- Keep at least the last three monthly copies; older ones can be deleted.
 
 ## 5. Encryption, keys, frequency and retention
 
-- **Envelope `PFTENC3`** (prototype `scripts/pft_m5_backup_drill.py`):
-  - **Key agreement:** X25519, ephemeral-static. HKDF-SHA256 over the ECDH secret, with salt = ephemeral ‖ recipient public keys.
-  - **Cipher:** AES-256-GCM with a 96-bit random nonce, under a fresh key per bundle.
-  - **Header:** magic, recipient key ID (SHA-256 of the raw public key), ephemeral public key, nonce and length. The whole header is authenticated as AAD.
-  - **Payload:** the manifest, then the archive. The 16-byte tag is appended.
-  - **Decryption** publishes plaintext only after both the tag and the manifest's archive SHA-256 verify.
-  - **Crypto library:** `cryptography` 41.0.7, already pinned.
-  - **Why public-key:** the backup runner needs only the **public** key, so a leaked runner cannot decrypt.
-  - **Review needed:** this composes reviewed primitives, but it is a custom format. **Owner decision (P1-4):** keep PFTENC3 after an independent review, or switch to `age`, a standard format with an external binary in every recovery environment.
-- **Key custody:**
-  - The owner generates the X25519 key pair offline on a trusted machine, never in CI or chat.
-  - The private key is stored as a passphrase-encrypted PKCS#8 PEM in two places: the owner's password manager and an offline copy (USB or paper). The passphrase is kept separately.
-  - Only the public key goes to the runner.
-  - The Fernet token key and Supabase credentials are **not** in the backup or the runner beyond the DB read role. Plaid tokens stay Fernet-encrypted inside the dump.
-  - A lost private key means all backups are unrecoverable. The restore drill (§6) proves the owner can still open it.
-- **Frequency:** daily, matching the current 24 h, plus on demand before any migration, cutover or schema change. Twice a day would halve the RPO at negligible cost [E]. **Owner decision (P1-5).**
-- **Retention:** grandfather-father-son, **7 daily + 4 weekly + 3 monthly** (up to 14 points). This matches the tiers in `api/backup.py:RETENTION`. In practice local jobs only create `daily`, so the cloud policy covers at least as much as local. Prune only after the new point is verified (`prune` refuses otherwise).
+### 5.1 Encryption: age — **decided 2026-10-02 (P1-4)**
+
+- **Tool and format:** the age CLI, **v1.3.2**, format age-encryption.org/v1, with X25519 recipients. The custom PFTENC3 prototype has been **removed** from the branch.
+  - Why age: a standard, specified, widely implemented format. The official Go age and the independent Rust rage both read it, so a restore needs no PFT code (runbook).
+  - Integrity: age authenticates every chunk. A wrong key, truncation or tampering fails decryption (tested [M]).
+- **Pinning in the workflow:**
+  - download `age-v1.3.2-linux-amd64.tar.gz` from the official release;
+  - check it against the **SHA-256 digest published on the release page**: `cbe24006683f8eb669266162894b9a522a1af52f2665fbc63a4bb032ed26ac10`. It was looked up through the GitHub API on 2026-10-02 and re-computed after download [M].
+  - The release has no separate checksums file. It also publishes Sigsum `.proof` files ("you can check their Sigsum proofs" [D, age README]). Verifying those would be optional extra hardening; it is not done.
+- **Recipients:**
+  - `config/recipients.txt` lists **at least two** X25519 public keys: a **daily** key and an **emergency** key. Comments are allowed.
+  - The runner refuses fewer than two, duplicates, and anything that is not a plain `age1…` X25519 key (SSH keys, post-quantum `age1pq1…`, secret keys).
+  - Every asset is encrypted to all recipients, so either private key alone decrypts every point (tested [M]).
+  - Post-quantum hybrid keys (`age-keygen -pq`, age ≥ 1.3) are a possible future change. Not adopted.
+- **Runner secrets:** none for encryption. The runner holds only public keys and the read-only database password.
+
+### 5.2 Key custody
+
+| | Daily key | Emergency key |
+| --- | --- | --- |
+| Generated | Offline, by the owner, on a trusted machine: `age-keygen \| age -p -o daily.key.age` | Same, separately: `emergency.key.age` |
+| Protection | Passphrase-encrypted identity file (age's native format; age prompts for the passphrase on use) | Same, **different** passphrase |
+| Stored at | Offline location **A** (e.g. encrypted USB at home), plus a printed copy of the file in the same place | Offline location **B**, physically separate (e.g. a safe-deposit box or a trusted person's safe) |
+| Passphrase stored | Owner's password manager | Password manager **and** sealed paper away from location B |
+| Used for | Monthly restore drills (§6) | Only when the daily key is unavailable; also one annual check |
+| Public key | Line 1 of `config/recipients.txt` | Line 2 |
+
+Also at each location: a copy of this runbook, `fingerprint.sql` and the age release archive.
+
+Rules:
+- Never put a private key or its passphrase in GitHub, Supabase, Vercel, the PFT repository, chat or a cloud drive.
+- `age -d -i <file>.key.age` on a fresh machine is the only operation that needs one.
+
+### 5.3 If a key is lost or exposed
+
+1. **One key lost** (destroyed, or passphrase forgotten), not exposed:
+   - All existing points remain decryptable with the other key. No data is at risk.
+   - Generate a replacement key offline and put the replacement public key in place of the lost one in `recipients.txt`.
+   - Run the workflow manually. Restore-drill the new point with the **replacement** key and with the surviving key.
+   - Old points stay single-key until retention ages them out (≤ about 3 months). Re-encrypting them is optional and not recommended: it needs plaintext on a machine.
+2. **One key possibly exposed** (lost device, leaked file **and** passphrase):
+   - Assume every existing point is readable by whoever holds it **and** can download from the backup repository or the secondary copy.
+   - Rotate as in 1 immediately.
+   - Once three new verified points exist, delete the older points from releases and from the secondary copy.
+   - Review backup-repository access and rotate the backup role password.
+   - Plaid tokens in the dump remain Fernet-encrypted. The Fernet key is never in a backup, but treat its exposure separately if it may also be affected.
+3. **Both keys lost:** every existing point is permanently unrecoverable.
+   - Generate two new keys and take a new backup immediately.
+   - The live database is then the only copy until it succeeds.
+   - Separate locations and the annual check exist to make this unlikely.
+4. **Annual check:** decrypt the newest `manifest.json.age` with **each** key and record the date. A forgotten passphrase is found while the other key still works.
+
+### 5.4 Frequency and retention — **frequency decided 2026-10-02 (P1-5)**
+
+- **Daily** scheduled run at 08:23 UTC. This is off the top of the hour, where GitHub documents high load and possible dropped scheduled runs.
+- Plus a **manual** run (`workflow_dispatch`) before every migration, cutover or schema change.
+- Twice a day would halve the RPO at negligible cost; not chosen for now.
+- **Retention:** grandfather-father-son, **7 daily + 4 weekly + 3 monthly** (up to 14 points). This matches the tiers in `api/backup.py:RETENTION`. Prune only after the new point is published (readback complete); `prune` refuses otherwise.
 - **Size:**
-  - Drill [M]: 2,610 rows → 281 KB archive; 35,600 rows → 3.31 MB. Random payloads.
-  - Production M6 dump (historical, from repo doc): 420,774 B at 2,517 rows, i.e. ~167 B/row compressed.
-  - Projection at 35.6k rows: ~6 MB per point, ~84 MB for 14 points [E].
+  - Drill [M]: 2,610 rows → 281,862 B stored dump; 35,600 rows → 3,314,822 B, plus about 23 KB of manifest and fingerprint.
+  - Production M6 dump (historical): 420,774 B at 2,517 rows.
+  - Projection: about 6 MB per point and about 84 MB for 14 points at 35.6k rows [E].
+
+### 5.5 Transition: Windows formats stay unchanged until M8c
+
+| Period | Windows runtime | Cloud |
+| --- | --- | --- |
+| Now → M8a | Unchanged: `api/backup.py` daily plain `pg_dump -Fc` + JSON manifest in the protected Windows directory (7/4/3 tiers). Optional external copies with `api/backup_crypto.py` (**PFTENC2**, password + scrypt) | None for Production. Drills on synthetic data only |
+| M8a → M8c | Windows jobs, if resumed under an approved transition, keeps the same local backups of the then-authoritative DB | GitHub Actions age backups of Supabase start once approved (prerequisite C6 of the cutover draft) |
+| After M8c | Windows jobs disabled; no new Windows backups | age backups are the only scheduled backups |
+| Afterwards | Keep existing Windows dumps and PFTENC2 copies, recovery-only, for at least one year after M8c | — |
+
+- `scripts/pft_backup_restore.py` restores **age points, PFTENC2 copies and plain local dumps** into a new local `pft_restore_*` database, and fingerprints the result with the same `fingerprint.sql`.
+- Removing PFTENC2 support needs a separate decision, once no PFTENC2 copy is retained.
+- Note: **PFTENC3 was never a Production format.** It existed only as last night's prototype and was replaced by age before any use.
 
 ## 6. Restore drill and fingerprint verification
 
-Prototype commands (local only):
+**Backup side** (`deploy/backup_runner/pft_backup_runner.py` with `snapshot_dump.sql`):
+1. **Connection policy:** a remote source needs `PGSSLMODE=verify-full` plus `PGSSLROOTCERT`. Plaintext is accepted only for loopback test clusters on port ≥ 55000.
+2. **Schema coverage:** fail closed if any non-system, non-provider schema is not selected (`PROVIDER_SCHEMAS` is still 未核实 against a real project).
+3. **One psql session:**
+   - `BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY`;
+   - database identity check (a wrong database aborts before any dump);
+   - `pg_export_snapshot()`;
+   - `pg_dump --snapshot=…`;
+   - `fingerprint.sql`, in the same snapshot.
+4. **Archive check:** the TOC must contain `TABLE DATA` for every fingerprinted table.
+5. Write the manifest, encrypt all three files with age to all recipients, delete the plaintext, then store and prune.
 
-```sh
-.venv/bin/python -m scripts.pft_m5_backup_drill create --source-url ... --recipient pub.pem --store DIR --work-dir DIR
-.venv/bin/python -m scripts.pft_m5_backup_drill restore --store DIR --object NAME --private-key key.pem --target-url ... --work-dir DIR
-```
+**`fingerprint.sql`** is plain psql, so it works with no PFT code. It prints one sorted line per object and no database name:
+- per-table row count and SHA-256 over per-row SHA-256 of canonical `to_jsonb` text (memory-bounded);
+- sequences;
+- PK/FK/unique constraint definitions;
+- CHECK constraint **names** (PostgreSQL rewrites some CHECK expressions on restore [M]);
+- index definitions;
+- column type/nullability/default.
 
-**Backup side:**
-1. Open a `REPEATABLE READ READ ONLY` transaction with session time zone UTC, then `pg_export_snapshot()`.
-2. Inside that snapshot, compute the fingerprint:
-   - per-table count and SHA-256 of canonical sorted `to_jsonb` rows (same function as `scripts/pft_m6_fingerprint.py`);
-   - sequence states;
-   - a digest of constraint, index and column DDL.
-3. Run `pg_dump -Fc --snapshot=<id> -n public …`. The archive and the fingerprint describe the **same** committed state (plan §16.1).
-4. Fail closed on coverage problems:
-   - an unselected non-provider schema exists;
-   - the archive TOC lacks `TABLE DATA` for any fingerprinted table.
-5. Seal, upload, read back and hash-check. Prune only after that.
+Rendering settings are pinned: UTC, `search_path`, `bytea_output`, `extra_float_digits`, `IntervalStyle`.
 
 **Restore side:**
-1. Download and authenticate. Verify the archive hash against the manifest.
-2. Refuse if the target equals the source.
-3. `createdb` the new `pft_restore_m5_*` database. It fails if the target exists.
-4. `pg_restore --exit-on-error --no-owner --no-privileges -L <list>`. The list skips only the dump's `SCHEMA public` create and comment, because every new database or managed project already has `public`. It never runs `DROP SCHEMA public` (plan §15.3).
-5. Fingerprint the restored database under the same rules and compare to the manifest. Any table, sequence or catalog difference is listed by name.
+- **With PFT code:** `scripts/pft_backup_restore.py` does download → decrypt (daily or emergency key) → manifest hash checks → `createdb` of a new database (fails if it exists) → `pg_restore --exit-on-error --no-owner --no-privileges -L <list>`. The list skips only `SCHEMA public` create/comment, so `DROP SCHEMA public` is never needed. It then fingerprints and compares.
+- **Without PFT code:** [restore runbook](PFT_BACKUP_RESTORE_RUNBOOK.md), using `age`, `pg_restore`, `createdb`, `psql`, `diff`.
 
-**One DDL normalization:** PostgreSQL rewrites `(ARRAY['a'::varchar,…])::text[]` CHECK expressions to `ARRAY[('a'::varchar)::text,…]` on restore [M]. Only that equivalent form is normalized, as the earlier M5 recovery probe did. A test shows that a changed literal is still detected.
+**Drill cadence (operation):**
+- Monthly, with the daily key; annually with the emergency key; after any key, tool or major-version change.
+- Restore into a fresh PostgreSQL **17** environment, matching Supabase 17.x.
+- After fingerprints match, start the app read-only against the restore with jobs and Plaid disabled. Check totals and token decryption without calling Plaid (plan §16.2 item 5). Record the elapsed time.
 
-**Drill cadence for operation (proposal):** monthly, plus after any key, tool or major-version change. Restore into a fresh PostgreSQL **17** environment, matching Supabase 17.11 [M, compatibility pass]. A PG 16 client should not be assumed to read PG 17 archives (未核实, but plan §15.1 warns about it). After the fingerprints match, start the app read-only against the restore with jobs and Plaid disabled. Check monthly, category and Membership totals and token decryption, without calling Plaid (plan §16.2 item 5). Record the elapsed time.
+### Local results [M]
 
-### Local drill results [M]
+Disposable PostgreSQL 16.15 on 127.0.0.1:55439 in the scratchpad, deleted afterwards. age v1.3.2, release digest verified. Fixture `scripts/pft_m5_backup_fixture.py` populates **all 15 tables** with random payloads, overrides, statement evidence, sync state and Fernet-encrypted synthetic tokens. Raw output: [backup-age-drill.json](evidence/m5-2026-10-02/backup-age-drill.json).
 
-Disposable PostgreSQL 16.15 on 127.0.0.1:55439, scratchpad, deleted afterwards. Synthetic fixture `scripts/pft_m5_backup_fixture.py` populates **all 15 tables**: overrides of every kind, statement batch, row and evidence, sync runs, Item runs, runtime state, Fernet-encrypted synthetic tokens and random payloads. Raw output: [backup-drill.json](evidence/m5-2026-10-02/backup-drill.json).
+| Rows (raw) | Archive | Stored assets | Create: dump + fingerprint + encrypt ×3 + store + readback + prune | Restore with **emergency key only** + verify | Equal |
+| ---: | ---: | ---: | ---: | ---: | --- |
+| 2,611 | 281,500 B | 305,111 B | 0.208 s | 0.333 s | yes |
+| 35,601 | 3,313,724 B | 3,338,074 B | 1.090 s | 1.377 s | yes |
 
-| Rows (raw) | Total rows | Archive | Sealed | Create (fingerprint + dump + seal + store + readback + prune) | Restore + verify | Equal |
-| ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| 2,611 | 5,255 | 281,419 B | 283,965 B | 0.197 s | 0.363 s | yes |
-| 35,601 | 71,235 | 3,314,161 B | 3,316,710 B | 1.491 s | 1.752 s | yes |
+Single loopback runs; no network, TLS, pooler or GitHub time.
 
-Single runs on loopback. These exclude network, TLS, pooler and provider time.
+`tests/test_m5_backup_age.py`: **19 pass**. 6 need the database opt-in (`PFT_M5_BACKUP_SYNTHETIC_TEST=1`) plus `PFT_AGE_BIN`; 3 more need only `PFT_AGE_BIN`.
 
-`tests/test_m5_backup_drill.py`: **12 tests pass**, 3 of them on the database (opt-in `PFT_M5_BACKUP_SYNTHETIC_TEST=1`). They cover:
-- envelope round trip;
-- wrong key, ciphertext tamper, header tamper, truncation and manifest-hash mismatch all publish nothing;
-- no overwrite;
-- store readback rejection;
-- retention covers 7/4/3, and prune refuses without a verified newest point;
-- profile guards reject non-loopback hosts, ports 5432/5434, Production env and non-drill names;
-- catalog normalization is narrow;
-- full chain on a populated database:
-  - a write made after the backup does not appear in the restore, which proves snapshot consistency;
-  - a changed restored row is reported as `tables:public.accounts`, and a dropped index as `catalog`;
-- an existing target and a wrong key are refused;
-- an unselected application schema fails closed.
+- **Recipients and policy:**
+  - fewer than two keys, duplicates, SSH, post-quantum and secret keys are rejected;
+  - the loopback/verify-full connection policy is enforced.
+- **Runner bundle:**
+  - `SHA256SUMS` must match the runner files;
+  - workflow pins: age version + checksum, checkout SHA, image digest;
+  - the template must not be under `.github/workflows`.
+- **Retention and local store:** 7/4/3 coverage; atomic put; readback failure leaves nothing behind; prune refuses without a verified newest point.
+- **GitHub store against a local fake API with a separate fake storage host:**
+  - a point publishes only after readback;
+  - storage never receives `Authorization`;
+  - a corrupted upload leaves no release;
+  - a crashed run leaves only an invisible draft, which is later removed;
+  - pagination beyond 100 releases works;
+  - a wrong token and untrusted hosts are rejected.
+- **age:**
+  - each of the two keys alone decrypts;
+  - a stranger key, tampering and truncation fail;
+  - a passphrase-protected identity file works.
+- **Full chain:**
+  - emergency-key restore equals the source fingerprint;
+  - a committed write injected **between snapshot export and pg_dump** is in neither the dump nor the fingerprint. A mutation check removing `--snapshot` makes this test fail [M];
+  - a changed row and a dropped index are reported by name;
+  - container-style wrapper mode works;
+  - the runbook commands work with no PFT code;
+  - wrong database, unselected schema, wrong key and an existing target all fail closed;
+  - Windows plain dump and PFTENC2 restore to the source fingerprint.
+
+**Not tested locally:**
+- the real `docker run` of the pinned PG 17 image (`env` stands in for the wrapper);
+- the real GitHub API;
+- verify-full TLS to Supabase;
+- `--snapshot` through Supavisor session mode (推测 to work; 未核实).
+
+These are the approved real run (§7).
 
 ## 7. What remains for G7 (needs approval)
 
-1. Owner decisions: P1-1 (GitHub private repo releases) and P1-2 (GitHub Actions runner) **decided 2026-10-02**. P1-3 (secondary copy), P1-4 (envelope format) and P1-5 (frequency) remain open.
-2. Create the private backup repo, the read-only Supabase backup role, and the workflow with the public key only. The owner generates the real key pair offline.
-3. Real run against the **synthetic** M5 project:
-   - PG 17 dump through the session pooler with verified TLS;
-   - verify that `pg_export_snapshot` + `--snapshot` works through Supavisor session mode (推测 that it does, because each client gets its own backend; 未核实);
-   - upload, readback, download on a different machine, restore to a fresh PG 17, fingerprint match.
-4. Confirm the Supabase-managed schema list in `PROVIDER_SCHEMAS` against the real project. It is 未核实; the drill fails closed on unknown schemas.
-5. Status integration (backup outcome row, 25-hour warning) and failure tests from plan §16 "Tests":
-   - temp-space exhaustion;
-   - expired credentials;
-   - quota denial;
-   - paused DB;
-   - pruning failure.
+1. Owner decisions P1-1…P1-5 are recorded (2026-10-02). Nothing is pending there.
+2. **Approvals still needed:**
+   1. create the dedicated private backup repository and install the template (README in `deploy/backup_runner/`);
+   2. the owner generates the two key pairs offline and commits only the public keys;
+   3. create the read-only `pft_backup` role on the **synthetic** M5 project and store its password as the only repository secret;
+   4. run the workflow manually against the synthetic project, then download on a different machine, restore to PostgreSQL 17 using the runbook, and compare fingerprints.
+3. During that run, verify:
+   - `PROVIDER_SCHEMAS`;
+   - `--snapshot` through the session pooler;
+   - GitHub's asset `digest` field;
+   - whether scheduled-run failures notify the owner (GitHub's notification behaviour for scheduled workflows is 未核实).
+4. M6:
+   - a `backup_runs` outcome row written by the backup role, for honest status and the 25-hour overdue warning;
+   - failure tests from plan §16 "Tests": temp space, expired credentials, quota denial, paused DB, pruning failure.
 
 ## 8. Files
 
-- `scripts/pft_m5_backup_drill.py`: drill prototype (envelope, fingerprints, store, retention, create/restore).
+- `deploy/backup_runner/pft_backup_runner.py`, `release_store.py`, `snapshot_dump.sql`, `fingerprint.sql`, `SHA256SUMS`, `pft-backup.yml`, `README.md`: runner, stores and workflow template. Standard library only.
+- `scripts/pft_backup_restore.py`: multi-format restore tool (age, PFTENC2, plain local dump).
 - `scripts/pft_m5_backup_fixture.py`: populated synthetic fixture.
-- `tests/test_m5_backup_drill.py`: tests.
-- `docs/evidence/m5-2026-10-02/backup-drill.json`: measured results.
+- `tests/test_m5_backup_age.py`: tests.
+- `docs/PFT_BACKUP_RESTORE_RUNBOOK.md`: restore without PFT code.
+- `docs/evidence/m5-2026-10-02/backup-age-drill.json`: measured results.
 
-`api/backup.py`, `api/backup_crypto.py` and `api/jobs.py` are unchanged. The local guarded backup is untouched.
+`api/backup.py`, `api/backup_crypto.py` and `api/jobs.py` are unchanged; the Windows backup is untouched.
