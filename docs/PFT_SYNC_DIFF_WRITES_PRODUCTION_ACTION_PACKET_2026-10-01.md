@@ -275,7 +275,7 @@ compose start jobs
 
 ## Phase 1 execution record, 2026-10-02
 
-Owner-approved, in the order of the per-phase procedure. Private evidence: `/tmp/pft-sync-diff-writes-release-20261002T001220Z/phase1/`. All values [M].
+Owner-approved, in the order of the per-phase procedure. Private evidence: `~/.local/share/pft/releases/2026-10-02/evidence/phase1/` (moved from `/tmp`, which is cleared at boot; retained until 2026-10-16). All values [M].
 
 | Step | Result |
 | --- | --- |
@@ -296,7 +296,7 @@ Current pins for later phases: api `sha256:d5e5e8a3…` (unchanged), jobs `sha25
 
 ## Phase 2 execution record, 2026-10-02
 
-Owner-selected build method: single-file overlay of `api/services/derivation.py` (same method as Phase 1) on the running api and jobs images. Owner-approved S0–S7, including the Plaid call. Private evidence: `/tmp/pft-sync-diff-writes-release-20261002T001220Z/phase2/`. All values [M].
+Owner-selected build method: single-file overlay of `api/services/derivation.py` (same method as Phase 1) on the running api and jobs images. Owner-approved S0–S7, including the Plaid call. Private evidence: `~/.local/share/pft/releases/2026-10-02/evidence/phase2/` (retained until 2026-10-16). All values [M].
 
 | Step | Result |
 | --- | --- |
@@ -324,7 +324,21 @@ Owner-selected build method: single-file overlay of `api/services/derivation.py`
 
 ### Running state and rollback after Phase 2
 
-Running pins: api `sha256:6f6d9560…`, jobs `sha256:838b2833…`, web `sha256:6ad6b7bc…`, db `postgres:16`. The pin files are in the Phase 2 evidence directory (`current-images.yml` + `api-new.yml` + `jobs-new.yml`). **Any future recreation must use these pins or pins regenerated from the running IDs, never `:latest`.** These files contain image IDs only, but `/tmp` is not durable.
+Running pins: api `sha256:6f6d9560…`, jobs `sha256:838b2833…`, web `sha256:6ad6b7bc…`, db `postgres:16`. **Any future recreation must use these pins or pins regenerated from the running IDs, never `:latest`.**
+
+Durable locations (owner-only, mode 0700/0600; image IDs and non-secret env names only):
+
+| What | Where |
+| --- | --- |
+| Single pin file for the running state (api, web, jobs and its `PFT_APP_COMMIT`) | `~/.local/share/pft/releases/2026-10-02/running-images.yml` |
+| Per-phase pins (`current-images.yml`, `*-new.yml`, `*-rollback.yml`) | `~/.local/share/pft/releases/2026-10-02/phase1/`, `.../phase2/` |
+| Phase 1 rollback image (original jobs) | `pft-runtime-jobs:rollback-20261002-p1` → `sha256:b1ae3322…` |
+| Phase 2 rollback images (Phase 1 state) | `pft-runtime-api:rollback-20261002-p2` → `sha256:d5e5e8a3…`; `pft-runtime-jobs:rollback-20261002-p2` → `sha256:1d17e2b5…` |
+| Private evidence, retained until 2026-10-16 | `~/.local/share/pft/releases/2026-10-02/evidence/` (see `RETENTION.txt`) |
+
+Tags protect these images from `docker image prune`, which removes only untagged images. They do **not** protect against `docker image prune -a`, which removes every image no container uses. Never run `prune -a` on this host while rollback is still possible.
+
+For the commands below, set `PH=~/.local/share/pft/releases/2026-10-02/phase2` and define `compose()` with that phase's `current-images.yml`. Alternatively, write rollback pins that reference the durable tags above.
 
 Rollback to the Phase 1 state:
 - `compose -f "$PH/api-rollback.yml" up -d --no-deps --no-build --pull never --force-recreate --wait --wait-timeout 120 api`
