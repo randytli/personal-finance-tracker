@@ -1,6 +1,6 @@
 # Sync diff-writes — local Production action packet — 2026-10-01
 
-**Status: IN PROGRESS.** Read-only work done so far: Appendix A1/A2 (2026-10-01) and Phase 1 step 0 (2026-10-02). No [STATE] command has run. Every step marked as changing state requires the owner's explicit approval at execution time. Each phase's controlled sync makes a real Production Plaid call and Production financial writes; each needs its own approval.
+**Status: PHASE 1 COMPLETE (2026-10-02 00:27 UTC); PHASE 2 NOT STARTED.** See the [Phase 1 execution record](#phase-1-execution-record-2026-10-02). Phase 2 requires its own build-method decision and approvals. Every step marked as changing state requires the owner's explicit approval at execution time. Each phase's controlled sync makes a real Production Plaid call and Production financial writes; each needs its own approval.
 
 Scope: deploy the [sync round-trip amplification fix](PFT_M5_SYNC_ROUND_TRIP_FIX_2026-10-01.md) (`a5f2dfd`, `b646fb9`) to the local Production runtime, Compose project `pft-runtime`, in **two phases**. Phase 1 recreates only `jobs`; Phase 2 recreates only `api` and `jobs`. `db` and `web` are not touched. There is no schema change and no migration.
 
@@ -152,13 +152,17 @@ Re-check `/sync/status`: jobs `stopped`, no `running` run.
 **Phase 1 (jobs-only overlay):**
 
 1. **[STATE: new image tag only]** `docker image tag "$(docker inspect -f '{{.Image}}' pft-runtime-jobs-1)" pft-runtime-jobs:sdw-p1-pre-$STAMP`. Stop if the tag exists. Api is untouched in Phase 1, so it needs no tag.
-2. **[STATE: builds one new image; containers untouched]** The build context `$PH/overlay/` contains only `Dockerfile` (`FROM <running jobs image ID>` / `COPY labels.py /app/api/labels.py`) and `labels.py` taken from `git show $ALIGN_SHA:api/labels.py`:
+2. **[STATE: builds one new image; containers untouched]** The build context `$PH/overlay/` contains only `Dockerfile` (`FROM pft-runtime-jobs:sdw-p1-pre-$STAMP` / `COPY labels.py /app/api/labels.py`) and `labels.py` taken from `git show $ALIGN_SHA:api/labels.py`. Two rules learned in execution:
+   - **`FROM` must name the local tag from item 1, never `sha256:<ID>`.** BuildKit treats an ID as a registry repository and tries docker.io.
+   - **Both overlay files must be mode 0644 before the build.** `COPY` keeps the source mode, and the private directory's umask 077 produced a 0600 `labels.py` that the uid-1000 jobs process could not read.
    `docker build --pull=false -t pft-runtime-jobs:sdw-p1-align-$STAMP $PH/overlay`
    Write the new image ID into `$PH/jobs-new.yml`, from the template, with `PFT_APP_COMMIT: sdw-p1-a047b0f-labels-over-<old image ID>`. `$PH/jobs-rollback.yml` pins the old image and its original `PFT_APP_COMMIT`.
 3. **[READ-ONLY]** For the new image:
    - all 34 `.py` files equal `$ALIGN_SHA` (Appendix C via `docker run --rm --entrypoint sh <image> -c '...'`);
    - `pip freeze`, Python and `pg_dump` versions are identical to the running jobs image;
-   - `/app/api/labels.py` is `root:root 0644`, like the original.
+   - `/app/api/labels.py` is `root:root 0644`, like the original;
+   - its layers are the old image's layers plus exactly one;
+   - as uid 1000 with `--network none` and a dummy `DATABASE_URL`, `python -c "import api.jobs, api.labels, api.models, api.services.sync_all, api.services.derivation, api.backup"` succeeds.
 
 **Phase 2 (method decided before Phase 2; if full build):**
 
@@ -268,6 +272,27 @@ compose start jobs
    - Both phases change only code that derives normalized and classification values. On the next sync, the rolled-back code re-derives every value, so derived columns re-converge without a restore.
    - Raw rows, cursors and manual decisions are written by code that the fix does not change.
    - Restore from that phase's backup **only** if the comparison shows unexplained damage to raw, override, statement or account data. Restore into a new `pft_restore_<STAMP>` database, verify fingerprints, and switch the runtime database only through a separately approved cutover following the M6 pattern. Never restore over the live database, and never use `docker compose down -v`.
+
+## Phase 1 execution record, 2026-10-02
+
+Owner-approved, in the order of the per-phase procedure. Private evidence: `/tmp/pft-sync-diff-writes-release-20261002T001220Z/phase1/`. All values [M].
+
+| Step | Result |
+| --- | --- |
+| Preconditions (00:12 UTC) | No sync or backup running; last sync/backup 2026-10-01 19:35 UTC; next sync about 19 h away |
+| 0 — source review | api: 34/34 `.py` identical to `a047b0f`. jobs: only `api/labels.py` differed (pre-card-fee, `1c2bcd9`), outside the jobs execution path. Packages identical. Owner chose option 1 (jobs-only overlay) |
+| S1 — stop jobs (00:19:34) | No running run, no advisory locks |
+| S2 — backup | `pft-extra-20261002T001945547083Z.dump`, 496,593 B, SHA-256 matches manifest, `pg_restore -l` lists 15 tables; manifest commit shows the pinned jobs image |
+| Restorability | Restored into a disposable loopback cluster: all 15 table counts/hashes, institutions and integrity identical to Production; cluster deleted |
+| 3 — pre-deploy fingerprints | 15 tables, integrity zero; 2,636 raw / 2,636 normalized row hashes; classification digest `4a570eb1…` |
+| S3 — rollback tag | `pft-runtime-jobs:sdw-p1-pre-20261002T001220Z` → `sha256:b1ae3322…` |
+| S4 — overlay | Two failed attempts, neither used by any container: (1) `FROM sha256:` rejected by BuildKit, nothing pulled or built; (2) image with a 0600 `labels.py`, caught by verification and replaced. Final `sha256:1d17e2b59fa4be74af41f60125f41084698049424e0b4d77376db1fe41cc74c7`: old layers + 1; 34/34 files equal `a047b0f`; packages, Python 3.13.5 and `pg_dump` 16.15 unchanged; uid-1000 imports pass |
+| S5 — recreate jobs | Created, not started; user, command, restart policy and backup mount unchanged; api/web/db containers unchanged |
+| S6 — controlled sync (00:24 UTC) | One-shot run `c029543d`, success for all 5 Items, Plaid delta 0/0/0. **5,374 SQL statements** (INSERT 2,622, UPDATE 2,639, SELECT 103, SAVEPOINT/RELEASE 5/5), wall 5.92 s, `duration_ms` 5,331, classification 1,375 ms, 2,615 rows normalized. This is the old-write-path Production baseline: 2 × 2,615 + 144 |
+| 7 — comparison | All business tables identical without timestamps. Row level: 0 added / 0 removed / 0 changed / 0 reclassified; classification digest identical; integrity zero. `transactions` full hash differed only by `updated_at` (old path). Expected only: `sync_runs` +1, `sync_item_runs` +5; `items` `last_sync_attempt_at`, `last_sync_success_at`, `updated_at` (cursor unchanged); `sync_runtime_state` `last_published_run_id`, `published_at`. **PASS** |
+| S7 — start jobs (00:27:29 UTC) | Heartbeat fresh within 1 s; status `running`; backup healthy; no log errors; restarts 0 |
+
+Current pins for later phases: api `sha256:d5e5e8a3…` (unchanged), jobs `sha256:1d17e2b5…`, web `sha256:6ad6b7bc…`. Phase 2's `current-images.yml` must be generated from these running IDs. The next scheduled sync is due about 2026-10-03 00:24 UTC [E]. The next daily backup is about 2026-10-02 19:35 UTC [E], because the one-off extra backup does not update the scheduler's backup marker.
 
 ## Appendix A — Read-only SQL
 
