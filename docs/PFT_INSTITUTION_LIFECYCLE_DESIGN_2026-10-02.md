@@ -1,6 +1,6 @@
 # Institution lifecycle：Pending / Active / Deactivated 设计
 
-> 2026-10-02 修订：owner 已拍板 D1–D4、D16、D17（见 §10），本文按决定更新。
+> 2026-10-02 修订：owner 已拍板 D1–D4、D8、D14、D16、D17 和 M-1（见 §10），本文按决定更新。
 
 日期：2026-10-02（无人值守夜间任务 6a）。分支：`feature/institution-lifecycle`，从 `main` @ `47183eb` 创建，与 M5 分支互不依赖。
 范围：只写设计。本节不包含任何 Production 操作、Plaid 调用或云端写入。
@@ -179,6 +179,7 @@ D2 已决定：Pending 不参与定时同步、启动 catch-up 和普通的 Acti
 | Pending → Rejected（reject） | `POST /items/{id}/reject` | 只接受 `pending`；派生锁下执行；两边都未发布，执行前后断言账本快照不变 | 不动 |
 | Rejected → Pending（retry-onboarding） | `POST /items/{id}/retry-onboarding` | 只接受 `disabled`（D4）；同上断言。回到 Pending 后，必须重新通过 onboarding 准备、checks、预览和确认激活 | 不动 |
 | 账户元数据维护（只限 Active） | `POST /items/{id}/maintenance/account-metadata` | D16 允许的唯一 Active 逐 Item 操作。派生锁下执行，只刷新已知账户的名称和掩码。账户集合有增减、或账户类型漂移，返回 409 且不写入；不导入、不 normalize、不分类、不动 cursor；执行前后断言财务账本不变（显示名称除外） | 不动 |
+| 断开连接（D8，可选） | `/deactivate` 带 `{"disconnect": true}`，或对已停用的 Item 调用 `POST /items/{id}/disconnect` | 只接受 Deactivated 且尚未断开的 Item。派生锁覆盖整个 Plaid `/item/remove` 调用，期间无法重新激活；成功后记录 `disconnected_at`，账本不变。组合操作先提交停用，再断开：如果断开失败（502），Item 仍是“已停用、仍连接”，可以重试 | 不动；check K13 阻止重新激活，直到重新连接流程实现（D18） |
 | 通用 status 写入 | `PATCH /items/{id}/status` | **已退役（D3）**：没有必需的调用方，fail closed，一律返回 410，不读也不写数据库 | — |
 
 digest 中包含转换类型，所以 activate 的预览不能拿去确认 reactivate，反之亦然。
@@ -225,6 +226,7 @@ Plaid cursor 有效期：Plaid 文档没有承诺 cursor 永久有效。如果�
 | POST | `/plaid/items/{id}/retry-onboarding` | Rejected → Pending |
 | POST | `/plaid/items/{id}/maintenance/account-metadata` | 只限 Active：刷新已知账户的显示元数据（D16） |
 | POST | `/plaid/transactions`、`/plaid/transactions/normalize`、`/plaid/accounts` | 只限 Pending onboarding（D16） |
+| POST | `/plaid/items/{id}/disconnect` | 只限 Deactivated：Plaid `/item/remove`（D8） |
 | PATCH | `/plaid/items/{id}/status` | 已退役：410（D3） |
 
 ## 9. 前端（6c）
@@ -241,8 +243,17 @@ Plaid cursor 有效期：Plaid 文档没有承诺 cursor 永久有效。如果�
 
 - **D16 ✔** 拆分式的导入和 normalize 只用于 Pending onboarding；Active、Deactivated、Rejected 一律拒绝，相关测试改为调用原子同步的服务步骤。`/plaid/accounts` 只用于 Pending；Active 的元数据刷新只作为带锁、带校验的 maintenance 操作保留，不能替代同步。
 - **D17 ✔** reject 和 retry 都有 UI，都要求二次确认；retry 只改状态。
+- **D8 ✔** 停用默认**不**调用 `/item/remove`。另有单独的“停用并断开连接”选项（以及对已停用 Item 的“Disconnect from Plaid”），确认框写明重新激活需要重新连接。计费依据见 §12。
+- **D14 ✔** 同步健康面板里的每个机构都有 “Manage institution” 链接，指向 `/plaid/items/<id>`。
+- **M-1 ✔** 暂不合并。D15 彩排通过后，在同一个窗口内依次完成：合并 → preflight → 迁移 → api/jobs/web 三个镜像一起更新（见 runbook 的 “Lifecycle release window”）。
+- **D12、D15** 已批准，在恢复副本上执行；命令清单见 `docs/PFT_LIFECYCLE_RESTORE_REHEARSAL_PACKET_2026-10-02.md`，等待逐条批准。
 
-仍待决：
+新出现、需要 owner 决定（不阻塞 merge，也不阻塞发布）：
+- **D18** 断开连接之后怎么重新连接？新的 Link 会产生新的 Item 和新的 `transaction_id`，与旧交易重复；同时 `_institution_exists` 会挡住同一机构。需要设计“重连并对齐历史交易”，或者把断开定义为最终状态。另外，断开后已经失效的 token 仍以密文保存，是否清除也需要决定。
+
+留到发布之后（owner 2026-10-02 决定）：D5–D7、D9、D13、R-1..R-6。
+
+仍待决（原列表）：
 - **D5** 重新激活时 cursor 失效（Plaid 报错），是否允许受控重置 cursor？默认：否。走现有 `blocked`/`sync_paused` 路径，等 owner 处理。
 - **D6** Deactivated 的机构能否继续导入账单？默认否（L6 保持 Pending/Active）。
 - **D7** 页面上是否提供 Pending 的“拉取/规范化”按钮（会调用 Plaid）？默认不提供，仍然走 runbook。
@@ -293,3 +304,26 @@ Plaid cursor 有效期：Plaid 文档没有承诺 cursor 永久有效。如果�
   - Retry onboarding 只改状态：不重新 normalize（被改动的 raw 未被应用）、不分类、不动 cursor、不进入同步，回到 Pending 后 K6 仍然要求重新 onboarding。
 - 变异检查：把 onboarding 路由放宽到 active，或让 retry 顺带 normalize，对应测试都会失败。
 - 前端：Jest 新增“取消接入需要二次确认、只写一次”和“重新接入只写 retry-onboarding 一次”。浏览器 QA 在三种宽度下覆盖了取消接入 → 重新接入 → 可以激活的完整流程。
+
+## 12. Plaid 计费与 D8
+
+根据 Plaid 官方文档（[Plaid pricing and billing](https://plaid.com/docs/account/billing)，2026-10-02 查阅）：
+- Transactions 采用**订阅费模式**（`/transactions/refresh` 除外，它按次计费）。
+- “只要 Item 存在有效的 `access_token`，每个 Item 每月收取订阅费。” 用 `/item/remove` 删除 Item 才会结束订阅。
+- 按 UTC 自然月计费，月中创建或删除的 Item **不按比例折算**。
+- 即使没有任何 API 调用，或者 Item 处于错误状态（例如 `ITEM_LOGIN_REQUIRED`），只要订阅有效就照常收费。
+- 文档里没有价格表。Pay-as-you-go 和 Growth 套餐的单价，只在 Plaid Dashboard 申请 Production 时的最后一页显示；Custom 套餐由销售报价。**我们实际使用的套餐和单价不在仓库里，需要你到 Plaid Dashboard 的 Billing 页面确认。**
+
+所以，停用但保持连接的 Item 会继续按月收费。这正是 D8 默认选择的代价：保留 token 和 cursor，重新激活才能从原 cursor 继续。需要停止计费时，用“停用并断开连接”。断开当月仍然收取整月费用。
+
+### 实现
+
+- 新列 `items.disconnected_at`（可空）。迁移和 preflight 的生命周期列中都包含它。
+- `POST /plaid/items/{id}/deactivate` 带 `{"preview_digest", "disconnect": true}`：先按正常流程提交停用（带 digest 校验），再执行断开。
+- `POST /plaid/items/{id}/disconnect`：只接受 Deactivated 且未断开的 Item。在派生锁内调用 Plaid `/item/remove`，成功后写入 `disconnected_at`；失败时返回 502，什么都不写。
+- Check K13 “Plaid connection”：已断开 → fail，重新激活预览和执行都返回 409。
+- 前端：Active 页面有 “Deactivate”（默认保持连接，说明会继续计费）和单独的 “Deactivate and disconnect”。Deactivated 页面有 “Disconnect from Plaid”。断开后显示 “Disconnected” 徽章和提示，Reactivate 按钮禁用。
+- 测试：
+  - `test_deactivation_keeps_the_plaid_connection_by_default`：没有任何 Plaid 调用；
+  - `test_deactivate_and_disconnect_removes_the_item_and_blocks_reactivation`：fake client 收到 `/item/remove`，账本不变，K13 fail；
+  - `test_failed_disconnect_leaves_a_connected_deactivated_item_to_retry`。
