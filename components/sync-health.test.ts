@@ -1,6 +1,6 @@
 /** @jest-environment jsdom */
 import { createElement } from 'react'
-import { act, cleanup, render, renderHook, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, renderHook, screen, waitFor, within } from '@testing-library/react'
 import { consistentJson, SyncHealth, useSyncRefresh, type SyncStatus } from './sync-health'
 
 const originalFetch = global.fetch
@@ -128,4 +128,20 @@ test('never-published, partial, paused, failed-bank, and metadata warnings stay 
   }
   expect(screen.queryByText('· All clear')).toBeNull()
   expect(screen.getByText(/Last bank check: Never/)).toBeTruthy()
+})
+
+test('each institution links to its management page', () => {
+  render(createElement(SyncHealth, { status: { ...status('published'), institutions: [{
+    item_id: 'item/with space', institution_name: 'Ally Bank', status: 'pending', sync_paused: false,
+    last_attempt_at: null, last_success_at: null, last_change_at: null, next_retry_at: null, latest_outcome: null,
+  }] }, error: false }))
+  // Visible as soon as the health panel opens, without expanding the institution row.
+  const panel = screen.getByText('Sync and backup health').closest('details') as HTMLDetailsElement
+  expect(panel.open).toBe(false)
+  fireEvent.click(panel.querySelector('summary')!)
+  expect(panel.open).toBe(true)
+  const row = screen.getByText('Ally Bank').closest('details') as HTMLDetailsElement
+  expect(row.open).toBe(false)
+  const link = screen.getByRole('link', { name: 'Manage Ally Bank' })
+  expect(link.getAttribute('href')).toBe('/plaid/items/item%2Fwith%20space')
 })

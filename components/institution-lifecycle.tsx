@@ -196,13 +196,21 @@ const COPY: Record<LifecycleKind, { title: string; confirm: string; description:
   deactivate: {
     title: 'Deactivate institution',
     confirm: 'Confirm deactivation',
-    description: 'Deactivation stops syncing this institution. Its transactions stay in analytics and classification; the saved cursor is kept so reactivation resumes where sync stopped.',
+    description: 'Deactivation stops syncing this institution. Its transactions stay in analytics and classification. The Plaid connection and saved cursor are kept, so reactivation resumes where sync stopped; Plaid keeps billing the monthly Transactions subscription while the Item stays connected.',
   },
 }
 
+const DISCONNECT_COPY = {
+  title: 'Deactivate and disconnect',
+  confirm: 'Confirm deactivate and disconnect',
+  description: 'Deactivation stops syncing this institution; its transactions stay in analytics and classification. Disconnecting also removes this Item at Plaid, which ends its monthly Transactions subscription.',
+}
+
+export const RECONNECT_REQUIRED = 'Reactivating a disconnected institution requires reconnecting it through Plaid Link; until reconnecting is supported, it cannot be reactivated.'
+
 // The preview runs when the dialog opens; nothing is committed until the confirm button is pressed.
-export function LifecycleDialog({ itemId, institutionName, kind, open, onOpenChange, onDone }: {
-  itemId: string; institutionName: string; kind: LifecycleKind; open: boolean
+export function LifecycleDialog({ itemId, institutionName, kind, disconnect = false, open, onOpenChange, onDone }: {
+  itemId: string; institutionName: string; kind: LifecycleKind; disconnect?: boolean; open: boolean
   onOpenChange: (open: boolean) => void; onDone: () => void
 }) {
   const [preview, setPreview] = useState<ImpactPreview | null>(null)
@@ -229,7 +237,7 @@ export function LifecycleDialog({ itemId, institutionName, kind, open, onOpenCha
     try {
       const response = await fetch(`${base}/${kind}`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ preview_digest: preview.digest }),
+        body: JSON.stringify(disconnect ? { preview_digest: preview.digest, disconnect: true } : { preview_digest: preview.digest }),
       })
       if (!response.ok) throw new Error(await errorDetail(response))
       onOpenChange(false)
@@ -241,13 +249,14 @@ export function LifecycleDialog({ itemId, institutionName, kind, open, onOpenCha
     }
   }
 
-  const copy = COPY[kind]
+  const copy = disconnect && kind === 'deactivate' ? DISCONNECT_COPY : COPY[kind]
   return <Dialog open={open} onOpenChange={next => { if (!submitting) onOpenChange(next) }}>
     <DialogContent>
       <DialogHeader>
         <DialogTitle>{copy.title}: {institutionName}</DialogTitle>
         <DialogDescription>{copy.description}</DialogDescription>
       </DialogHeader>
+      {disconnect && <Alert variant="warning"><CircleAlert aria-hidden="true" /><p className="text-sm">{RECONNECT_REQUIRED}</p></Alert>}
       {!preview && !error && <LoadingState label="Calculating impact preview" rows={2} />}
       {error && <Alert variant="destructive" role="alert"><CircleX aria-hidden="true" /><p className="text-sm">{error}</p></Alert>}
       {preview && <ImpactSummary preview={preview} />}
@@ -260,12 +269,21 @@ export function LifecycleDialog({ itemId, institutionName, kind, open, onOpenCha
   </Dialog>
 }
 
-export type OnboardingKind = 'reject' | 'retry-onboarding'
+export type OnboardingKind = 'reject' | 'retry-onboarding' | 'disconnect'
 
 // Both dialogs state the same guarantee about staged data; neither step imports or publishes.
 export const STAGED_DATA_NOTE = 'While Rejected, data already staged for this institution stays unpublished: it is not in scheduled sync and not in analytics.'
 
 const ONBOARDING_COPY: Record<OnboardingKind, { title: string; confirm: string; points: string[] }> = {
+  disconnect: {
+    title: 'Disconnect from Plaid',
+    confirm: 'Confirm disconnect',
+    points: [
+      'Removes this Item at Plaid, which ends its monthly Transactions subscription.',
+      'The institution stays Deactivated; its transactions stay in analytics and classification.',
+      RECONNECT_REQUIRED,
+    ],
+  },
   reject: {
     title: 'Cancel onboarding',
     confirm: 'Confirm cancel onboarding',
@@ -324,7 +342,7 @@ export function OnboardingDialog({ itemId, institutionName, kind, open, onOpenCh
       {error && <Alert variant="destructive" role="alert"><CircleX aria-hidden="true" /><p className="text-sm">{error}</p></Alert>}
       <DialogFooter>
         <Button variant="outline" disabled={submitting} onClick={() => onOpenChange(false)}>Keep current status</Button>
-        <Button variant={kind === 'reject' ? 'destructive' : 'default'} disabled={submitting} onClick={confirm}>
+        <Button variant={kind === 'retry-onboarding' ? 'default' : 'destructive'} disabled={submitting} onClick={confirm}>
           {submitting ? 'Applying…' : copy.confirm}</Button>
       </DialogFooter>
     </DialogContent>

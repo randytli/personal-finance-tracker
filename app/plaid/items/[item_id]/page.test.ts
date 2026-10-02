@@ -9,6 +9,7 @@ const originalFetch = global.fetch
 type Request = { path: string; method: string; body: unknown }
 let requests: Request[]
 let status: string
+let disconnectedAt: string | null
 let checks: Array<{ id: string; label: string; result: string; detail: string }>
 
 const classification = (type: string, internal: boolean) =>
@@ -30,6 +31,7 @@ const activationPreview = {
 beforeEach(() => {
   requests = []
   status = 'pending'
+  disconnectedAt = null
   checks = [{ id: 'K1', label: 'Item can be activated', result: 'pass', detail: 'Status is pending' },
     { id: 'K8', label: 'Sync health', result: 'warn', detail: 'metadata warning' }]
   window.matchMedia = jest.fn(() => ({ matches: false, addEventListener: jest.fn(), removeEventListener: jest.fn() })) as unknown as typeof window.matchMedia
@@ -43,6 +45,7 @@ beforeEach(() => {
       // Mirrors the generated columns: sync_enabled = active; published = active or deactivated.
       sync_enabled: status === 'active', published: status === 'active' || status === 'deactivated',
       activated_at: null, deactivated_at: null, has_cursor: true, sync_paused: false,
+      disconnected_at: disconnectedAt,
       last_sync_success_at: null, metadata_warning: null, raw_transaction_count: 2, normalized_transaction_count: 2,
       accounts: [{ account_id: 'b-check', name: 'Ally Checking', mask: '0001', type: 'depository', subtype: 'checking',
         consumer_transactions_enabled: true, transaction_count: 2 }],
@@ -58,9 +61,14 @@ beforeEach(() => {
       ...activationPreview, digest: 'r'.repeat(64), summary_by_month: [], new_transactions: [], changed_existing_transactions: [] }
     else if (url.pathname.endsWith('/activate') && method === 'POST') { status = 'active'; data = { status } }
     else if (url.pathname.endsWith('/reactivate') && method === 'POST') { status = 'active'; data = { status } }
+    else if (url.pathname.endsWith('/disconnect') && method === 'POST') { disconnectedAt = '2026-10-02T18:00:00Z'; data = { status } }
     else if (url.pathname.endsWith('/reject') && method === 'POST') { status = 'disabled'; data = { status } }
     else if (url.pathname.endsWith('/retry-onboarding') && method === 'POST') { status = 'pending'; data = { status } }
-    else if (url.pathname.endsWith('/deactivate') && method === 'POST') { status = 'deactivated'; data = { status } }
+    else if (url.pathname.endsWith('/deactivate') && method === 'POST') {
+      status = 'deactivated'
+      if ((init?.body && JSON.parse(String(init.body)).disconnect) === true) disconnectedAt = '2026-10-02T18:00:00Z'
+      data = { status }
+    }
     else throw new Error(`Unexpected request: ${method} ${url.pathname}`)
     return { ok: true, json: async () => data } as Response
   }) as typeof fetch
@@ -180,4 +188,47 @@ test('a rejected institution offers only retry onboarding, which changes nothing
   await screen.findByRole('button', { name: 'Activate' })
   await screen.findByText('Item can be activated')
   expect(writes()).toHaveLength(1)
+})
+
+const RECONNECT = 'Reactivating a disconnected institution requires reconnecting it through Plaid Link; until reconnecting is supported, it cannot be reactivated.'
+
+test('plain deactivation keeps the Plaid connection; disconnecting is a separate confirmed option', async () => {
+  status = 'active'
+  render(createElement(InstitutionItemPage))
+  fireEvent.click(await screen.findByRole('button', { name: 'Deactivate and disconnect' }))
+  const dialog = await screen.findByRole('dialog')
+  expect(within(dialog).getByText(RECONNECT)).toBeTruthy()
+  await within(dialog).findByText(/No change: analytics/)
+  expect(writes().map(request => request.path)).toEqual(['/api/pft/plaid/items/ally-item/deactivation-preview'])
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Confirm deactivate and disconnect' }))
+  await screen.findByText(/deactivated and disconnected from Plaid/)
+  expect(writes().at(-1)).toEqual({ path: '/api/pft/plaid/items/ally-item/deactivate', method: 'POST',
+    body: { preview_digest: 'd'.repeat(64), disconnect: true } })
+  // Disconnected: reactivation is blocked and says why.
+  await screen.findByText(/Disconnected from Plaid on 2026-10-02/)
+  expect(screen.queryByRole('button', { name: 'Disconnect from Plaid' })).toBeNull()
+})
+
+test('a disconnected institution cannot be reactivated from the page', async () => {
+  status = 'deactivated'
+  disconnectedAt = '2026-10-01T12:00:00Z'
+  checks = [...checks, { id: 'K13', label: 'Plaid connection', result: 'fail',
+    detail: 'Disconnected from Plaid; reactivation requires reconnecting through Plaid Link' }]
+  render(createElement(InstitutionItemPage))
+  await screen.findByText('Plaid connection')
+  expect((screen.getByRole('button', { name: 'Reactivate' }) as HTMLButtonElement).disabled).toBe(true)
+  expect(screen.getByText(/Disconnected from Plaid on 2026-10-01/).textContent).toContain(RECONNECT)
+  expect(writes()).toEqual([])
+})
+
+test('a deactivated, still-connected institution can be disconnected after confirmation', async () => {
+  status = 'deactivated'
+  render(createElement(InstitutionItemPage))
+  fireEvent.click(await screen.findByRole('button', { name: 'Disconnect from Plaid' }))
+  const dialog = await screen.findByRole('dialog')
+  expect(within(dialog).getByText(RECONNECT)).toBeTruthy()
+  expect(writes()).toEqual([])
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Confirm disconnect' }))
+  await screen.findByText(/Disconnected from Plaid. The institution stays deactivated/)
+  expect(writes()).toEqual([{ path: '/api/pft/plaid/items/ally-item/disconnect', method: 'POST', body: null }])
 })

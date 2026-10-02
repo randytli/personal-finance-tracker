@@ -24,7 +24,7 @@ function fixture(status) {
   }
 }
 const item = data => ({
-  item_id: 'ally-item', institution_name: 'Ally Bank', status: data.status,
+  item_id: 'ally-item', institution_name: 'Ally Bank', status: data.status, disconnected_at: data.disconnectedAt || null,
   // Mirrors the generated columns: sync_enabled = active; published = active or deactivated.
   sync_enabled: data.status === 'active', published: data.status === 'active' || data.status === 'deactivated',
   activated_at: null, deactivated_at: null, has_cursor: true, sync_paused: false, last_sync_success_at: null,
@@ -66,7 +66,14 @@ async function routes(page, data) {
       const offset = Number(url.searchParams.get('offset')), limit = Number(url.searchParams.get('limit'))
       return reply({ total: transactions.length, transactions: transactions.slice(offset, offset + limit) })
     }
-    if (p === '/activation-checks') return reply({ checks: data.checks })
+    if (p === '/activation-checks') return reply({ checks: data.disconnectedAt ? [...data.checks,
+      { id: 'K13', label: 'Plaid connection', result: 'fail', detail: 'Disconnected from Plaid; reactivation requires reconnecting through Plaid Link' }]
+      : data.checks })
+    if (url.pathname === '/api/pft/sync/status') return reply({ last_published_run_id: 'synthetic', published_at: '2026-10-02T12:00:00Z',
+      current_run: null, jobs: { status: 'running', heartbeat_at: '2026-10-02T12:00:00Z' },
+      backup: { status: 'healthy', last_success_at: '2026-10-02T09:00:00Z', last_attempt_at: null, error_category: null },
+      institutions: [{ item_id: 'ally-item', institution_name: 'Ally Bank', status: data.status, sync_paused: false,
+        last_attempt_at: null, last_success_at: null, last_change_at: null, next_retry_at: null, latest_outcome: null }] })
     if (p === '/activation-preview') { await new Promise(resolve => setTimeout(resolve, 300)); return reply(preview) }
     if (p === '/reactivation-preview') return reply({ ...preview, digest: 'r'.repeat(64), summary_by_month: [], new_transactions: [], changed_existing_transactions: [] })
     if (p === '/reactivate') { data.status = 'active'; return reply({ status: 'active' }) }
@@ -74,7 +81,12 @@ async function routes(page, data) {
     if (p === '/retry-onboarding') { data.status = 'pending'; return reply({ status: 'pending' }) }
     if (p === '/deactivation-preview') return reply({ ...preview, digest: 'd'.repeat(64), summary_by_month: [], new_transactions: [], changed_existing_transactions: [] })
     if (p === '/activate') { data.status = 'active'; return reply({ status: 'active' }) }
-    if (p === '/deactivate') { data.status = 'deactivated'; return reply({ status: 'deactivated' }) }
+    if (p === '/deactivate') {
+      data.status = 'deactivated'
+      if (JSON.parse(req.postData() || '{}').disconnect === true) data.disconnectedAt = '2026-10-02T18:00:00Z'
+      return reply({ status: 'deactivated' })
+    }
+    if (p === '/disconnect') { data.disconnectedAt = '2026-10-02T18:00:00Z'; return reply({ status: 'deactivated' }) }
     return reply({ detail: 'unexpected' }, 404)
   })
 }
@@ -141,10 +153,10 @@ const results = []
       await activate.click()
       await page.getByRole('dialog').getByRole('button', { name: 'Confirm activation' }).click()
       await page.getByText('Institution activated.').waitFor()
-      await page.getByRole('button', { name: 'Deactivate' }).waitFor()
+      await page.getByRole('button', { name: 'Deactivate', exact: true }).waitFor()
       assert.deepEqual(data.writes, ['/activation-preview', '/activation-preview', '/activate'])
 
-      await page.getByRole('button', { name: 'Deactivate' }).click()
+      await page.getByRole('button', { name: 'Deactivate', exact: true }).click()
       await page.getByRole('dialog').getByText(/No change: analytics/).waitFor()
       await page.screenshot({ path: path.join(out, `${name}-deactivate-dialog.png`) })
       await page.getByRole('dialog').getByRole('button', { name: 'Confirm deactivation' }).click()
@@ -196,6 +208,36 @@ const results = []
       await third.getByText(/Onboarding retried/).waitFor()
       await third.getByRole('button', { name: 'Activate', exact: true }).waitFor()
       assert.deepEqual(onboarding.writes, ['/reject', '/retry-onboarding'])
+      // D8: "Deactivate and disconnect" is a separate confirmed option that blocks reactivation.
+      const disconnecting = fixture('active')
+      const fourth = await context.newPage()
+      await routes(fourth, disconnecting)
+      await fourth.goto(`${base}/plaid/items/ally-item`)
+      const both = fourth.getByRole('button', { name: 'Deactivate and disconnect' })
+      await insideViewport(fourth, both, `${name} deactivate and disconnect`)
+      await noHorizontalScroll(fourth, `${name} active actions`)
+      await both.click()
+      sheet = fourth.getByRole('dialog')
+      await sheet.getByText(/requires reconnecting it through Plaid Link/).waitFor()
+      await sheet.getByText(/No change: analytics/).waitFor()
+      await fourth.screenshot({ path: path.join(out, `${name}-deactivate-disconnect-dialog.png`) })
+      await sheet.getByRole('button', { name: 'Confirm deactivate and disconnect' }).click()
+      await fourth.getByText(/Disconnected from Plaid on 2026-10-02/).waitFor()
+      await fourth.getByText('Plaid connection').waitFor()
+      assert(await fourth.getByRole('button', { name: 'Reactivate' }).isDisabled(), `${name} disconnected reactivation disabled`)
+      await fourth.screenshot({ path: path.join(out, `${name}-disconnected.png`), fullPage: true })
+
+      // D14: the app links to the institution page from the sync health panel.
+      const fifth = await context.newPage()
+      await routes(fifth, fixture('pending'))
+      await fifth.goto(`${base}/review`)
+      await fifth.getByText('Sync and backup health').click()
+      const manage = fifth.getByRole('link', { name: 'Manage Ally Bank' })
+      await insideViewport(fifth, manage, `${name} manage link`)
+      await fifth.screenshot({ path: path.join(out, `${name}-health-link.png`) })
+      await manage.click()
+      await fifth.getByRole('heading', { name: 'Ally Bank', level: 1 }).waitFor()
+      assert.equal(new URL(fifth.url()).pathname, '/plaid/items/ally-item')
       results.push({ viewport: `${name} ${width}x${height}`, ok: true })
       await context.close()
     }

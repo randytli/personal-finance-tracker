@@ -1,12 +1,12 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useParams } from 'next/navigation'
 import { CircleAlert, CircleCheck, CircleDashed } from 'lucide-react'
 import AccountBadge from '@/components/account-badge'
 import InstitutionBadge from '@/components/institution-badge'
 import {
-  ActivationChecks, LifecycleDialog, OnboardingDialog, STATUS_LABELS, STATUS_VARIANTS, availableTransition,
+  ActivationChecks, LifecycleDialog, OnboardingDialog, RECONNECT_REQUIRED, STATUS_LABELS, STATUS_VARIANTS, availableTransition,
   checksAllowActivation, money, type ActivationCheck, type LifecycleKind, type LifecycleStatus, type OnboardingKind,
 } from '@/components/institution-lifecycle'
 import {
@@ -25,7 +25,8 @@ type ItemAccount = {
 
 type ItemDetail = {
   item_id: string; institution_name: string; status: LifecycleStatus; sync_enabled: boolean; published: boolean
-  activated_at: string | null; deactivated_at: string | null; has_cursor: boolean; sync_paused: boolean
+  activated_at: string | null; deactivated_at: string | null; disconnected_at: string | null
+  has_cursor: boolean; sync_paused: boolean
   last_sync_success_at: string | null; metadata_warning: string | null; accounts: ItemAccount[]
   raw_transaction_count: number; normalized_transaction_count: number
 }
@@ -66,8 +67,10 @@ export default function InstitutionItemPage() {
   const [error, setError] = useState('')
   const [reload, setReload] = useState(0)
   const [dialog, setDialog] = useState<LifecycleKind | null>(null)
+  const [disconnect, setDisconnect] = useState(false)
   const [onboarding, setOnboarding] = useState<OnboardingKind | null>(null)
   const [notice, setNotice] = useState('')
+  const disconnectRef = useRef(false)
 
   useEffect(() => {
     let active = true
@@ -96,14 +99,15 @@ export default function InstitutionItemPage() {
   }, [base, offset, pageSize, reload])
 
   const done = useCallback((kind: LifecycleKind) => {
-    setNotice(kind === 'deactivate' ? 'Institution deactivated. Its transactions stay in analytics.'
+    setNotice(kind === 'deactivate' ? `Institution deactivated${disconnectRef.current ? ' and disconnected from Plaid' : ''}. Its transactions stay in analytics.`
       : kind === 'reactivate' ? 'Institution reactivated.' : 'Institution activated.')
     setChecks(null)
     setReload(value => value + 1)
   }, [])
 
   const onboardingDone = useCallback((kind: OnboardingKind) => {
-    setNotice(kind === 'reject' ? 'Onboarding cancelled. The institution is rejected and its staged data stays unpublished.'
+    setNotice(kind === 'disconnect' ? 'Disconnected from Plaid. The institution stays deactivated and in analytics.'
+      : kind === 'reject' ? 'Onboarding cancelled. The institution is rejected and its staged data stays unpublished.'
       : 'Onboarding retried. The institution is pending again; nothing was imported, normalized or published.')
     setChecks(null)
     setReload(value => value + 1)
@@ -111,7 +115,14 @@ export default function InstitutionItemPage() {
 
   const transition = item ? availableTransition(item.status) : null
   const onboardingAction: OnboardingKind | null = item?.status === 'pending' ? 'reject'
-    : item?.status === 'disabled' ? 'retry-onboarding' : null
+    : item?.status === 'disabled' ? 'retry-onboarding'
+    : item?.status === 'deactivated' && !item.disconnected_at ? 'disconnect' : null
+  const openLifecycle = (kind: LifecycleKind, withDisconnect = false) => {
+    setNotice('')
+    disconnectRef.current = withDisconnect
+    setDisconnect(withDisconnect)
+    setDialog(kind)
+  }
   const activationBlocked = (transition === 'activate' || transition === 'reactivate') && !checksAllowActivation(checks)
   const enabledAccounts = item?.accounts.filter(account => account.consumer_transactions_enabled).length ?? 0
 
@@ -125,14 +136,17 @@ export default function InstitutionItemPage() {
           <InstitutionBadge institutionName={item.institution_name} />
           <Badge variant={STATUS_VARIANTS[item.status]}>{STATUS_LABELS[item.status]}</Badge>
           <Badge variant="muted">{item.sync_enabled ? 'Sync on' : 'Sync off'}</Badge>
+          {item.disconnected_at && <Badge variant="destructive">Disconnected</Badge>}
         </div>}
         actions={(transition || onboardingAction) && <>
-          {onboardingAction && <Button variant={onboardingAction === 'reject' ? 'ghost' : 'default'}
+          {onboardingAction && <Button variant={onboardingAction === 'retry-onboarding' ? 'default' : 'ghost'}
             onClick={() => { setNotice(''); setOnboarding(onboardingAction) }}>
-            {onboardingAction === 'reject' ? 'Cancel onboarding' : 'Retry onboarding'}
+            {{ reject: 'Cancel onboarding', 'retry-onboarding': 'Retry onboarding', disconnect: 'Disconnect from Plaid' }[onboardingAction]}
           </Button>}
+          {transition === 'deactivate' && <Button variant="ghost" onClick={() => openLifecycle('deactivate', true)}>
+            Deactivate and disconnect</Button>}
           {transition && <Button variant={transition === 'deactivate' ? 'outline' : 'default'}
-            disabled={activationBlocked} onClick={() => { setNotice(''); setDialog(transition) }}>
+            disabled={activationBlocked} onClick={() => openLifecycle(transition)}>
             {transition === 'deactivate' ? 'Deactivate' : transition === 'reactivate' ? 'Reactivate' : 'Activate'}
           </Button>}
         </>} />
@@ -148,6 +162,8 @@ export default function InstitutionItemPage() {
       {item?.status === 'disabled' && <Alert variant="warning" className="mt-4"><CircleAlert aria-hidden="true" />
         <p className="text-sm">Rejected institutions cannot be activated, and their staged data stays unpublished:
           not in scheduled sync and not in analytics. Retry onboarding to return it to Pending first.</p></Alert>}
+      {item?.disconnected_at && <Alert variant="warning" className="mt-4"><CircleAlert aria-hidden="true" />
+        <p className="text-sm">Disconnected from Plaid on {item.disconnected_at.slice(0, 10)}. {RECONNECT_REQUIRED}</p></Alert>}
       {!item && !error && <LoadingState label="Loading institution" />}
 
       {item && <div className="mt-6 grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,22rem)]">
@@ -212,6 +228,7 @@ export default function InstitutionItemPage() {
       </div>}
 
       {item && dialog && <LifecycleDialog itemId={item.item_id} institutionName={item.institution_name} kind={dialog}
+        disconnect={disconnect}
         open={dialog !== null} onOpenChange={open => { if (!open) setDialog(null) }} onDone={() => done(dialog)} />}
       {item && onboarding && <OnboardingDialog itemId={item.item_id} institutionName={item.institution_name} kind={onboarding}
         open={onboarding !== null} onOpenChange={open => { if (!open) setOnboarding(null) }}
