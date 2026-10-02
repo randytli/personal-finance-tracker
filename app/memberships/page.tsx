@@ -283,8 +283,10 @@ export default function MembershipsPage() {
     ['Refunds', summary.overall.refunds, lineColor.refunds],
     ['Reimbursements', summary.overall.reimbursements, lineColor.reimbursements],
     ['Card benefits', summary.overall.card_benefits, lineColor.cardBenefits],
-  ] as const).map(([label, value, color]) => ({ label, value: Math.abs(Number(value)), color })) : []
+  ] as const).map(([label, value, color]) => ({ label, value: Number(value), color })) : []
   const compositionTotal = composition.reduce((sum, part) => sum + part.value, 0)
+  // A part-to-whole bar cannot represent a net credit as a positive cost share.
+  const showComposition = compositionTotal > 0 && composition.every(part => part.value >= 0)
   return <>
   <PageNavigation current="Memberships" />
   <main className={pageClassName}>
@@ -328,7 +330,7 @@ export default function MembershipsPage() {
               <span className="money order-1 text-[26px] font-bold leading-tight tracking-tight min-[380px]:text-[30px] sm:text-[34px]">{money(summary.overall.net_cost)}</span>
             </button>
           </div>
-          {compositionTotal > 0 && <div aria-hidden="true" className="mx-2 mt-4 flex h-2.5 gap-0.5 overflow-hidden rounded-full sm:mx-1">
+          {showComposition && <div data-membership-composition aria-hidden="true" className="mx-2 mt-4 flex h-2.5 gap-0.5 overflow-hidden rounded-full sm:mx-1">
             {composition.filter(part => part.value > 0).map(part => <span key={part.label} className="h-full rounded-full"
               style={{ width: `${part.value / compositionTotal * 100}%`, minWidth: 4, background: part.color }} />)}
           </div>}

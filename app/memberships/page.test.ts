@@ -86,6 +86,33 @@ const originalMatchMedia = window.matchMedia
 afterEach(() => { cleanup(); global.fetch = originalFetch; window.matchMedia = originalMatchMedia })
 const latestDetails = () => requests.filter(url => url.pathname.endsWith('/transactions')).at(-1)!
 
+test.each([
+  ['50.00', '50.00', true],
+  ['100.00', '0.00', true],
+  ['150.00', '-50.00', false],
+])('composition with refunds %s and net cost %s preserves signed totals', async (refunds, netCost, visible) => {
+  const baseFetch = global.fetch
+  global.fetch = jest.fn(async (input, init) => {
+    const result = await baseFetch(input, init)
+    if (!String(input).includes('/analytics/memberships?')) return result
+    const data = await result.json()
+    return { ok: true, json: async () => ({ ...data, overall: { ...data.overall,
+      gross_charges: '100.00', refunds, reimbursements: '0.00', card_benefits: '0.00', net_cost: netCost,
+    } }) } as Response
+  }) as typeof fetch
+  render(createElement(MembershipsPage))
+  const summary = await screen.findByRole('region', { name: 'Overall membership costs' })
+  const format = (value: string) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(Number(value))
+  expect(within(summary).getByRole('button', { name: `Net cost ${format(netCost)}` })).toBeTruthy()
+  expect(within(summary).getByRole('button', { name: `Refunds ${format(refunds)}` })).toBeTruthy()
+  const bar = summary.querySelector('[data-membership-composition]')
+  expect(Boolean(bar)).toBe(visible)
+  if (bar) {
+    expect(Array.from(bar.children).map(segment => (segment as HTMLElement).style.width))
+      .toEqual(netCost === '0.00' ? ['100%'] : ['50%', '50%'])
+  }
+})
+
 test('phone Membership pages use 10 rows and keep the page on focus refresh', async () => {
   window.matchMedia = jest.fn(query => ({ matches: query.includes('max-width'), addEventListener: jest.fn(), removeEventListener: jest.fn() })) as unknown as typeof window.matchMedia
   render(createElement(MembershipsPage))
