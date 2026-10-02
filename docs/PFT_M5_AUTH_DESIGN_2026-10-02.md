@@ -73,7 +73,7 @@ Rules:
 - Default SMTP will "refuse to deliver messages to addresses that are not part of the project's team", sends "2 messages per hour", and is "best-effort only and intended for … non-production use cases" [D, [SMTP](https://supabase.com/docs/guides/auth/auth-smtp)].
 - The owner *is* a team member, so reset mail to the owner address should deliver, but only best-effort [E].
 - "Custom SMTP server" is Included on Free [D]. It needs a free SMTP sender, which is 未核实 and an owner choice.
-- **Proposed primary recovery: no email at all.** The owner signs in to the Supabase dashboard (its own MFA), then from a trusted machine calls `auth.admin.updateUserById(<owner uuid>, { password })` with the project's secret/service-role key held only in that process. The docs show exactly this `password` example and state it "should only be called on a server. Never expose your `service_role` key in the browser" [D, [updateUserById](https://supabase.com/docs/reference/javascript/auth-admin-updateuserbyid), 2026-10-02]. Removing a lost TOTP factor through the admin API is 未核实.
+- **Proposed primary recovery: no email at all.** The owner signs in to the Supabase dashboard (its own MFA), then from a trusted machine calls `auth.admin.updateUserById(<owner uuid>, { password })` with the project's secret/service-role key held only in that process. The docs show exactly this `password` example and state it "should only be called on a server. Never expose your `service_role` key in the browser" [D, [updateUserById](https://supabase.com/docs/reference/javascript/auth-admin-updateuserbyid), 2026-10-02]. A lost TOTP factor is removed with [`auth.admin.mfa.deleteFactor`](https://supabase.com/docs/reference/javascript/auth-admin-mfa-deletefactor) (`id`, `userId`), which "will log the user out of all active sessions if the deleted factor was verified". Source: official JS reference via the docs search index, 2026-10-02 (the page itself returned 404 to direct fetch); also confirmed by the owner. The owner then signs in and re-enrols TOTP. Recreating the Auth user is no longer the normal fallback.
 - If the Auth user is recreated, update `PFT_OWNER_AUTH_SUB`. `PLAID_PILOT_USER_ID` stays unchanged (plan §16.1).
 - **Decision P3-3.**
 
@@ -177,7 +177,14 @@ Verification rules, applied in one shared dependency on every financial route:
 
 ## 9. Decisions and approvals
 
-**Status 2026-10-02: P3-1…P3-4 are pending the owner's review** (not approved). Options, recommendation, rationale and the cost of a wrong choice for each are in the [handoff decision list](M5_OVERNIGHT_HANDOFF_2026-10-02.md#决策清单p3-与-p4待-owner-审阅).
+**Owner-approved decisions, 2026-10-02** ([handoff decision list](M5_OVERNIGHT_HANDOFF_2026-10-02.md#决策清单p3-与-p4owner-已批准)). These approve the design only; they authorise no Production migration or deployment.
+
+- **P3-1 = A.** Official `@supabase/ssr` cookie session with Next.js server routing/proxy; no full BFF. Next.js `getClaims()` is defense in depth only. FastAPI independently validates the forwarded bearer JWT and the owner (`sub`) and `aal2` claims.
+- **P3-2 = A.** PyJWT + `PyJWKClient`, with strict algorithm (ES256), issuer, audience, configured-JWKS-only and claim validation, plus the negative-test matrix (§6).
+- **P3-3 = A.** Manual recovery from a trusted machine through the Supabase admin API (password reset; MFA factor deletion is supported, §4). The admin secret / service-role capability is never exposed to the browser or to any ordinary app runtime (reader, writer or jobs).
+- **P3-4 = A.** `aal2` is required for every financial route, reads and writes. Minimal non-financial health probes (`/ping`, `/ready`) keep their separately defined policy (plan §13.2).
+
+Original options, as reviewed:
 
 - **P3-1** Session model: SDK cookies + server proxy (recommended) or full BFF.
 - **P3-2** Python JWT library: PyJWT (recommended), pinned in M6.

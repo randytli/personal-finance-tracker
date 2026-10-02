@@ -20,7 +20,7 @@ Scope: plan §15.1–15.3 (M8a): **database authority only**. M8b (authenticated
 | C2 | Identity sentinel (`dataset_id`, `deployment_id`) added to Production by an approved additive migration, and checked by every writer and tool | plan §15.1 |
 | C3 | `scripts/pft_m6_fingerprint.py` gains a verified-TLS remote profile (CA + hostname) with identity checks; today it connects without TLS settings. `deploy/backup_runner/fingerprint.sql` already runs over any psql connection (`PGSSLMODE=verify-full`) | plan §15.2 |
 | C4 | Target Supabase project: Data API off, RLS backstop, roles from the [Auth design §7](PFT_M5_AUTH_DESIGN_2026-10-02.md#7-rls-and-database-roles), TLS enforcement on, known issue R16 closed (`REVOKE TEMP ON DATABASE … FROM PUBLIC`, explicit TEMP only where a role needs it, Supabase-internal role needs 未核实); `anon`/`authenticated` revoked including default privileges | plan §15.1 |
-| C5 | PostgreSQL **17** client and a PG 17 recovery environment. Source is PG 16.15 [M, M6 record]; target 17.11 [M, compatibility pass]. A newer pg_restore reads older archives; the reverse is not assumed | plan §15.1 |
+| C5 | PostgreSQL **17** client and a PG 17 recovery environment, **prepared and rehearsed in M7 before cutover (owner decision P4-2 = A, 2026-10-02)**. Source is PG 16.15 [M, M6 record]; target 17.11 [M, compatibility pass]. A newer pg_restore reads older archives; the reverse is not assumed | plan §15.1 |
 | C6 | Independent backup path working against the target ([backup design](PFT_M5_INDEPENDENT_BACKUP_DESIGN_2026-10-02.md)), with a successful real restore drill | plan §15.2 |
 | C7 | Remote-DB Compose definition with no local `db` dependency and a single authoritative `DATABASE_URL` (jobs currently loads two env files that both contain it) | plan §15.2 |
 | C8 | Window chosen: no sync or backup running, next scheduled sync ≥ 2 h away (owner rule). Today's daily sync runs around 19:35 UTC [M, diff-writes packet] | memory: approval gates |
@@ -56,6 +56,8 @@ export P=/tmp/pft-m8a-cutover-$STAMP                   # private evidence direct
 4. Stop if anything differs.
 
 ### Step 1 — Freeze writers [STATE: no automatic sync/backup; app unavailable for the window]
+
+Owner decision P4-1 = A (2026-10-02): a hard write freeze by stopping jobs, API and web. Continued read availability is not a cutover requirement.
 
 1. Confirm no sync or backup is running (`/sync/status`, `sync_runs` with `status='running'`).
 2. Stop **jobs** [STATE].
