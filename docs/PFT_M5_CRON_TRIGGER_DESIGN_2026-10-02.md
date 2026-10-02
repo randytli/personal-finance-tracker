@@ -26,10 +26,10 @@ Every due, retry and manual decision is already **durable in the database**. The
 | Cadence | Cron syntax plus sub-minute: "You can use [1-59] seconds (e.g. '30 seconds')" (needs Postgres ≥ 15.1.1.61) [D, [quickstart](https://supabase.com/docs/guides/cron/quickstart)] | "Once per day"; "Expressions that run more frequently will fail deployment" [D, [usage & pricing](https://vercel.com/docs/cron-jobs/usage-and-pricing), page last updated 2026-07-15] |
 | Precision | Per schedule; real jitter 未核实 | "Per-hour (±59 min)"; `0 8 * * *` "could trigger an invocation anytime between 08:00:00 and 08:59:59" [D, [manage](https://vercel.com/docs/cron-jobs/manage-cron-jobs)] |
 | Free-plan availability | Docs state no plan restriction; actual Free-project enablement 未核实 (the M5 project never enabled it) | "Cron Jobs are available on all plans"; 100 per project [D] |
-| Retries | pg_cron: no documented retry for scheduled jobs (未核实). pg_net: retries not documented. | "Vercel will not retry an invocation if a cron job fails" [D] |
+| Retries | pg_cron README does not document retries for failed runs. pg_net "doesn't automatically retry failed requests" (summary of [pg_net README](https://github.com/supabase/pg_net), 2026-10-02). Design relies on the next tick, not retries. | "Vercel will not retry an invocation if a cron job fails" [D] |
 | Delivery guarantees | pg_net requests and responses "are stored in unlogged tables, which are not preserved during a crash or unclean shutdown"; "HTTP requests are not started until the transaction is committed" [D, [pg_net](https://supabase.com/docs/guides/database/extensions/pg_net)] | "Cron job delivery is best effort … occasional transient network errors can prevent a request from reaching your function"; "can also occasionally invoke the same scheduled run more than once" [D] |
-| Overlap | Each pg_cron run only enqueues HTTP and finishes; overlap is handled at the endpoint (advisory lock) | "Vercel can trigger a second instance while the first is still running" [D] |
-| HTTP timeout | Default **2,000 ms** [D]. Settable per request (`timeout_milliseconds`); documented maximum 未核实 | Function duration limits apply [D] |
+| Overlap | "only one instance of each specific job at a time. If a second instance is triggered before the first finishes, it's queued" [D, [pg_cron README](https://github.com/citusdata/pg_cron)]. Each run only enqueues HTTP and finishes, so endpoint overlap is handled by the advisory lock | "Vercel can trigger a second instance while the first is still running" [D] |
+| HTTP timeout | Default **2,000 ms** [D]. Per request `timeout_milliseconds`, bounded by "`pg_net.max_timeout_ms` (default: 600000)"; requests outside 1…max are rejected [D, pg_net README]. The value on a Supabase project is 未核实 | Function duration limits apply [D] |
 | Recommended load | "no more than 8 Jobs run concurrently. Each Job should run no more than 10 minutes" [D, [cron](https://supabase.com/docs/guides/cron)]; pg_net "Intended to handle at most 200 requests per second" [D] | — |
 | History / logs | `cron.job_run_details` "grows with every Job run and is never cleaned up automatically" [D, quickstart]. `net._http_response` kept "for 6 hours" by default (`pg_net.ttl`) [D] | Runtime logs; Hobby log retention 1 hour (feasibility pass, 2026-10-01) |
 | Auth to endpoint | Signed header computed in SQL from a Vault secret (§4) | `CRON_SECRET` sent as `Authorization: Bearer …` [D] |
@@ -40,13 +40,14 @@ Every due, retry and manual decision is already **durable in the database**. The
 - 24 h due → 24 h to 24 h 5 min.
 - 15 min retry → 15–20 min; 1 h → 1 h–1 h 5 min; 6 h → 6 h–6 h 5 min.
 - Manual request: ≤ 5 min plus delivery time, versus ≤ 60 s today. The UI must say "queued" rather than imply that it is running (plan §12.4).
-- 8,640 invocations per 30 days, far below Vercel Hobby's 1 million (feasibility pass). A 1-minute tick (43,200 per month) would restore today's latency. Its CPU and connection cost are unmeasured: **decision P2-1**.
+- 8,640 invocations per 30 days, far below Vercel Hobby's 1 million (feasibility pass).
+- **Idle ticks are cheap.** When no Item is due and no request is pending, `sync_all` reconciles interrupted runs and returns `idle` **before** loading history or normalizing (`api/services/sync_all.py:421-424`, verified by code reading). Locally that took a 0.0089 s median (feasibility pass) [M]. Whole-history reads, about 5 MB per run at today's real payloads (diff-writes packet [E]), happen only on due or manual runs, about once a day: roughly 150 MB/month against Supabase Free's 5 GB egress [D, pricing]. Per-tick connection and identity overhead on the cloud path is unmeasured. A 1-minute tick (43,200 per month) would restore today's latency. Its CPU and connection cost are unmeasured: **decision P2-1**.
 
 **Vercel Hobby cannot preserve these semantics.** It has one run per day with up to 59 minutes of drift and no retry. The 15 min, 1 h and 6 h retries collapse to "next day", and manual requests wait up to 24 h. This confirms the feasibility BLOCKER. GitHub Actions `schedule` (minimum "once every 5 minutes", runs "can be delayed during periods of high loads … some queued jobs may be dropped") [D, [events](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows)] would be possible only as a fallback trigger. It is not recommended as the primary because of the documented drops at peak times.
 
 **Recommendation: Supabase Cron, one job, `*/5 * * * *`.**
 - Signed `net.http_post` straight to the protected Python jobs endpoint. Never through the Next.js rewrite, which has a 120 s proxy cap.
-- `timeout_milliseconds` ≥ function `maxDuration` (300 s), so pg_net keeps the connection while Python runs. The maximum pg_net accepts is 未核实 and is the first cloud test.
+- `timeout_milliseconds` ≥ function `maxDuration` (300 s), so pg_net keeps the connection while Python runs. Upstream pg_net allows up to 600,000 ms by default [D]; confirming the Supabase project's `pg_net.max_timeout_ms` is the first cloud test.
 - A second daily job prunes `cron.job_run_details` older than 14 days.
 
 ## 3. Does scheduled sync keep a Free project active?
@@ -95,7 +96,7 @@ Implemented in `api/trigger_auth.py` (not mounted in `api/main.py`). The SQL sig
 
 ### Tests [M]
 
-`tests/test_m5_trigger_auth.py`: **10 pass**. 4 use a database (`PFT_M5_TRIGGER_SYNTHETIC_TEST=1`, disposable PG 16 on 127.0.0.1:55439).
+`tests/test_m5_trigger_auth.py`: **10 pass**. 3 use a database (`PFT_M5_TRIGGER_SYNTHETIC_TEST=1`, disposable PG 16 on 127.0.0.1:55439).
 
 - **Valid cases:** valid signature with pg_net-style spacing; upper-case header name.
 - **Rejected requests:** missing, malformed, unknown key, wrong secret, duplicate header; wrong audience, path or method; body tampering, invalid JSON, oversize body, unsupported kind.
@@ -108,7 +109,7 @@ Implemented in `api/trigger_auth.py` (not mounted in `api/main.py`). The SQL sig
 
 ## 5. Still open (cloud tests, need approval)
 
-1. Enable `pg_cron`, `pg_net` and Vault on the **synthetic** M5 project. Verify Free availability, the maximum `timeout_milliseconds`, and the exact body bytes sent.
+1. Enable `pg_cron`, `pg_net` and Vault on the **synthetic** M5 project. Verify Free availability, the project's `pg_net.max_timeout_ms` (upstream default 600,000 ms), and the exact body bytes sent.
 2. Deploy a jobs preview with this verification in front of `run_scheduler_once`. Choose how pg_net reaches it through deployment protection (P2-3).
 3. Observe real cadence and jitter. Inject duplicates and timeouts. Confirm that durable state, not the net response, decides the outcome. Run one deliberately overdue interval. Prune history.
 4. **Honest status (R15):** replace the 7-minute heartbeat interpretation with last trigger / start / completion and next due / retry. "Idle and healthy" must not hide stale bank or backup state.

@@ -44,9 +44,9 @@ Rules:
 | Credential stuffing / phishing of the owner password | TOTP MFA required (`aal2`). "Basic Multi-Factor Auth" is Included on Free [D, [pricing](https://supabase.com/pricing)]. Phone MFA is a paid add-on [D] and not used. "Leaked password protection" is **not included** on Free [D], so use a long unique password. |
 | XSS or compromised npm dependency in the web app | Can act as the owner while the page is open in either session model. With SDK cookies it can also **steal** the refresh token (§5). Mitigations: strict CSP, no `dangerouslySetInnerHTML`, lockfile review, `private, no-store`. |
 | CSRF against cookie-authenticated Next.js handlers | `SameSite=Lax` cookies, an exact `Origin` check on every mutation (reuse `_origin` parsing from `local_request_boundary`), and a custom request header. No wildcard preview origins. |
-| Stolen JWT | Valid until `exp`. "Non-expired access tokens will remain to be accepted" even after key rotation [D, [signing keys](https://supabase.com/docs/guides/auth/signing-keys)]. Default lifetime 未核实; keep it short (§6). Logout cannot revoke an issued JWT (plan §13.1). |
+| Stolen JWT | Valid until `exp`. "Non-expired access tokens will remain to be accepted" even after key rotation [D, [signing keys](https://supabase.com/docs/guides/auth/signing-keys)]. Default lifetime 1 h (§6). Sign-out removes the session rows, but issued access tokens stay valid until `exp` unless the server checks `session_id` (§6). |
 | Forged JWT / algorithm confusion | Asymmetric project key, `alg` allowlist `ES256` only, keys only from the **configured** JWKS URL, never from token headers (`jku`/`x5u` ignored) (§6). |
-| Supavisor endpoint (public internet, password auth) | Long random per-role passwords, `CERT_REQUIRED` + hostname verification [M5 compatibility pass], least-privilege roles (§7). Supabase network restrictions on Free: 未核实, optional only. |
+| Supavisor endpoint (public internet, password auth) | Long random per-role passwords, `CERT_REQUIRED` + hostname verification [M5 compatibility pass], least-privilege roles (§7). Network restrictions "apply to all connection routes, whether pooled or direct" [D, [network restrictions](https://supabase.com/docs/guides/platform/network-restrictions)], but Free availability is 未核实, and Vercel has no static egress on Hobby [E]. Optional only. |
 | Data API accidentally re-enabled | RLS on every app table with policies only for server roles. `anon` / `authenticated` have no grants or default privileges (§7). |
 | Provider insider or provider compromise | Accepted risk of the cloud design. Tokens stay Fernet-encrypted and backups are encrypted to an offline key. |
 | Leaked Vercel env / preview misconfiguration | Separate projects and roles. Reader has no Plaid secret or Fernet key (plan §13.3). Previews get synthetic credentials only. |
@@ -73,7 +73,7 @@ Rules:
 - Default SMTP will "refuse to deliver messages to addresses that are not part of the project's team", sends "2 messages per hour", and is "best-effort only and intended for … non-production use cases" [D, [SMTP](https://supabase.com/docs/guides/auth/auth-smtp)].
 - The owner *is* a team member, so reset mail to the owner address should deliver, but only best-effort [E].
 - "Custom SMTP server" is Included on Free [D]. It needs a free SMTP sender, which is 未核实 and an owner choice.
-- **Proposed primary recovery: the owner, as project admin, resets or recreates the user in the Supabase dashboard.** The dashboard account must have its own MFA. Whether the dashboard can set a password directly without email is 未核实.
+- **Proposed primary recovery: no email at all.** The owner signs in to the Supabase dashboard (its own MFA), then from a trusted machine calls `auth.admin.updateUserById(<owner uuid>, { password })` with the project's secret/service-role key held only in that process. The docs show exactly this `password` example and state it "should only be called on a server. Never expose your `service_role` key in the browser" [D, [updateUserById](https://supabase.com/docs/reference/javascript/auth-admin-updateuserbyid), 2026-10-02]. Removing a lost TOTP factor through the admin API is 未核实.
 - If the Auth user is recreated, update `PFT_OWNER_AUTH_SUB`. `PLAID_PILOT_USER_ID` stays unchanged (plan §16.1).
 - **Decision P3-3.**
 
@@ -111,15 +111,15 @@ Verification rules, applied in one shared dependency on every financial route:
 | --- | --- |
 | Key source | Only `https://<ref>.supabase.co/auth/v1/.well-known/jwks.json` from config [D, signing keys]. Ignore `jku`/`x5u`/`jwk` headers. |
 | Key cache | In-process cache. On unknown `kid`, refetch at most once per 60 s, then fail closed. The provider edge caches JWKS "for 10 minutes" [D], so a revoked key can be accepted for up to ~10 min plus our cache [E]. |
-| Algorithm | `ES256` only (asymmetric). Reject `HS256` and `none`. The project must be migrated to asymmetric signing keys first (legacy HS256 exists [D]; new-project default 未核实). |
+| Algorithm | `ES256` only (asymmetric). Reject `HS256` and `none`. "Starting October 1, 2025, all *new projects* will use asymmetric JWTs by default" [official blog, [JWT signing keys](https://supabase.com/blog/jwt-signing-keys), 2026-10-02]; confirm the key type on the actual project. |
 | `iss` | Exactly `https://<ref>.supabase.co/auth/v1` [D, [JWTs](https://supabase.com/docs/guides/auth/jwts)]. |
 | `aud` | Exactly `authenticated` [D, [JWT fields](https://supabase.com/docs/guides/auth/jwt-fields)]. |
 | `exp`, `iat` (`nbf` if present) | Required. Leeway ≤ 30 s. |
 | `sub` | Must equal `PFT_OWNER_AUTH_SUB`. Never authorise by email, `role=authenticated` or a caller-supplied `user_id` (plan §13.1). |
 | `aal` | Require `aal2` once TOTP is enrolled ("AAL2 … verified using at least one second factor" [D, [MFA](https://supabase.com/docs/guides/auth/auth-mfa)]). |
 | `is_anonymous` | Must be false [D field]. |
-| Lifetime | Configure a short access-token lifetime in the dashboard (e.g. 10–15 min; range 未核实). Logout revokes the refresh token; issued JWTs live until `exp`. |
-| Online check | Optional `GET /auth/v1/user` before high-risk mutations. Adds a dependency on Auth availability [E]. Not proposed for reads. |
+| Lifetime | Default 1 h: "Most applications should use the default expiration time of 1 hour"; "Values below 5 minutes, and especially below 2 minutes, should not be used in most situations" [D, [sessions](https://supabase.com/docs/guides/auth/sessions), 2026-10-02]. Proposal: 10–15 min. Session time-boxes and inactivity timeouts are "only available on Pro Plans and up" [D], so not available here. |
+| Online check | Sign-out removes sessions "from the database entirely" and validity can be checked by whether "the `session_id` claim in the JWT corresponds to a row in the `auth.sessions` table" [D, sessions]. Option: before mutations, check `session_id` in `auth.sessions` (needs a narrow SELECT grant; whether Supabase permits it for a custom role is 未核实) or call `GET /auth/v1/user`. Not proposed for reads. |
 
 **Non-browser callers:**
 - The scheduler uses the HMAC capability (cron design) and is a distinct service principal, not an owner JWT (plan §12.4).

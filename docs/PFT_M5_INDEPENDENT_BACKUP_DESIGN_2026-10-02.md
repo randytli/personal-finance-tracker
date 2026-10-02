@@ -48,7 +48,7 @@ From plan §12.6, §16.1 and §16.2, plus tonight's owner requirement:
 
 | | A. Vercel jobs function, dispatched by the single Supabase cron as a separate job kind | B. GitHub Actions scheduled workflow in a dedicated private repo |
 | --- | --- | --- |
-| Time limit | 300 s function [D, [Vercel limits](https://vercel.com/docs/functions/limitations), checked 2026-10-01 in the feasibility pass]. The measured 35.6k dump took 1.5 s locally [M]. Network time 未核实. | GitHub-hosted job limit 未核实 tonight (commonly cited as 6 h). |
+| Time limit | 300 s function [D, [Vercel limits](https://vercel.com/docs/functions/limitations), checked 2026-10-01 in the feasibility pass]. The measured 35.6k dump took 1.5 s locally [M]. Network time 未核实. | "Each job in a workflow can run for up to 6 hours of execution time" [D, [Actions limits](https://docs.github.com/en/actions/reference/limits), 2026-10-02]. |
 | PG 17 client | 17.11 package executes on Hobby [M, compatibility pass]. `api/backup.py` is not yet wired to it. | Pinned `postgres:17.11-alpine` image by digest (`sha256:b0f9…2b24`, recorded in the compatibility pass) as a job container. |
 | Scheduler model | Fits "one scheduler": the jobs dispatcher owns both kinds. | **A second schedule.** It is read-only on the DB and holds no advisory lock, but it is still a second cron system. **Owner decision (P1-2).** |
 | Coupling to sync | Must be separated from `tick` (R3: backup runs before sync in a thread that can outlive cancellation). | Fully decoupled from sync and Vercel. |
@@ -156,7 +156,7 @@ Disposable PostgreSQL 16.15 on 127.0.0.1:55439, scratchpad, deleted afterwards. 
 
 Single runs on loopback. These exclude network, TLS, pooler and provider time.
 
-`tests/test_m5_backup_drill.py`: **12 tests pass**, 4 of them on the database (opt-in `PFT_M5_BACKUP_SYNTHETIC_TEST=1`). They cover:
+`tests/test_m5_backup_drill.py`: **12 tests pass**, 3 of them on the database (opt-in `PFT_M5_BACKUP_SYNTHETIC_TEST=1`). They cover:
 - envelope round trip;
 - wrong key, ciphertext tamper, header tamper, truncation and manifest-hash mismatch all publish nothing;
 - no overwrite;

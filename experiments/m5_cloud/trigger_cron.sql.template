@@ -39,7 +39,8 @@ CREATE TABLE IF NOT EXISTS pft_ops.trigger_nonces (
 
 -- Schedule: NOT executed by this template. Enable only after approval.
 -- timeout_milliseconds >= function maxDuration so pg_net does not record a
--- timeout while Python is still running; the maximum pg_net accepts is 未核实.
+-- timeout while Python is still running; upstream pg_net.max_timeout_ms
+-- defaults to 600000 (the Supabase project's value is 未核实).
 -- The net response is delivery evidence only; durable sync_runs state is the
 -- source of truth for completion.
 --
