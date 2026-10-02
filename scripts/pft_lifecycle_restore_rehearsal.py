@@ -9,6 +9,7 @@ Phases (PYTHONPATH selects the code under test):
   fingerprint [--reclassify]   old or new code; ledger, classification and Item hashes
   migrate [--copy-only-gate]   new code; strict Production preflight first, then init_db
   timing                       new code, after migration; lifecycle operation timings
+  pending-timing               valid synthetic onboarding at real-backup ledger scale
 """
 
 import argparse
@@ -216,21 +217,165 @@ async def timing():
     return result
 
 
+def pending_fixture_rows(account_id, count):
+    """Same payload shape as test_institution_lifecycle.plaid_tx; no copied source rows."""
+    return [{"transaction_id": f"{account_id}-tx-{index}", "account_id": account_id,
+             "date": date(2024 + (8 + index % 26) // 12, 1 + (8 + index % 26) % 12,
+                          1 + (index // 26) % 28),
+             "amount": round(37.11 + (index % 29) / 100, 2),
+             "name": "REHEARSAL SYNTHETIC PURCHASE", "merchant_name": "Rehearsal Fixture Store",
+             "personal_finance_category": {"primary": "GENERAL_MERCHANDISE"}}
+            for index in range(count)]
+
+
+def require_pending_invariant(name, actual, expected):
+    if actual != expected:
+        raise RuntimeError("Pending rehearsal invariant failed: " + name)
+
+
+async def pending_timing():
+    """Supported lifecycle-test onboarding path, on a fresh restored/migrated copy only."""
+    import uuid
+    from sqlalchemy import func, select, text
+    from api import db as database
+    from api.models import Account, Item, ONBOARDING_STATUSES, RawTransaction, Transaction
+    from api.services import lifecycle
+    from api.services.derivation import normalize_item_transactions
+    from api.services.persistence import persist_account_metadata, persist_consumer_transactions
+    from api.migrations import institution_lifecycle_preflight
+
+    async with database.engine.connect() as connection:
+        await _identity(connection)
+        user_id = await _user_id(connection)
+        report = await institution_lifecycle_preflight(connection)
+        require_pending_invariant("migrated all-Active fresh copy", (report["applied"], report["blockers"],
+                                  set(report["status_counts"])), (True, [], {"active"}))
+    os.environ["PLAID_PILOT_USER_ID"] = user_id
+    fixture = "pft-rehearsal-synthetic-" + uuid.uuid4().hex
+    account_id = fixture + "-checking"
+
+    async def fingerprints(db, *, original_only=False, source_only=False):
+        tables = (await db.execute(text(
+            "SELECT tablename FROM pg_tables WHERE schemaname='public' ORDER BY tablename"))).scalars().all()
+        result = {}
+        for table in tables:
+            quoted = db.get_bind().dialect.identifier_preparer.quote(table)
+            predicate = ""
+            if original_only:
+                if table in ("items", "accounts", "raw_transactions"):
+                    predicate = " WHERE t.item_id <> :fixture"
+                elif table == "transactions":
+                    predicate = " WHERE t.account_id <> :account"
+            row = "to_jsonb(t)"
+            if source_only and table == "transactions":
+                row += " - 'transaction_type' - 'is_spending' - 'is_internal_transfer'"
+                # The supported classifier updates this timestamp on changed fixture
+                # classifications. Original rows still have a separate exact full-row check.
+                row = f"CASE WHEN t.account_id = :account THEN ({row}) - 'updated_at' ELSE ({row}) END"
+            if source_only and table == "items":
+                row += " - 'status' - 'published' - 'sync_enabled' - 'activated_at' - 'activation_digest' - 'updated_at'"
+            result[table] = await db.scalar(text(
+                f"SELECT md5(coalesce(string_agg(({row})::text, E'\\n' ORDER BY ({row})::text COLLATE \"C\"), '')) "
+                f"|| ':' || count(*) FROM {quoted} t{predicate}"),
+                {"fixture": fixture, "account": account_id})
+        return result
+
+    async def state(db):
+        return (await db.execute(select(Item.status, Item.sync_enabled, Item.published,
+                                       Item.transactions_cursor).where(Item.item_id == fixture))).one()
+
+    try:
+        async with database.SessionLocal() as db:
+            baseline = await fingerprints(db, original_only=True)
+            baseline_ledger = await lifecycle.ledger_snapshot(db, user_id)
+            size = await db.scalar(select(func.count()).select_from(RawTransaction).join(
+                Account, Account.account_id == RawTransaction.account_id).join(Item, Item.item_id == RawTransaction.item_id)
+                .where(Item.user_id == user_id, Item.status == "active", Account.consumer_transactions_enabled.is_(True),
+                       RawTransaction.is_removed.is_(False)).group_by(Item.item_id).order_by(func.count().desc()).limit(1))
+        if not size:
+            raise RuntimeError("No Active consumer transactions to size the Pending fixture")
+        rows = pending_fixture_rows(account_id, size)
+        # Matches the supported test fixture creation + explicit Pending onboarding,
+        # never Active -> Pending, never a fake cursor on an existing real Item.
+        async with database.SessionLocal.begin() as db:
+            db.add(Item(item_id=fixture, user_id=user_id, institution_id=fixture,
+                        institution_name="Synthetic Rehearsal Institution", status="pending",
+                        access_token="synthetic-unused-test-token"))
+            await db.flush()
+            await persist_account_metadata(db, user_id, fixture, [{"account_id": account_id,
+                "name": "Synthetic Checking", "type": "depository", "subtype": "checking"}],
+                statuses=ONBOARDING_STATUSES)
+            await persist_consumer_transactions(db, user_id, fixture, None, rows, [], [],
+                                                "synthetic-onboarding-complete", 1, statuses=ONBOARDING_STATUSES)
+            await normalize_item_transactions(db, user_id, fixture, statuses=ONBOARDING_STATUSES)
+            require_pending_invariant("onboarding preserves original rows", await fingerprints(db, original_only=True), baseline)
+            require_pending_invariant("Pending stays unpublished", await lifecycle.ledger_snapshot(db, user_id), baseline_ledger)
+        async with database.SessionLocal() as db:
+            pending_state = await state(db)
+            require_pending_invariant("Pending flags", tuple(pending_state[:3]), ("pending", False, False))
+            checks = await lifecycle.activation_checks(db, user_id, fixture)
+            require_pending_invariant("pre-activation checks", checks["can_activate"], True)
+            preview_baseline = await fingerprints(db)
+            source_baseline = await fingerprints(db, source_only=True)
+        started = time.monotonic()
+        preview = await lifecycle.preview_transition(database.SessionLocal, user_id, fixture, "activate")
+        preview_seconds = round(time.monotonic() - started, 3)
+        async with database.SessionLocal() as db:
+            require_pending_invariant("preview rolls back all rows", await fingerprints(db), preview_baseline)
+            require_pending_invariant("preview preserves Pending state", await state(db), pending_state)
+        started = time.monotonic()
+        async with database.SessionLocal.begin() as db:
+            applied = await lifecycle.apply_transition(db, user_id, fixture, "activate", preview["digest"])
+            apply_core_seconds = round(time.monotonic() - started, 3)
+            for key in ("digest", "summary_by_month", "new_transactions", "removed_transactions", "changed_existing_transactions"):
+                require_pending_invariant("preview/apply parity", applied[key], preview[key])
+            require_pending_invariant("original rows preserved", await fingerprints(db, original_only=True), baseline)
+            require_pending_invariant("source rows preserved", await fingerprints(db, source_only=True), source_baseline)
+            require_pending_invariant("Active flags", tuple((await state(db))[:3]), ("active", True, True))
+            require_pending_invariant("saved onboarding cursor", (await state(db))[3], pending_state[3])
+            classified = await db.scalar(select(func.count()).select_from(Transaction).where(
+                Transaction.account_id == account_id, Transaction.transaction_type == "expense",
+                Transaction.is_spending.is_(True), Transaction.is_internal_transfer.is_(False)))
+            require_pending_invariant("all fixture purchases classified", classified, size)
+            require_pending_invariant("published fixture count", len(applied["new_transactions"]), size)
+        apply_seconds = round(time.monotonic() - started, 3)
+        async with database.SessionLocal() as db:
+            require_pending_invariant("committed original rows preserved", await fingerprints(db, original_only=True), baseline)
+            require_pending_invariant("committed source rows preserved", await fingerprints(db, source_only=True), source_baseline)
+        return {"passed": True, "fixture_is_synthetic": True, "fixture_rows": size, "baseline_analytics_rows": len(baseline_ledger["transactions"]),
+                "activation_preview_seconds": preview_seconds, "activation_apply_and_validation_seconds": apply_seconds,
+                "activation_apply_core_seconds": apply_core_seconds,
+                "preview_equals_apply": True, "preview_rolled_back": True, "pending_unpublished": True,
+                "pre_activation_checks_pass": True, "original_rows_preserved": True, "source_rows_preserved": True,
+                "cursor_preserved": True, "fixture_classification_valid": True, "lifecycle_flags_valid": True}
+    finally:
+        await database.engine.dispose()
+
+
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("phase", choices=["fingerprint", "migrate", "timing"])
+    parser.add_argument("phase", choices=["fingerprint", "migrate", "timing", "pending-timing"])
     parser.add_argument("--reclassify", action="store_true")
     parser.add_argument("--copy-only-gate", action="store_true",
                         help="migrate with the non-Production gate (rehearsal copy only)")
     args = parser.parse_args()
     _guard()
     phases = {"fingerprint": lambda: fingerprint(args.reclassify),
-              "migrate": lambda: migrate(args.copy_only_gate), "timing": timing}
+              "migrate": lambda: migrate(args.copy_only_gate), "timing": timing, "pending-timing": pending_timing}
     with patch("plaid.ApiClient", side_effect=RuntimeError("Plaid is disabled in restore rehearsals")):
-        report = asyncio.run(phases[args.phase]())
+        try:
+            report = asyncio.run(phases[args.phase]())
+        except Exception as error:
+            if args.phase != "pending-timing":
+                raise
+            # SQL errors can contain parameters/rows; never expose them in this phase.
+            safe_error = str(error) if isinstance(error, RuntimeError) and str(error).startswith(
+                "Pending rehearsal invariant failed:") else "Pending rehearsal failed; no row/error parameters printed"
+            report = {"passed": False, "error": safe_error, "error_type": type(error).__name__}
     json.dump(report, sys.stdout, indent=2, sort_keys=True)
     print()
-    return 2 if args.phase == "migrate" and not report["migrated"] else 0
+    return 2 if ((args.phase == "migrate" and not report["migrated"])
+                 or (args.phase == "pending-timing" and not report["passed"])) else 0
 
 
 if __name__ == "__main__":

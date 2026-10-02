@@ -63,7 +63,7 @@
 
 - **M-1**：暂不合并。D15 彩排通过后，在同一个窗口内依次完成：合并 → preflight → 迁移 → api/jobs/web 三个镜像一起更新。顺序已写进 runbook（`docs/MULTI_INSTITUTION_PRODUCTION.md` → “Lifecycle release window”）。
 - **恢复**：迁移前的备份要么配合旧镜像使用，要么先在恢复副本上执行 preflight 和迁移。具体命令写进了 runbook 的 “Backups across the lifecycle migration”，`docs/PFT_M3_RUNTIME.md` 的恢复说明也已指向那里。
-- **D15 + D12**：已批准。命令清单见 `docs/PFT_LIFECYCLE_RESTORE_REHEARSAL_PACKET_2026-10-02.md`，**等待逐条批准，尚未对真实备份执行任何命令**。工具已经用合成备份完整预演过。
+- **D15 + D12**：owner 后续授权自主执行，已完成真实备份 D15 和全部 D12 技术测量，临时集群已清理；详见 `docs/PFT_LIFECYCLE_RESTORE_REHEARSAL_PACKET_2026-10-02.md` 的最终/补充执行记录。剩余 latency 正式接受仍由 owner 判定。
 - **D8**：已实现。计费依据：Plaid Transactions 按 Item 月订阅收费，只要 token 有效就收，不折算，`/item/remove` 才停止。实际单价需要在 Plaid Dashboard 上确认。
 - **D14**：已实现。
 - **6a/6b** 的对应测试：
@@ -73,7 +73,7 @@
 ## 剩余待决
 
 **发布前必须完成（gate）：**
-1. D15 + D12 彩排：按命令清单逐条批准执行。R7 必须为 `all_identical: true`，D12 的耗时由你判定是否可以接受。
+1. D15 已在最新真实备份上通过（`all_identical: true`）；D12 全部技术覆盖已完成，包括 fresh copy 中支持的 synthetic Pending onboarding/activation（1510 行叠加真实账本）。结果及 cleanup 见命令清单的最终/补充执行记录。剩余仅为 owner 对 latency 的正式接受：分类 0.057s、停用 apply 0.248s、重新激活 apply 0.400s、Pending activation core 0.454s；没有预设数值 SLA。
 2. 如果 R5 显示 Production 有非 active 的 Item：先决定如何处理这些 Item，否则 D1 闸门会阻止迁移。
 3. 发布窗口本身（M-1 顺序）：每条命令单独批准。包括 D10（`items` 表重写和短暂锁表）、D11（三个镜像一起换；新镜像确认上线之前不停用任何 Item）。
 
@@ -85,5 +85,5 @@
 ## 下一步（都需要你批准）
 
 1. 审阅全部 commit：`git -C /home/randyli/code/pft-institution-lifecycle log --stat 47183eb..HEAD`。
-2. 逐条批准恢复副本彩排（命令清单中的 [STATE] 步骤）。
+2. 审阅已完成的恢复副本结果并接受 D12 latency（命令清单的最终/补充执行记录）；不需要继续补测 Pending coverage。
 3. 彩排通过后，按 runbook 的发布窗口顺序执行：合并 → preflight → 迁移 → 三个镜像一起更新。每条命令单独批准；合并和 push 由你执行。

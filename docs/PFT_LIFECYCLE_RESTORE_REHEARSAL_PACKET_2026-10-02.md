@@ -1,6 +1,6 @@
 # 恢复副本彩排命令清单（D15 + D12）— 2026-10-02
 
-**状态：已用最新 post-Dining 真实备份完成到 S9。D15 四指纹全部相同；D12 停用/重新激活 timing 和 preview/apply parity 通过，备份无 Pending Item，因此未测 Pending 激活。临时集群已清理。见最终执行记录。**
+**状态：D15 通过，D12 全部技术覆盖已完成并通过（含 fresh 真实备份副本上的有效 synthetic Pending onboarding/activation）。临时集群均已清理。latency 正式接受仍按本文既有 owner 判定标准；无预设数值 SLA。见最终及补充执行记录。**
 
 目的：把最近一份 Production 备份恢复到一次性的临时集群，在副本上依次执行旧代码指纹、严格 preflight、迁移、新代码指纹，并测量预览和激活的耗时。全程**不连接 Production**（不连它的数据库，不执行 docker 命令），不调用 Plaid，用完删除集群。
 
@@ -49,6 +49,7 @@ export PFT_REHEARSAL_OLD_COMMIT=<R2 输出的 resolved_application_commit>
 | S7 | **STATE**（副本） | 新代码重新分类后再取指纹 | 写副本 | — |
 | R7 | READ | 比较四份指纹（忽略耗时） | 读结果文件 | `all_identical` 不为 true → D15 不通过 |
 | S8 | **STATE**（副本） | 测量 D12 耗时：ledger 快照、全量分类；对最大的 Active Item 做停用预览和执行、重新激活预览和执行；每个 Pending Item 做激活检查，通过则预览并激活（只改副本） | 写副本 | 预览与执行不一致 → D12 不通过 |
+| S8p | **STATE**（fresh 副本，owner 已授权） | 通过现有 lifecycle test 的 Pending 创建及 onboarding 服务路径加入 synthetic Item，行数取副本中最大 Active consumer Item 的未删除 raw 行数；通过真实 checks 后测激活 preview/apply | 只写新副本 | 隔离/schema/flags/checks、preview rollback、全表原数据保护、source/cursor、分类或 parity 任一不符 → 非零退出；S9 清理 |
 | S9 | **STATE** | 停止集群，删除 `data`、`sock`、`old_src` 和日志，只保留 `results/*.json`（0600） | 删除本地临时数据 | — |
 
 收尾时，在 S9 之后由你决定 `results/` 的去留。如需删除，执行 `rm -rf -- "$PFT_REHEARSAL_DIR"`（**[STATE]**）。
@@ -118,3 +119,22 @@ export PFT_REHEARSAL_OLD_COMMIT=<R2 输出的 resolved_application_commit>
 - **D12 coverage 限制**：此 backup 全部 Item 都是 Active，S8 没有 Pending 激活目标。没有伪造 Pending 状态、创建金融行或绕过 checks，因此不能声称已测真实备份的 Pending activation timing。合成数据的 Pending activation 结果仍见上方预演；真实数据 activation timing 如为 release 必需，仍需一个有效 Pending 副本场景。
 - **S9**：集群成功停止，data、socket、old_src、log 已删除；只剩 8 个有效 JSON，全部 mode 0600：before、before_reclassified、after、after_reclassified、preflight、migrate、compare、timing。此轮结果替换旧失败轮次同名结果，旧失败摘要保留在本文。
 - 收尾再次执行 R2，source backup SHA256/size 未变。未修改 source backup 或 Production/cloud，未调用 Plaid，未 push/merge/deploy。是否接受约 0.400s 的最大 apply lock timing 仍由 owner 判定。
+
+### D12 Pending activation 补充方案（owner 已授权自主执行）
+
+- acceptance 文本没有数值 latency threshold；已测 deactivate/reactivate 和 classification 的 parity/保存要求通过，latency 的正式接受按原标准仍由 owner 判定，不能把任意自设 threshold 写成已有标准。
+- 先按 R2 验证同一最新 backup，S0/S1/S2/R3/S3 创建 **fresh** 副本，R5/S6 通过严格闸门迁移，然后只通过 wrapper 执行 S8p，最后 S9。以前 D15 及 timing JSON 保留；补充结果写 `pending_activation.json`（0600）。
+- S8p 复用 `tests/test_institution_lifecycle.py` 的有效 fixture 模式：新 ORM Item 直接以合法初始 Pending 状态创建；`persist_account_metadata` 建立 consumer depository account；`persist_consumer_transactions(..., statuses=ONBOARDING_STATUSES)` 写 synthetic payload 并保存 synthetic cursor；`normalize_item_transactions` 完成 normalization。不把已有 Active Item 改为 Pending，不伪造真实 institution/token/cursor，不调用 Plaid，也不改应用行为。
+- synthetic payload 全为可分类 purchases，跨 26 个月，数量等于最大的 Active consumer Item；原备份账本为真实的 classification/preview scale。该测量是代表性 fixture 在真实账本规模上的 activation，不声称它是实际待接入 institution 或最坏情况。
+- 要求 Pending 未发布、checks 全部不 fail、preview 后全部表全行哈希和 Pending 状态原样恢复、apply 与 preview 各项 diff/digest 一致、新 Item 变为 Active/sync-enabled/published、cursor 原样、全部 fixture 行正确分类且发布；所有原备份行（包括 audit/timestamps）哈希保持相同。source-only 哈希只排除本次合法分类/lifecycle 变动字段及 fixture 分类服务预期更新的 updated_at（原备份行仍单独要求全行精确不变），除此之外所有 source/override/token/cursor 均保存。不输出或保存 IDs、行或 token。
+- `activation_apply_core_seconds` 测应用转换本身；`activation_apply_and_validation_seconds` 包含本次 rehearsal 的额外全表校验及 commit，不把校验额外开销冒充应用 latency。任一校验失败在 commit 前回滚，commit 后再核验原行和 source；错误输出仅安全摘要。
+
+### D12 补充执行结果：有效 Pending onboarding
+
+- R2 再确认最新 backup 未变，fresh copy 中的 6 Active 通过严格 R5/S6；没有对实际 Item 降级或改变 source backup。新 Item 通过已有 lifecycle test / Pending persistence / normalization 路径创建，checks 全部通过。
+- fixture 为 1510 笔跨 26 个月的 synthetic purchases（等于最大 Active consumer Item 的未删除 raw 行数），叠加 2619 个真实 baseline analytics rows。只代表该规模和构成，不声称未知 future Item 的绝对 worst case。
+- preview **0.521s**，apply core **0.454s**；含额外全表 preservation 校验及 commit **0.679s**。`preview_equals_apply`、preview 全行 rollback、Pending 未发布、Active flags、cursor 保存、全部新行分类、source 保存和全部原备份行（含 audit/timestamps）精确不变均为 true；commit 后独立重读 preservation 再次通过。
+- 首次 fixture 尝试因 source checker 将 fixture `updated_at` 误认为不可变而 fail closed，activation transaction 回滚。核对真实 `_write_classifications` 后仅允许该 synthetic fixture 的预期 classification timestamp 更新，原备份全行检查保持不变；旧 attempt 集群已删除，成功结果来自另一个 fresh restore。未绕过任何 app checks。
+- S9 成功；只保留 9 个有效 0600 JSON（新增 `pending_activation.json`），data/socket/old_src/log 不存在。此前 D15 的四指纹及 `compare.json` 保留，仍为 `all_identical: true`。再次 R2 验证 source SHA256/size 不变。
+- D12 测量及技术验证全部完成：分类 0.057s、停用 apply 0.248s、重新激活 apply 0.400s、Pending activation core 0.454s。原 acceptance 文本没有数值 threshold，仍不能代替 owner 的 latency 接受决定。
+- 26 个 focused wrapper/fixture/privacy 测试通过，shell syntax、Python compile 和 diff whitespace 检查通过。无 Production/Plaid/cloud/push/merge/deploy 操作。

@@ -211,6 +211,8 @@ EOF
     ;;
   S8)  # [STATE on copy] lifecycle timings; changes only the disposable copy
     rehearse "$WORKTREE" timing | tee "$OUT/timing.json" ;;
+  S8p) # [STATE on a fresh migrated copy] supported synthetic Pending onboarding and activation
+    rehearse "$WORKTREE" pending-timing > "$OUT/pending_activation.json"; cat "$OUT/pending_activation.json" ;;
   S9)  # [STATE: local disposable] stop and delete the cluster and code copy; keep results only
     "$PG/pg_ctl" -D "$DIR/data" -m fast -w stop || true
     rm -rf -- "$DIR/data" "$DIR/sock" "$DIR/old_src" "$DIR/pg.log"
