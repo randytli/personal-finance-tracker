@@ -9,7 +9,8 @@ jest.mock('@/components/plaid-link-button', () => () => null)
 jest.mock('@/components/category-editor', () => ({ __esModule: true, default: () => null }))
 jest.mock('@/components/benefit-category-editor', () => ({ __esModule: true, default: () => null }))
 jest.mock('@/components/label-editor', () => ({ __esModule: true, default: () => null,
-  useLabelOptions: () => ({ options: [], loading: false, error: null }) }))
+  useLabelOptions: () => ({ options: [{ value: 'tech-id', label: 'tech', is_system: false },
+    { value: 'old-id', label: 'old gear', is_system: false, archived: true }], loading: false, error: null }) }))
 
 const categories = [
   { category: 'DINING', gross_spending: '100.00', refunds: '10.00', reimbursements: '15.00', card_benefits: '20.00', net_spending: '55.00',
@@ -434,4 +435,38 @@ test('donut segments work from the keyboard and show the same details on focus a
   await waitFor(() => expect(screen.queryByText('DINING gross 0')).toBeNull())
   await act(async () => { segment(/^Dining,/).blur() })
   expect(screen.queryByRole('tooltip')).toBeNull()
+})
+
+
+test('mobile label filtering uses ten rows and a full-filter net total across pages', async () => {
+  width = 390
+  const currentFetch = global.fetch
+  global.fetch = jest.fn(async (input, init) => {
+    const url = new URL(String(input), 'http://synthetic.test')
+    if (!url.pathname.endsWith('/transactions')) return currentFetch(input, init)
+    requests.push(url)
+    const offset = Number(url.searchParams.get('offset'))
+    const limit = Number(url.searchParams.get('limit'))
+    return { ok: true, json: async () => ({ total: 21, component_totals: { net_spending: '113.00' },
+      transactions: Array.from({ length: Math.min(limit, 21 - offset) }, (_, index) => ({
+        transaction_id: `gear-${offset + index}`, transaction_date: '2026-09-01',
+        institution_name: 'Synthetic', account_name: 'Card', merchant_name: `Equipment ${offset + index}`,
+        amount: '-10.00', transaction_type: 'expense', effective_category: 'GENERAL_MERCHANDISE',
+        automatic_labels: [], manual_label_decisions: { 'tech-id': 'include' }, effective_labels: ['tech-id', 'other-id'],
+      })),
+    }) } as Response
+  })
+  render(createElement(HomePage))
+  await screen.findByRole('region', { name: 'Monthly financial summary' })
+  await act(async () => { fireEvent.change(screen.getByRole('combobox', { name: 'Transaction label filter' }), { target: { value: 'tech-id' } }) })
+  await screen.findByText('Equipment 0')
+  expect(latestDetails().searchParams.get('label')).toBe('tech-id')
+  expect(latestDetails().searchParams.get('limit')).toBe('10')
+  expect(screen.queryByText('Equipment 10')).toBeNull()
+  expect(screen.getByText('Net spending: $113.00')).toBeTruthy()
+  await click(screen.getByRole('button', { name: 'Next' }))
+  await screen.findByText('Equipment 10')
+  expect(latestDetails().searchParams.get('offset')).toBe('10')
+  expect(screen.getByText('Net spending: $113.00')).toBeTruthy()
+  expect(screen.getByRole('option', { name: 'old gear (archived)' })).toBeTruthy()
 })

@@ -1,0 +1,14 @@
+{
+  "source": "pft_custom_labels_browser_final",
+  "restored": "pft_custom_labels_restored_v2",
+  "host": "127.0.0.1",
+  "port": 55449,
+  "table_count": 15,
+  "all_table_rows_preserved": true,
+  "guard_functions_preserved": 3,
+  "guard_triggers_preserved": 4,
+  "monthly_financial_summary_preserved": true,
+  "membership_summary_preserved": true,
+  "restored_runtime_schema_verified": true,
+  "restored_db_mutation_guards_verified": true
+}

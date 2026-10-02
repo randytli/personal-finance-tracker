@@ -5,9 +5,11 @@ from typing import Literal
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, field_validator, model_validator
 from datetime import datetime, timezone
+from uuid import uuid4
+from sqlalchemy.exc import IntegrityError
 from api.categories import MANUAL_CATEGORIES, active_category, effective_category, category_editable
 from api.benefit_categories import BENEFIT_CATEGORIES, BENEFIT_CATEGORY_LABELS, active_benefit_category, effective_benefit_category
-from api.labels import ALLOWED_LABELS, label_result, load_label_overrides
+from api.labels import ALLOWED_LABELS, label_result, load_label_overrides, accessible_label, label_definition_result
 from api.models import ManualCategoryOverride, ManualBenefitCategoryOverride
 from sqlalchemy import and_, case, func, or_, select, text, update
 from sqlalchemy.dialects.postgresql import insert
@@ -20,6 +22,7 @@ from api.models import (
     Item,
     ManualClassificationOverride,
     ManualTransactionLabelOverride,
+    TransactionLabelDefinition,
     RawTransaction,
     Transaction,
 )
@@ -68,7 +71,84 @@ class LabelDecisionRequest(BaseModel):
 
 @router.get("/labels")
 async def label_options():
-    return {"labels": [{"value": value, "label": value.title()} for value in ALLOWED_LABELS]}
+    async with SessionLocal() as db:
+        definitions = (await db.execute(select(TransactionLabelDefinition).where(
+            or_(TransactionLabelDefinition.is_system.is_(True),
+                TransactionLabelDefinition.user_id == _user_id()))
+            .order_by(TransactionLabelDefinition.name, TransactionLabelDefinition.label_id))).scalars().all()
+        return {"labels": [label_definition_result(definition) for definition in definitions]}
+
+
+class LabelDefinitionRequest(BaseModel):
+    name: str
+    color: Literal["info", "success", "warning", "muted"] | None = None
+
+    @field_validator("name")
+    @classmethod
+    def valid_name(cls, value):
+        value = value.strip()
+        if not value or len(value) > 80:
+            raise ValueError("label name must contain 1 to 80 characters")
+        if value.casefold() in {label.casefold() for label in ALLOWED_LABELS}:
+            raise ValueError("system label names are reserved")
+        return value
+
+
+@router.post("/labels", status_code=201)
+async def create_label(request: LabelDefinitionRequest):
+    actor = _user_id()
+    definition = TransactionLabelDefinition(label_id=str(uuid4()), user_id=actor,
+        name=request.name, normalized_name=request.name.casefold(), color=request.color,
+        is_system=False, created_by=actor, updated_by=actor)
+    try:
+        async with SessionLocal() as db:
+            async with db.begin():
+                db.add(definition)
+                await db.flush()
+                return label_definition_result(definition)
+    except IntegrityError as error:
+        if getattr(error.orig, "sqlstate", None) != "23505":
+            raise
+        raise HTTPException(409, "A label with this name already exists.") from None
+
+
+@router.patch("/labels/{label}")
+async def rename_label(label: str, request: LabelDefinitionRequest):
+    actor = _user_id()
+    try:
+        async with SessionLocal() as db:
+            async with db.begin():
+                definition = await accessible_label(db, label, actor, for_update=True)
+                if definition.is_system:
+                    raise HTTPException(422, "System labels cannot be renamed.")
+                definition.name = request.name
+                definition.normalized_name = request.name.casefold()
+                # Omitted color preserves the existing choice; explicit null clears it.
+                if "color" in request.model_fields_set:
+                    definition.color = request.color
+                definition.updated_by = actor
+                definition.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+                await db.flush()
+                return label_definition_result(definition)
+    except IntegrityError as error:
+        if getattr(error.orig, "sqlstate", None) != "23505":
+            raise
+        raise HTTPException(409, "A label with this name already exists.") from None
+
+
+@router.post("/labels/{label}/archive")
+async def archive_label(label: str):
+    async with SessionLocal() as db:
+        async with db.begin():
+            definition = await accessible_label(db, label, _user_id(), for_update=True)
+            if definition.is_system:
+                raise HTTPException(422, "System labels cannot be archived.")
+            if definition.archived_at is None:
+                definition.archived_at = datetime.now(timezone.utc).replace(tzinfo=None)
+                definition.updated_at = definition.archived_at
+                definition.updated_by = _user_id()
+                await db.flush()
+            return label_definition_result(definition)
 
 
 def category_result(transaction, override, classification_type=None):
@@ -293,12 +373,13 @@ async def _apply_label(db, transaction, label, decision, actor):
 
 
 async def mutate_label(transaction_id, label, decision):
-    if label not in ALLOWED_LABELS:
-        raise HTTPException(422, "unsupported transaction label")
     actor = _user_id()
     async with SessionLocal() as db:
         async with db.begin():
             await _lock_review_scope(db, [transaction_id])
+            definition = await accessible_label(db, label, actor, for_update=True)
+            if definition.archived_at is not None and decision == "include":
+                raise HTTPException(422, "Archived labels cannot be added.")
             transaction = (await db.execute(
                 _label_transaction_scope(transaction_id).with_for_update(of=Transaction)
             )).scalar_one_or_none()
@@ -362,8 +443,7 @@ class BulkEditRequest(BaseModel):
             field = required
             if values[field] is None or any(value is not None for key, value in values.items() if key != field):
                 raise ValueError(f"{self.operation} requires only {field}")
-            allowed = {"category": MANUAL_CATEGORIES, "benefit_category": BENEFIT_CATEGORIES,
-                       "label": ALLOWED_LABELS}.get(field)
+            allowed = {"category": MANUAL_CATEGORIES, "benefit_category": BENEFIT_CATEGORIES}.get(field)
             if allowed is not None and values[field] not in allowed:
                 raise ValueError(f"unsupported {field}")
         return self
@@ -384,6 +464,10 @@ async def bulk_edit_transactions(request: BulkEditRequest):
     async with SessionLocal() as db:
         async with db.begin():
             await _lock_review_scope(db, ids)
+            if request.label is not None:
+                definition = await accessible_label(db, request.label, _user_id(), for_update=True)
+                if definition.archived_at is not None and request.operation == "include_label":
+                    raise HTTPException(422, "Archived labels cannot be added.")
             rows = (await db.execute(
                 select(Transaction, ManualClassificationOverride, Account, Item)
                 .join(RawTransaction, RawTransaction.transaction_id == Transaction.transaction_id)

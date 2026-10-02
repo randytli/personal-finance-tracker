@@ -31,19 +31,31 @@ async def migrate_sync_runs(connection):
 
 
 async def migrate_transaction_labels(connection):
-    from api.labels import LABEL_CHECK
-    from api.models import ManualTransactionLabelOverride
+    """Upgrade definitions/constraints without rewriting any historical decision."""
+    from api.models import ManualTransactionLabelOverride, TransactionLabelDefinition
+    from api.label_schema import LABEL_SCHEMA_SQL
     await connection.run_sync(
-        lambda sync: ManualTransactionLabelOverride.__table__.create(sync, checkfirst=True)
-    )
+        lambda sync: TransactionLabelDefinition.__table__.create(sync, checkfirst=True))
+    for index in TransactionLabelDefinition.__table__.indexes:
+        await connection.run_sync(lambda sync, index=index: index.create(sync, checkfirst=True))
+    # Seed the stable system IDs before adding the reference to existing rows.
+    await connection.execute(text(LABEL_SCHEMA_SQL[0]))
+    await connection.run_sync(
+        lambda sync: ManualTransactionLabelOverride.__table__.create(sync, checkfirst=True))
     await connection.execute(text(
         "ALTER TABLE manual_transaction_label_overrides "
-        "DROP CONSTRAINT IF EXISTS ck_manual_transaction_label"
-    ))
-    await connection.execute(text(
-        "ALTER TABLE manual_transaction_label_overrides "
-        f"ADD CONSTRAINT ck_manual_transaction_label CHECK ({LABEL_CHECK})"
-    ))
+        "DROP CONSTRAINT IF EXISTS ck_manual_transaction_label"))
+    await connection.execute(text("""DO $$ BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint
+          WHERE conrelid = 'manual_transaction_label_overrides'::regclass
+          AND conname = 'fk_manual_transaction_label') THEN
+          ALTER TABLE manual_transaction_label_overrides
+          ADD CONSTRAINT fk_manual_transaction_label FOREIGN KEY (label)
+          REFERENCES transaction_label_definitions(label_id);
+        END IF;
+        END $$"""))
+    for statement in LABEL_SCHEMA_SQL[1:]:
+        await connection.execute(text(statement))
 
 
 async def migrate_benefit_categories(connection):

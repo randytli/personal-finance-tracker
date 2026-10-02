@@ -150,13 +150,14 @@ export default function BulkTransactionEditor({
   const hasValue = operation !== '' && !noValue.has(operation)
   const options = operation === 'set_classification' ? classificationOptions
     : operation === 'set_category' ? categories
-      : operation === 'set_benefit_category' ? benefitCategoryOptions : labelOptions
+      : operation === 'set_benefit_category' ? benefitCategoryOptions
+        : operation === 'include_label' ? labelOptions.filter(option => !option.archived) : labelOptions
   const classification = classificationOptions.find(option => option.value === value)
   const ineligibleCount = operation === 'set_classification'
     ? transactionIds.length - (classification?.eligibleCount || 0)
     : operation === 'set_category' ? categoryIneligibleCount
       : operation === 'set_benefit_category' ? benefitIneligibleCount : 0
-  const valid = Boolean(operation && (!hasValue || value) && ineligibleCount === 0 && (!hasValue || options.length > 0))
+  const valid = Boolean(operation && (!hasValue || options.some(option => option.value === value)) && ineligibleCount === 0)
   const actionName = operation === 'set_classification' ? 'Set classification'
     : operation === 'restore_classification_auto' ? 'Restore classification to Auto'
     : operation === 'set_category' ? 'Set category'
@@ -164,7 +165,7 @@ export default function BulkTransactionEditor({
     : operation === 'set_benefit_category' ? 'Set benefit category'
     : operation === 'restore_benefit_category_auto' ? 'Restore benefit category to Auto'
     : operation === 'include_label' ? 'Add label'
-      : operation === 'exclude_label' ? 'Exclude label' : 'Restore label to Auto'
+      : operation === 'exclude_label' ? 'Remove / exclude label' : 'Clear manual label decision'
   const valueName = operation === 'set_classification' ? classification?.label || value
     : operation === 'set_category'
     ? categoryMetadata(value).label
@@ -210,8 +211,8 @@ export default function BulkTransactionEditor({
         {allowBenefitCategory && <option value="set_benefit_category">Set Benefit Category</option>}
         {allowBenefitCategory && <option value="restore_benefit_category_auto">Restore Benefit Category to Auto</option>}
         <option value="include_label">Add Label</option>
-        <option value="exclude_label">Exclude Label</option>
-        <option value="restore_label_auto">Restore Label to Auto</option>
+        <option value="exclude_label">Remove / Exclude Label</option>
+        <option value="restore_label_auto">Clear Label Decision / Restore Auto</option>
       </select>
       {hasValue && <select aria-label={operation === 'set_classification' ? 'Bulk classification'
         : operation === 'set_category' ? 'Bulk category'
