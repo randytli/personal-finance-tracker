@@ -21,8 +21,7 @@ from plaid.model.transactions_sync_request import TransactionsSyncRequest
 from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from api.db import SessionLocal
-from api.models import Account, Item, RawTransaction, Transaction
-from api.statement_semantics import lock_consumer_derivation
+from api.models import INGESTION_STATUSES, Account, Item, RawTransaction, Transaction
 from api.services.derivation import (
     classify_active_transactions, normalize_item_transactions,
     preview_pending_classification, validate_consumer_activation,
@@ -43,10 +42,6 @@ class PublicTokenExchange(BaseModel):
     public_token: str = Field(min_length=1)
     institution_id: str = Field(pattern=r"^ins_[A-Za-z0-9]+$")
     institution_name: str = Field(min_length=1, max_length=200)
-
-
-class ItemStatusUpdate(BaseModel):
-    status: str
 
 
 class LifecycleConfirmation(BaseModel):
@@ -269,25 +264,11 @@ def item_metadata(item):
 
 
 @router.patch("/items/{item_id}/status")
-async def update_item_status(item_id: str, data: ItemStatusUpdate):
-    if data.status not in {"active", "disabled"}:
-        raise HTTPException(status_code=422, detail="status must be active or disabled")
-    if data.status == "active":
-        # Activation always goes through a confirmed whole-ledger preview.
-        raise HTTPException(409, "Preview with POST /plaid/items/{item_id}/activation-preview, "
-                                 "then confirm with POST /plaid/items/{item_id}/activate")
-    async with SessionLocal.begin() as db:
-        await lock_consumer_derivation(db, _user_id())
-        item = await db.scalar(select(Item).where(
-            Item.item_id == item_id, Item.user_id == _user_id(),
-            Item.status.in_(("pending", "active", "disabled")),
-        ).with_for_update())
-        if item is None:
-            raise HTTPException(404, "Item not found")
-        if item.status == "active":
-            raise HTTPException(409, "Active Items cannot be disabled through this endpoint")
-        await db.execute(update(Item).where(Item.item_id == item_id).values(status="disabled"))
-    return {"item_id": item_id, "status": "disabled"}
+async def retired_item_status_mutation(item_id: str):
+    # Retired: a generic status write bypasses the lifecycle locks, checks and
+    # previews. It fails closed without reading or writing anything.
+    raise HTTPException(410, "Item status mutation is retired; use activate, reactivate, deactivate, "
+                             "reject or retry-onboarding")
 
 
 @router.get("/items/{item_id}")
@@ -366,6 +347,29 @@ async def preview_item_activation(item_id: str):
 async def activate_item(item_id: str, data: LifecycleConfirmation):
     async with SessionLocal.begin() as db:
         return await lifecycle.apply_transition(db, _user_id(), item_id, "activate", data.preview_digest)
+
+
+@router.post("/items/{item_id}/reactivation-preview")
+async def preview_item_reactivation(item_id: str):
+    return await lifecycle.preview_transition(SessionLocal, _user_id(), item_id, "reactivate")
+
+
+@router.post("/items/{item_id}/reactivate")
+async def reactivate_item(item_id: str, data: LifecycleConfirmation):
+    async with SessionLocal.begin() as db:
+        return await lifecycle.apply_transition(db, _user_id(), item_id, "reactivate", data.preview_digest)
+
+
+@router.post("/items/{item_id}/reject")
+async def reject_item(item_id: str):
+    async with SessionLocal.begin() as db:
+        return await lifecycle.change_onboarding_status(db, _user_id(), item_id, "reject")
+
+
+@router.post("/items/{item_id}/retry-onboarding")
+async def retry_item_onboarding(item_id: str):
+    async with SessionLocal.begin() as db:
+        return await lifecycle.change_onboarding_status(db, _user_id(), item_id, "retry_onboarding")
 
 
 @router.post("/items/{item_id}/deactivation-preview")
@@ -480,7 +484,7 @@ async def exchange_public_token(data: PublicTokenExchange):
 
 @router.post("/transactions")
 async def get_transactions(item_id: str = Query(..., min_length=1)):
-    item = await _get_item(item_id, ("pending", "active"))
+    item = await _get_item(item_id, INGESTION_STATUSES)
     async with SessionLocal() as db:
         discovered = await db.scalar(select(func.count()).select_from(Account).where(Account.item_id == item_id))
         if not discovered:
@@ -505,7 +509,7 @@ async def persist_consumer_transactions(item_id, starting_cursor, added, modifie
 
 @router.post("/accounts")
 async def get_accounts(item_id: str = Query(..., min_length=1)):
-    item = await _get_item(item_id, ("pending", "active"))
+    item = await _get_item(item_id, INGESTION_STATUSES)
 
     client = get_client()
     request = AccountsGetRequest(access_token=decrypt_access_token(item.access_token))

@@ -366,9 +366,9 @@ class ConsumerDatabaseTests(unittest.IsolatedAsyncioTestCase):
             self.assertIsNone((await db.get(Transaction, "active-payment-counterpart")).is_internal_transfer)
             self.assertEqual((await db.get(ManualTransactionLabelOverride,
                                           ("active-transfer", "MEMBERSHIP"))).decision, "include")
-        with self.assertRaises(HTTPException) as unconfirmed:
-            await plaid.update_item_status("pending", plaid.ItemStatusUpdate(status="active"))
-        self.assertEqual(unconfirmed.exception.status_code, 409)
+        with self.assertRaises(HTTPException) as retired:
+            await plaid.retired_item_status_mutation("pending")
+        self.assertEqual(retired.exception.status_code, 410)
         # This seed has no synced source payloads; lifecycle tests cover the checks themselves.
         with patch.object(lifecycle, "activation_checks_in_session", AsyncMock(return_value=[])):
             preview = await plaid.preview_item_activation("pending")

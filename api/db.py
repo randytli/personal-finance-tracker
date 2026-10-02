@@ -7,7 +7,8 @@ from api.models import Base
 from api.migrations import (migrate_multi_institution, migrate_manual_categories,
                             migrate_consumer_scope, migrate_statement_imports,
                             migrate_transaction_labels, migrate_benefit_categories,
-                            migrate_sync_runs, migrate_institution_lifecycle)
+                            migrate_sync_runs, migrate_institution_lifecycle,
+                            require_lifecycle_preflight)
 
 DATABASE_URL = os.environ["DATABASE_URL"]   # postgresql+asyncpg://supabase:...
 
@@ -16,6 +17,10 @@ SessionLocal = async_sessionmaker(engine, expire_on_commit=False)
 
 async def init_db():
     async with engine.begin() as connection:
+        # Mandatory read-only gate: Production stops here, before any DDL, unless
+        # every Item is in a state the lifecycle migration supports.
+        await require_lifecycle_preflight(
+            connection, production=os.environ.get("PLAID_ENV", "").lower() == "production")
         await connection.run_sync(Base.metadata.create_all)
         await migrate_multi_institution(connection)
         await migrate_manual_categories(connection)

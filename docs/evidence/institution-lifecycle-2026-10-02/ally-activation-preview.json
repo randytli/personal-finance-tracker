@@ -1,5 +1,5 @@
 {
- "digest": "161212afc5c6cfd94587491fbabc5cf3f2f568cffb344be49c363208d8ae80dc",
+ "digest": "7fccac102bf1bbe45c7056c656a2558d233e7db26a63715ceef95917c4528046",
  "new_transactions": 6,
  "changed_existing": [
   [
@@ -94,5 +94,6 @@
   "K10": "pass",
   "K12": "pass"
  },
+ "transition": "activate",
  "can_activate": true
 }

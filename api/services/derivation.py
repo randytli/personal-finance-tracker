@@ -9,7 +9,7 @@ from api.card_benefits import AMERICAN_EXPRESS_INSTITUTION_ID, AMEX_MERCHANT_BEN
 from api.classification_rules import (
     ClassificationCandidate, build_classifications, _normalized_match_text,
 )
-from api.models import Account, Item, LegacyConsumerRow, ManualClassificationOverride, RawTransaction, Transaction
+from api.models import INGESTION_STATUSES, Account, Item, LegacyConsumerRow, ManualClassificationOverride, RawTransaction, Transaction
 from api.statement_semantics import lock_consumer_derivation, normalized_raw_values
 
 
@@ -37,7 +37,7 @@ def validate_normalization_input(raw):
 async def normalize_item_transactions(db, user_id, item_id):
     await lock_consumer_derivation(db, user_id)
     item = await db.scalar(select(Item).where(
-        Item.item_id == item_id, Item.user_id == user_id, Item.sync_enabled.is_(True),
+        Item.item_id == item_id, Item.user_id == user_id, Item.status.in_(INGESTION_STATUSES),
     ).with_for_update().execution_options(populate_existing=True))
     if item is None:
         raise HTTPException(status_code=404, detail="Item not found")

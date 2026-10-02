@@ -6,7 +6,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert
 
 from api.consumer_scope import initial_consumer_scope, account_type_drift
-from api.models import Account, Item, RawTransaction
+from api.models import INGESTION_STATUSES, Account, Item, RawTransaction
 from api.statement_semantics import lock_consumer_derivation
 
 
@@ -16,7 +16,7 @@ async def persist_consumer_transactions(db, user_id, item_id, starting_cursor, a
     await lock_consumer_derivation(db, user_id)
     item = (await db.execute(select(Item).where(
         Item.item_id == item_id, Item.user_id == user_id,
-        Item.sync_enabled.is_(True),
+        Item.status.in_(INGESTION_STATUSES),
     ).with_for_update().execution_options(populate_existing=True))).scalar_one_or_none()
     if item is None or item.transactions_cursor != starting_cursor:
         raise HTTPException(409, "Item changed during sync; retry")
@@ -163,7 +163,7 @@ async def persist_account_metadata(db, user_id, item_id, accounts):
     await lock_consumer_derivation(db, user_id)
     item = (await db.execute(select(Item).where(
         Item.item_id == item_id, Item.user_id == user_id,
-        Item.sync_enabled.is_(True),
+        Item.status.in_(INGESTION_STATUSES),
     ).with_for_update().execution_options(populate_existing=True))).scalar_one_or_none()
     if item is None:
         raise HTTPException(404, "Item not found")

@@ -44,7 +44,7 @@ async def request_sync(user_id, item_ids=None, *, session_factory=None):
     async with session_factory.begin() as db:
         if item_ids is not None:
             found = set((await db.execute(select(Item.item_id).where(
-                Item.user_id == user_id, Item.sync_enabled.is_(True), Item.published.is_(True),
+                Item.user_id == user_id, Item.sync_enabled.is_(True),
                 Item.item_id.in_(item_ids)))).scalars())
             if found != set(item_ids):
                 raise ValueError("Selected Item is not active")
@@ -93,8 +93,7 @@ async def tick(user_id, *, now=None, engine=None, session_factory=None, sync=Non
                     sequence = None
                     requested_ids = None
                 eligible = select(Item.item_id).where(
-                    Item.user_id == user_id, Item.sync_enabled.is_(True), Item.published.is_(True),
-                    Item.sync_paused.is_(False))
+                    Item.user_id == user_id, Item.sync_enabled.is_(True), Item.sync_paused.is_(False))
                 if sequence is not None:
                     if requested_ids is not None:
                         eligible = eligible.where(Item.item_id.in_(requested_ids))

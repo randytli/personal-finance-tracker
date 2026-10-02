@@ -9,6 +9,7 @@ if its digest equals the digest the owner confirmed.
 import hashlib
 import json
 import os
+from functools import partial
 from datetime import date, datetime, timezone
 from decimal import Decimal
 
@@ -25,7 +26,10 @@ from api.services.derivation import (
 from api.statement_semantics import lock_consumer_derivation
 
 LEDGER_START, LEDGER_END = date(1900, 1, 1), date(9999, 12, 31)
-ACTIVATABLE = ("pending", "deactivated")
+# Each publishing transition has exactly one source status. Rejected (disabled) Items
+# are never activated directly: they return to pending and repeat onboarding first.
+ACTIVATION_SOURCES = {"activate": "pending", "reactivate": "deactivated"}
+ACTIVATION_KIND = {status: kind for kind, status in ACTIVATION_SOURCES.items()}
 METRICS = ("gross_spending", "refunds", "reimbursements", "card_benefits", "net_spending",
            "income", "net_savings", "unclassified_count")
 
@@ -38,8 +42,8 @@ def _json(value):
     return json.loads(json.dumps(value, sort_keys=True, default=str))
 
 
-def _digest(before, after):
-    canonical = json.dumps({"before": before, "after": after}, sort_keys=True, default=str,
+def _digest(kind, before, after):
+    canonical = json.dumps({"transition": kind, "before": before, "after": after}, sort_keys=True, default=str,
                            separators=(",", ":"))
     return hashlib.sha256(canonical.encode()).hexdigest()
 
@@ -142,10 +146,10 @@ async def _transition_with_impact(db, user_id, item_id, transition):
     return result, before, after
 
 
-async def _activate(db, user_id, item_id):
+async def _publish(kind, db, user_id, item_id):
     item = await _locked_item(db, user_id, item_id)
-    if item.status not in ACTIVATABLE:
-        raise HTTPException(409, f"Only pending or deactivated Items can be activated, not {item.status}")
+    if item.status != ACTIVATION_SOURCES[kind]:
+        raise HTTPException(409, f"Only {ACTIVATION_SOURCES[kind]} Items can {kind}, not {item.status}")
     failed = [check for check in await activation_checks_in_session(db, user_id, item)
               if check["result"] == "fail"]
     if failed:
@@ -168,7 +172,8 @@ async def _deactivate(db, user_id, item_id):
     return {"item_id": item_id, "status": "deactivated", "classification": classification}
 
 
-TRANSITIONS = {"activate": _activate, "deactivate": _deactivate}
+TRANSITIONS = {"activate": partial(_publish, "activate"), "reactivate": partial(_publish, "reactivate"),
+               "deactivate": _deactivate}
 
 
 async def preview_transition(session_factory, user_id, item_id, kind):
@@ -183,7 +188,7 @@ async def preview_transition(session_factory, user_id, item_id, kind):
     except _Rollback:
         pass
     before, after = captured["before"], captured["after"]
-    return {"item_id": item_id, "transition": kind, "digest": _digest(before, after),
+    return {"item_id": item_id, "transition": kind, "digest": _digest(kind, before, after),
             **ledger_diff(before, after)}
 
 
@@ -192,10 +197,10 @@ async def apply_transition(db, user_id, item_id, kind, preview_digest):
     if not preview_digest:
         raise HTTPException(422, "A confirmed preview digest is required")
     result, before, after = await _transition_with_impact(db, user_id, item_id, TRANSITIONS[kind])
-    digest = _digest(before, after)
+    digest = _digest(kind, before, after)
     if digest != preview_digest:
         raise HTTPException(409, "The ledger changed since the preview; preview again before confirming")
-    if kind == "activate":
+    if kind in ACTIVATION_SOURCES:
         await db.execute(update(Item).where(Item.item_id == item_id).values(activation_digest=digest))
     return {"item_id": item_id, "status": result["status"], "digest": digest,
             **ledger_diff(before, after)}
@@ -208,9 +213,10 @@ def _check(ident, label, result, detail):
 async def activation_checks_in_session(db, user_id, item):
     """Pre-activation checks; fail blocks activation, warn is shown only."""
     item_id = item.item_id
-    checks = [_check("K1", "Item can be activated",
-                     "pass" if item.status in ACTIVATABLE else "fail",
-                     f"Status is {item.status}")]
+    kind = ACTIVATION_KIND.get(item.status)
+    checks = [_check("K1", "Item can be activated", "pass" if kind else "fail",
+                     f"Status is {item.status}" if kind or item.status != "disabled"
+                     else "Rejected Items must return to pending and repeat onboarding first")]
     accounts = (await db.execute(select(Account).where(Account.item_id == item_id)
                                  .order_by(Account.account_id))).scalars().all()
     enabled = [account for account in accounts if account.consumer_transactions_enabled]
@@ -286,5 +292,25 @@ async def activation_checks(db, user_id, item_id):
     if item is None:
         raise HTTPException(404, "Item not found")
     checks = await activation_checks_in_session(db, user_id, item)
-    return {"item_id": item_id, "status": item.status, "checks": checks,
-            "can_activate": not any(check["result"] == "fail" for check in checks)}
+    return {"item_id": item_id, "status": item.status, "transition": ACTIVATION_KIND.get(item.status),
+            "checks": checks, "can_activate": not any(check["result"] == "fail" for check in checks)}
+
+
+ONBOARDING_TRANSITIONS = {"reject": ("pending", "disabled"), "retry_onboarding": ("disabled", "pending")}
+
+
+async def change_onboarding_status(db, user_id, item_id, kind):
+    """Reject a pending Item, or return a rejected one to pending onboarding.
+
+    Neither status is published, so the ledger and every published classification
+    are unaffected by construction; this is asserted rather than assumed.
+    """
+    source, target = ONBOARDING_TRANSITIONS[kind]
+    item = await _locked_item(db, user_id, item_id)
+    if item.status != source:
+        raise HTTPException(409, f"Only {source} Items can {kind.replace('_', ' ')}, not {item.status}")
+    before = await ledger_snapshot(db, user_id)
+    await db.execute(update(Item).where(Item.item_id == item_id).values(status=target))
+    if await ledger_snapshot(db, user_id) != before:
+        raise RuntimeError("An unpublished status change altered the ledger")
+    return {"item_id": item_id, "status": target}

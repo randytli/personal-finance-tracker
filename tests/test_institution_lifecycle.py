@@ -1,10 +1,12 @@
 """Institution lifecycle tests on disposable PostgreSQL schemas with a fake Plaid client only."""
 
+import io
+import json
 import os
 import unittest
 import uuid
-from contextlib import ExitStack
-from datetime import date
+from contextlib import ExitStack, redirect_stdout
+from datetime import date, datetime, timezone
 from unittest.mock import patch
 
 from fastapi import HTTPException
@@ -12,7 +14,8 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from api import jobs
-from api.migrations import migrate_institution_lifecycle
+from api.migrations import (LifecyclePreflightBlocked, institution_lifecycle_preflight,
+                            lifecycle_preflight_errors, migrate_institution_lifecycle)
 from api.models import Account, Base, Item, ManualClassificationOverride, LIFECYCLE_STATES
 from api.services import lifecycle
 from api.services import sync_all as service
@@ -146,9 +149,38 @@ class LifecycleDatabaseTests(unittest.IsolatedAsyncioTestCase):
         async with self.sessions.begin() as db:
             return await lifecycle.apply_transition(db, USER, item_id, kind, digest)
 
-    async def activate(self, item_id="b"):
-        preview = await self.preview("activate", item_id)
-        return preview, await self.apply("activate", preview["digest"], item_id)
+    async def activate(self, item_id="b", kind="activate"):
+        preview = await self.preview(kind, item_id)
+        return preview, await self.apply(kind, preview["digest"], item_id)
+
+    async def onboarding(self, kind, item_id="b"):
+        async with self.sessions.begin() as db:
+            return await lifecycle.change_onboarding_status(db, USER, item_id, kind)
+
+    async def legacy_shape(self):
+        """Recreate the pre-lifecycle items shape, keeping every row."""
+        async with self.engine.begin() as connection:
+            await connection.execute(text("DROP INDEX ix_items_user_lifecycle"))
+            for column in ("sync_enabled", "published", "activated_at", "deactivated_at", "activation_digest"):
+                await connection.execute(text(f"ALTER TABLE items DROP COLUMN {column}"))
+            await connection.execute(text("ALTER TABLE items DROP CONSTRAINT ck_items_status"))
+            await connection.execute(text("ALTER TABLE items ADD CONSTRAINT ck_items_status "
+                                          "CHECK (status IN ('pending','active','disabled'))"))
+
+    async def schema_state(self):
+        """Columns, constraints and financial rows, readable on either schema shape."""
+        async with self.sessions() as db:
+            columns = sorted((await db.execute(text(
+                "SELECT attname FROM pg_attribute WHERE attrelid='items'::regclass AND attnum>0 "
+                "AND NOT attisdropped"))).scalars())
+            status_check = await db.scalar(text(
+                "SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname='ck_items_status'"))
+            rows = await db.scalar(text(
+                "SELECT md5(coalesce(string_agg((to_jsonb(t) - 'created_at' - 'updated_at')::text, "
+                "E'\\n' ORDER BY t.transaction_id), '')) FROM transactions t"))
+            items = (await db.execute(text("SELECT item_id, status, transactions_cursor FROM items "
+                                           "ORDER BY item_id"))).all()
+        return columns, status_check, rows, items
 
     async def test_pending_data_never_reaches_published_classification(self):
         await self.seed()
@@ -273,7 +305,11 @@ class LifecycleDatabaseTests(unittest.IsolatedAsyncioTestCase):
         preview = await self.preview("deactivate")
         await self.apply("deactivate", preview["digest"])
         await self.sync({"a": ([], "a-3")})
-        preview, result = await self.activate()
+        # Reactivation is its own operation; the pending-only activation refuses it.
+        with self.assertRaises(HTTPException) as refused:
+            await self.preview("activate")
+        self.assertEqual(refused.exception.status_code, 409)
+        preview, result = await self.activate(kind="reactivate")
         self.assertEqual(result["status"], "active")
         self.assertEqual((result["new_transactions"], result["changed_existing_transactions"]), ([], []))
         gap = [plaid_tx("b-during-gap", "b-check", 40, 9, "HARDWARE", "GENERAL_MERCHANDISE")]
@@ -320,14 +356,7 @@ class LifecycleDatabaseTests(unittest.IsolatedAsyncioTestCase):
         async with self.sessions.begin() as db:
             await classify_active_transactions(db, USER)
         before = await self.fingerprint()
-        # Recreate the pre-lifecycle items shape, keeping every row.
-        async with self.engine.begin() as connection:
-            await connection.execute(text("DROP INDEX ix_items_user_lifecycle"))
-            for column in ("sync_enabled", "published", "activated_at", "deactivated_at", "activation_digest"):
-                await connection.execute(text(f"ALTER TABLE items DROP COLUMN {column}"))
-            await connection.execute(text("ALTER TABLE items DROP CONSTRAINT ck_items_status"))
-            await connection.execute(text("ALTER TABLE items ADD CONSTRAINT ck_items_status "
-                                          "CHECK (status IN ('pending','active','disabled'))"))
+        await self.legacy_shape()
         for _ in range(2):
             async with self.engine.begin() as connection:
                 await migrate_institution_lifecycle(connection)
@@ -344,6 +373,132 @@ class LifecycleDatabaseTests(unittest.IsolatedAsyncioTestCase):
         async with self.engine.begin() as connection:
             with self.assertRaises(Exception):
                 await connection.execute(text("UPDATE items SET published = false WHERE item_id='a'"))
+
+
+    async def test_production_preflight_stops_before_any_ddl_unless_every_item_is_active(self):
+        from api import db as database
+        from api import lifecycle_preflight
+        await self.seed()
+        async with self.sessions.begin() as db:
+            db.add(Item(item_id="c", user_id=USER, institution_id="ins_c", institution_name="Rejected",
+                        status="disabled", access_token="token-c"))
+        await self.legacy_shape()
+        before = await self.schema_state()
+        self.assertNotIn("published", before[0])
+
+        with patch.object(database, "engine", self.engine), patch.dict(os.environ, {"PLAID_ENV": "production"}):
+            with self.assertRaises(LifecyclePreflightBlocked) as blocked:
+                await database.init_db()
+        self.assertEqual(blocked.exception.errors,
+                         ["Production Items must all be active before this migration; found disabled=1, pending=1"])
+        self.assertEqual(await self.schema_state(), before)
+
+        output = io.StringIO()
+        with patch.object(lifecycle_preflight, "engine", self.engine), redirect_stdout(output):
+            self.assertEqual(await lifecycle_preflight.main(), 2)
+        report = json.loads(output.getvalue())
+        self.assertEqual((report["migration_may_run"], report["applied"], report["status_counts"]),
+                         (False, False, {"active": 1, "disabled": 1, "pending": 1}))
+        self.assertEqual(await self.schema_state(), before)
+
+        # Once the owner resolves the Items outside the migration, the gate opens.
+        async with self.sessions.begin() as db:
+            await db.execute(text("DELETE FROM items WHERE item_id='c'"))
+            await db.execute(text("UPDATE items SET status='active' WHERE item_id='b'"))
+        output = io.StringIO()
+        with patch.object(lifecycle_preflight, "engine", self.engine), redirect_stdout(output):
+            self.assertEqual(await lifecycle_preflight.main(), 0)
+        with patch.object(database, "engine", self.engine), patch.dict(os.environ, {"PLAID_ENV": "production"}):
+            await database.init_db()
+            columns = (await self.schema_state())[0]
+            self.assertIn("published", columns)
+            # After the migration, later Pending onboarding must not block a rerun.
+            async with self.sessions.begin() as db:
+                db.add(Item(item_id="d", user_id=USER, institution_id="ins_d", institution_name="Later",
+                            status="pending", access_token="token-d"))
+            await database.init_db()
+
+    async def test_preflight_blocks_partial_or_inconsistent_lifecycle_schema(self):
+        await self.seed()
+        await self.legacy_shape()
+        async with self.engine.begin() as connection:
+            await connection.execute(text("ALTER TABLE items ADD COLUMN published BOOLEAN"))
+        async with self.engine.begin() as connection:
+            with self.assertRaisesRegex(LifecyclePreflightBlocked, "partially present: published"):
+                await migrate_institution_lifecycle(connection)
+        async with self.engine.connect() as connection:
+            report = await institution_lifecycle_preflight(connection)
+        self.assertEqual(lifecycle_preflight_errors(report, production=False),
+                         ["lifecycle columns are partially present: published"])
+
+    async def test_pending_items_never_join_scheduled_catch_up_or_manual_sync(self):
+        await self.seed()
+        self.assertEqual((await self.item("b")).sync_enabled, False)
+        client, result = await self.sync({"a": ([], "a-2"), "b": ([], "b-2")})
+        self.assertEqual(([item for item, _ in client.requests], set(result["items"])), (["a"], {"a"}))
+        self.assertEqual((await self.item("b")).transactions_cursor, "b-1")
+
+        seen = []
+
+        async def fake_sync(user_id, **kwargs):
+            seen.append((kwargs["trigger_source"], kwargs["item_ids"]))
+            return {"status": "idle", "run_id": None, "items": {}}
+
+        later = datetime(2030, 1, 1, tzinfo=timezone.utc)
+        # Catch-up: b has never synced, so it would be due if it were eligible.
+        await jobs.tick(USER, now=later, engine=self.engine, session_factory=self.sessions, sync=fake_sync)
+        await jobs.request_sync(USER, session_factory=self.sessions)
+        await jobs.tick(USER, now=later, engine=self.engine, session_factory=self.sessions, sync=fake_sync)
+        self.assertEqual(seen, [("jobs", ["a"]), ("manual", ["a"])])
+        with self.assertRaisesRegex(ValueError, "not active"):
+            await jobs.request_sync(USER, ["b"], session_factory=self.sessions)
+        # Explicit onboarding is the only ingestion path for a Pending Item.
+        await self.onboard_pending(rows=[], cursor="b-2")
+        self.assertEqual((await self.item("b")).transactions_cursor, "b-2")
+
+    async def test_generic_status_patch_is_retired_and_fails_closed(self):
+        from api.routes import plaid
+        await self.seed()
+        before = await self.schema_state()
+        for item_id in ("a", "b", "missing"):
+            with self.assertRaises(HTTPException) as retired:
+                await plaid.retired_item_status_mutation(item_id)
+            self.assertEqual(retired.exception.status_code, 410)
+        self.assertEqual(await self.schema_state(), before)
+        route = next(route for route in plaid.router.routes if route.path == "/plaid/items/{item_id}/status")
+        self.assertEqual((route.methods, [param.name for param in route.dependant.body_params]), ({"PATCH"}, []))
+
+    async def test_rejected_item_must_return_to_pending_before_normal_activation(self):
+        await self.seed()
+        before = await self.fingerprint()
+        self.assertEqual(await self.onboarding("reject"), {"item_id": "b", "status": "disabled"})
+        rejected = await self.fingerprint()
+        self.assertEqual({key: rejected[key] for key in ("ledger", "transactions", "classifications")},
+                         {key: before[key] for key in ("ledger", "transactions", "classifications")})
+        async with self.sessions() as db:
+            checks = await lifecycle.activation_checks(db, USER, "b")
+        self.assertEqual((checks["transition"], checks["can_activate"], checks["checks"][0]["result"]),
+                         (None, False, "fail"))
+        for kind in ("activate", "reactivate"):
+            with self.assertRaises(HTTPException) as refused:
+                await self.preview(kind)
+            self.assertEqual(refused.exception.status_code, 409)
+            with self.assertRaises(HTTPException):
+                await self.apply(kind, "0" * 64)
+        self.assertEqual(await self.fingerprint(), rejected)
+
+        with self.assertRaises(HTTPException):
+            await self.onboarding("reject", item_id="a")
+        self.assertEqual(await self.onboarding("retry_onboarding"), {"item_id": "b", "status": "pending"})
+        with self.assertRaises(HTTPException):
+            await self.onboarding("retry_onboarding")
+        self.assertEqual(await self.fingerprint(), before)
+        # Back in Pending it repeats the normal checks, preview and confirmed activation.
+        async with self.sessions() as db:
+            self.assertTrue((await lifecycle.activation_checks(db, USER, "b"))["can_activate"])
+        _, result = await self.activate()
+        self.assertEqual(result["status"], "active")
+        self.assertEqual(await self.classification("a-zelle-in"), ("transfer", False, True))
 
 
 if __name__ == "__main__":

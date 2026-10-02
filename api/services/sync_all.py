@@ -248,7 +248,7 @@ async def _revalidate(db, snapshot):
     item = await db.scalar(select(Item).where(Item.item_id == snapshot.item_id)
                            .with_for_update().execution_options(populate_existing=True))
     if (item is None or item.user_id != snapshot.user_id or item.institution_id != snapshot.institution_id
-            or not (item.sync_enabled and item.published)
+            or not item.sync_enabled
             or item.sync_paused or item.transactions_cursor != snapshot.cursor
             or item.access_token != snapshot.token):
         raise ItemProblem("blocked", "stale_item", "publish")
@@ -399,7 +399,6 @@ async def sync_all(user_id, *, trigger_source="one_shot", client=None, session_f
                     if state.handled_sequence >= request_sequence or state.running_sequence != request_sequence:
                         return {"status": "idle", "run_id": None, "items": {}}
                 query = select(Item).where(Item.user_id == user_id, Item.sync_enabled.is_(True),
-                                           Item.published.is_(True),
                                            Item.sync_paused.is_(False)).order_by(Item.item_id)
                 if item_ids is not None:
                     query = query.where(Item.item_id.in_(item_ids))

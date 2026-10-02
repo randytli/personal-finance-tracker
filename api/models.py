@@ -11,16 +11,19 @@ from api.benefit_categories import BENEFIT_CATEGORY_CHECK
 Base = declarative_base()
 
 # status is the only written lifecycle field; PostgreSQL derives both scope flags
-# from it, so they can never disagree. Sync reads sync_enabled; the ledger and
-# classification read published.
+# from it, so they can never disagree. Sync (scheduled, catch-up and manual) reads
+# sync_enabled, which only Active Items have; the ledger and classification read
+# published. Pending Items ingest only through explicit onboarding actions.
 LIFECYCLE_STATES = {
-    "pending": (True, False),
+    "pending": (False, False),
     "active": (True, True),
     "deactivated": (False, True),
     "disabled": (False, False),
 }
-SYNC_ENABLED_SQL = "status IN ('pending', 'active')"
+SYNC_ENABLED_SQL = "status = 'active'"
 PUBLISHED_SQL = "status IN ('active', 'deactivated')"
+# Active Items ingest through the atomic sync; pending Items through onboarding only.
+INGESTION_STATUSES = ("pending", "active")
 
 
 class ManualCategoryOverride(Base):
