@@ -17,6 +17,18 @@ class RehearsalWrapperTests(unittest.TestCase):
         self.scratch = tempfile.TemporaryDirectory(prefix='pft-wrapper-synthetic-')
         self.addCleanup(self.scratch.cleanup)
         self.root = Path(self.scratch.name)
+        scripts = self.root / 'scripts'
+        scripts.mkdir()
+        self.script = scripts / SCRIPT.name
+        self.script.write_text(SCRIPT.read_text())
+        git_env = {'PATH': os.defpath}
+        subprocess.run(['git', '-C', str(self.root), 'init', '-q'], env=git_env, check=True,
+                       capture_output=True)
+        subprocess.run(['git', '-C', str(self.root), '-c', 'user.name=Synthetic Fixture',
+                        '-c', 'user.email=fixture@example.invalid', 'commit', '--allow-empty',
+                        '-qm', 'Synthetic rehearsal fixture'], env=git_env, check=True, capture_output=True)
+        self.commit = subprocess.check_output(['git', '-C', str(self.root), 'rev-parse', 'HEAD'],
+                                              env=git_env, text=True).strip()
         self.source = self.root / 'backups'
         self.source.mkdir()
         self.pg = self.root / 'bin'
@@ -33,7 +45,7 @@ class RehearsalWrapperTests(unittest.TestCase):
         self.metadata = {'created_at': '2026-10-02T00:00:00+00:00', 'kind': 'extra',
                          'size': self.archive.stat().st_size,
                          'sha256': hashlib.sha256(self.archive.read_bytes()).hexdigest(),
-                         'schema_sha256': 'a' * 64, 'application_commit': 'b' * 40,
+                         'schema_sha256': 'a' * 64, 'application_commit': self.commit,
                          'format': 'pg_dump-custom'}
         self.write_manifest()
         # Do not inherit credentials, database configuration or local env files.
@@ -45,7 +57,7 @@ class RehearsalWrapperTests(unittest.TestCase):
         self.manifest.write_text(json.dumps(self.metadata))
 
     def run_step(self, step):
-        return subprocess.run(['bash', str(SCRIPT), step], env=self.env,
+        return subprocess.run(['bash', str(self.script), step], env=self.env,
                               capture_output=True, text=True)
 
     def test_s0_creates_owned_private_directory(self):
@@ -154,6 +166,14 @@ class RehearsalWrapperTests(unittest.TestCase):
 
     def test_r2_malformed_application_commit(self):
         self.assert_metadata_refused('application_commit', ('arbitrary-text', 'b' * 7, 'g' * 40, 123))
+
+    def test_r2_rejects_unknown_commit_and_non_commit_object(self):
+        blob = subprocess.check_output(['git', '-C', str(self.root), 'hash-object', '-w', '--stdin'],
+                                       input='synthetic blob', text=True, env={'PATH': os.defpath}).strip()
+        self.assert_metadata_refused('application_commit', ('0' * 40, blob))
+
+    def test_r2_rejects_release_label(self):
+        self.assert_metadata_refused('application_commit', ('sdw-p1-a047b0f-labels-over-' + 'a' * 64,))
 
     def test_r2_malformed_kind_or_format(self):
         for field in ('kind', 'format'):

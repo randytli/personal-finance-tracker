@@ -74,7 +74,7 @@ for timestamp, filename, size in sorted(candidates, key=lambda row: (-row[0], ro
 EOF
     ;;
   R2)  # [READ] manifest fields, checksum and archive listing of the chosen backup
-    "$PY" - "${PFT_BACKUP_SOURCE_DIR:?}" "${PFT_REHEARSAL_BACKUP:?}" "$PG/pg_restore" <<'EOF'
+    "$PY" - "${PFT_BACKUP_SOURCE_DIR:?}" "${PFT_REHEARSAL_BACKUP:?}" "$PG/pg_restore" "$WORKTREE" <<'EOF'
 import hashlib, json, re, subprocess, sys
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -111,9 +111,15 @@ try:
         raise ValueError('manifest created_at must be a UTC isoformat timestamp')
     if metadata['kind'] not in ('daily', 'weekly', 'monthly', 'extra'):
         raise ValueError('manifest kind is malformed')
-    # Runtime instructions set PFT_APP_COMMIT with git rev-parse HEAD (full SHA-1).
+    # The producer also accepts release labels; those cannot identify the old
+    # source for this rehearsal. Require an exact, locally available commit.
     if not re.fullmatch(r'[0-9a-f]{40}', metadata['application_commit']):
         raise ValueError('manifest application_commit must be a full Git commit hash')
+    commit = subprocess.run(['git', '-C', sys.argv[4], 'rev-parse', '--verify',
+                             metadata['application_commit'] + '^{commit}'],
+                            capture_output=True, text=True)
+    if commit.returncode != 0 or commit.stdout.strip() != metadata['application_commit']:
+        raise ValueError('manifest application_commit must identify an existing commit in this repo')
     if (metadata['format'] != 'pg_dump-custom'
             or any(not re.fullmatch(r'[0-9a-f]{64}', metadata[key]) for key in ('sha256', 'schema_sha256'))):
         raise ValueError('manifest format or hashes are malformed')

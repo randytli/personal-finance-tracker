@@ -55,7 +55,7 @@ export PFT_REHEARSAL_OLD_COMMIT=<R2 输出的 application_commit>
 
 ## 预期与判定
 
-- **R1/R2 备份合同**：由 owner 选择规范绝对路径 `$PFT_BACKUP_SOURCE_DIR/<stem>.dump`（不接受 `..` 或符号链接路径），manifest 必须为同目录的 `<stem>.json`；二者必须是普通文件且不能是符号链接，不使用 manifest 字段指定备用文件路径。R2 必需字段为 `created_at`、`kind`、`sha256`、`schema_sha256`、`application_commit`、`format`：`created_at` 必须为备份工具输出的 UTC `datetime.isoformat()` 格式（`+00:00`，可含六位微秒）；`kind` 必须为 daily/weekly/monthly/extra；两种 SHA256 必须为 64 位小写十六进制；`application_commit` 必须为运行指南中 `git rev-parse HEAD` 输出的完整 40 位小写 Git hash；`format` 必须为 `pg_dump-custom`。拒绝重复字段。`size` 如有记录必须为非负整数且与实际字节数一致；未记录时输出 `size: null`，仍验证 SHA256。R2 仅在所有校验及 archive inspection 成功后输出结果；不输出 archive listing 或错误中的原始内容。
+- **R1/R2 备份合同**：由 owner 选择规范绝对路径 `$PFT_BACKUP_SOURCE_DIR/<stem>.dump`（不接受 `..` 或符号链接路径），manifest 必须为同目录的 `<stem>.json`；二者必须是普通文件且不能是符号链接，不使用 manifest 字段指定备用文件路径。R2 必需字段为 `created_at`、`kind`、`sha256`、`schema_sha256`、`application_commit`、`format`：`created_at` 必须为备份工具输出的 UTC `datetime.isoformat()` 格式（`+00:00`，可含六位微秒）；`kind` 必须为 daily/weekly/monthly/extra；两种 SHA256 必须为 64 位小写十六进制；`application_commit` 必须为运行指南中 `git rev-parse HEAD` 输出的完整 40 位小写 Git hash，且必须经 `git rev-parse --verify <SHA>^{commit}` 解析为本 repo 中的同一 commit；`format` 必须为 `pg_dump-custom`。拒绝重复字段。`size` 如有记录必须为非负整数且与实际字节数一致；未记录时输出 `size: null`，仍验证 SHA256。R2 仅在所有校验及 archive inspection 成功后输出结果；不输出 archive listing 或错误中的原始内容。
 - **D15 通过**：R7 输出 `all_identical: true`，也就是迁移前后、重新分类前后，表、Item、分类和 analytics 的哈希全部一致。
 - **D12**：S8 输出各项耗时（单位秒），以及每个操作的 `preview_equals_apply`。`*_apply_seconds` 约等于派生锁被持有的时间，这段时间里同步和 review 写入都要等待。是否可以接受由你判定。
 - **R5 或 S6 被拦**：说明当前 Production 有非 active 的 Item，D1 闸门会阻止真实迁移。要先决定如何处理这些 Item，然后才能进入发布窗口。S6b 只用于在副本上继续完成彩排。
@@ -79,4 +79,11 @@ export PFT_REHEARSAL_OLD_COMMIT=<R2 输出的 application_commit>
 - **R1**：通过 wrapper 只读列出 12 个候选。最新 manifest 为 `pft-daily-20261002T193523283029Z.json`，文件大小 435 字节，文件系统修改时间 `2026-10-02T19:35:23.482944+00:00`；因此选定同名 `.dump` 做 R2 校验。
 - **R2**：退出码 1，安全错误为 `refusing: manifest application_commit must be a full Git commit hash`。在计算 dump SHA256、archive inspection 之前停止，没有输出被拒绝的 metadata，也没有绕过 wrapper 读取其内容。没有改写 manifest 或备份，也没有选择其他备份绕过这个失败。
 - **结果**：D15、D12 尚未完成；S1–S9 均未执行，没有临时 PostgreSQL 集群或恢复副本需要清理。仅保留上述本地私有目录和此执行记录。未连接 Production 数据库、调用 Plaid、修改 cloud、merge 或 push。
-- **阻塞项**：需要明确如何处理真实 manifest 与当前 `application_commit` 格式检查的不一致，再恢复执行。不能声称该备份完整性已验证。
+- **当时的阻塞项**：需要明确如何处理真实 manifest 与当前 `application_commit` 格式检查的不一致，再恢复执行。此时不能声称该备份完整性已验证。
+
+### application_commit 调查与候选选择（owner 随后授权）
+
+- `api.backup.backup()` 原样记录环境变量 `PFT_APP_COMMIT`，没有强制 SHA 格式；`api.backup.restore()` 只校验 archive 的 SHA256 和 size。运行指南推荐完整 Git SHA，但后续 jobs overlay 的发布记录明确使用 release label（见 `docs/PFT_SYNC_DIFF_WRITES_PRODUCTION_ACTION_PACKET_2026-10-01.md` 的 Phase 1 Step 4）。因此 release label 是生产者允许的 provenance，不是短 SHA，也不能直接作为本彩排的旧代码 revision。
+- 只读调查最近 12 个 manifest 的 approved metadata：最新五个 `application_commit` 均为非十六进制 label，没有发现短 SHA。不能从 label 猜测或截取 commit；这些候选不满足本彩排的旧代码定位要求，不修改它们。按 mtime 顺序，下一个候选是 `pft-daily-20260929T193412879163.dump`，记录完整 SHA `2b413550433e83db151ef1f62ad98b26d70fbd9e`。
+- R2 保持完整 40 位小写 SHA 要求，并新增 `git rev-parse --verify <SHA>^{commit}` 校验，要求它在本 repo 中存在且解析结果与原 SHA 完全相同；拒绝未知 object、非 commit object 及 label。若 R2 失败，不声称该候选有效。
+- 新增未知 SHA、非 commit object、release label 的合成回归测试；测试使用临时合成 Git repo，不依赖真实备份或数据库。
