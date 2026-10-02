@@ -1,6 +1,6 @@
 # Institution lifecycle：Pending / Active / Deactivated 设计
 
-> 2026-10-02 修订：owner 已拍板 D1–D4（见 §10），本文按决定更新。
+> 2026-10-02 修订：owner 已拍板 D1–D4、D16、D17（见 §10），本文按决定更新。
 
 日期：2026-10-02（无人值守夜间任务 6a）。分支：`feature/institution-lifecycle`，从 `main` @ `47183eb` 创建，与 M5 分支互不依赖。
 范围：只写设计。本节不包含任何 Production 操作、Plaid 调用或云端写入。
@@ -34,9 +34,9 @@
 | S2 | `api/jobs.py` `tick` 到期 Item（含启动后 catch-up） | `status='active' AND NOT sync_paused` | 同步 | `sync_enabled AND NOT sync_paused` |
 | S3 | `api/services/sync_all.py` `sync_all` 选 Item | 同上 | 同步 | 同上 |
 | S4 | `api/services/sync_all.py` `_revalidate` 发布前复核 | `status != 'active'` 即 stale | 同步 | 复核同一谓词；Item 在 fetch 与 publish 之间被停用 → `stale_item`，整 Item 回滚，cursor 不动 |
-| S5 | `api/routes/plaid.py` `POST /plaid/transactions`、`/accounts` | pending/active | 摄取（Pending 的显式 onboarding 动作；Active 的逐 Item 直连端点） | `status IN INGESTION_STATUSES`（pending、active）；Deactivated、Rejected 拒绝 |
-| S6 | `api/services/persistence.py` `persist_consumer_transactions`、`persist_account_metadata` | pending/active | 同步 | 同 S5 |
-| S7 | `api/services/derivation.py` `normalize_item_transactions` | pending/active | 同步（派生，紧跟拉取） | 同 S5 |
+| S5 | `api/routes/plaid.py` `POST /plaid/transactions`、`/transactions/normalize`、`/accounts` | pending/active | 摄取（只用于 Pending onboarding，D16） | 只接受 `pending`；Active、Deactivated、Rejected 一律 409，且在任何 Plaid 调用之前拒绝。Active 的账户元数据只能走 maintenance 操作（§6） |
+| S6 | `api/services/persistence.py` `persist_consumer_transactions`、`persist_account_metadata` | pending/active | 摄取 | 必须显式传入 `statuses`：`sync_all` 传 `ATOMIC_SYNC_STATUSES`（active），onboarding 传 `ONBOARDING_STATUSES`（pending）。没有默认值，所以不存在隐式的旁路 |
+| S7 | `api/services/derivation.py` `normalize_item_transactions` | pending/active | 摄取（派生） | 同 S6 |
 | S8 | `api/routes/sync.py` `/sync/status` 列表 | 展示 status | 只读展示 | 增加 `sync_enabled`、`published` 字段 |
 | L1 | `api/routes/analytics.py` `_active_analytics_rows`（所有 analytics 端点共用） | `status='active'` | 账本 | `published` |
 | L2 | `api/routes/review.py` `_transaction_scope`（单笔 review/override） | `status='active'` | 账本 | `published` |
@@ -178,6 +178,7 @@ D2 已决定：Pending 不参与定时同步、启动 catch-up 和普通的 Acti
 | Deactivated → Active（reactivate） | `/reactivation-preview`，再 `/reactivate`（带 digest） | 只接受 `deactivated`，checks 与 activate 相同。由于 Deactivated 一直是 published，预览差异通常为空，但仍要求确认 | 不动；下一次定时同步从**已保存的 cursor** 增量拉取，补上停用期间的 added/modified/removed |
 | Pending → Rejected（reject） | `POST /items/{id}/reject` | 只接受 `pending`；派生锁下执行；两边都未发布，执行前后断言账本快照不变 | 不动 |
 | Rejected → Pending（retry-onboarding） | `POST /items/{id}/retry-onboarding` | 只接受 `disabled`（D4）；同上断言。回到 Pending 后，必须重新通过 onboarding 准备、checks、预览和确认激活 | 不动 |
+| 账户元数据维护（只限 Active） | `POST /items/{id}/maintenance/account-metadata` | D16 允许的唯一 Active 逐 Item 操作。派生锁下执行，只刷新已知账户的名称和掩码。账户集合有增减、或账户类型漂移，返回 409 且不写入；不导入、不 normalize、不分类、不动 cursor；执行前后断言财务账本不变（显示名称除外） | 不动 |
 | 通用 status 写入 | `PATCH /items/{id}/status` | **已退役（D3）**：没有必需的调用方，fail closed，一律返回 410，不读也不写数据库 | — |
 
 digest 中包含转换类型，所以 activate 的预览不能拿去确认 reactivate，反之亦然。
@@ -222,11 +223,13 @@ Plaid cursor 有效期：Plaid 文档没有承诺 cursor 永久有效。如果�
 | POST | `/plaid/items/{id}/deactivate` | body `{"preview_digest"}` |
 | POST | `/plaid/items/{id}/reject` | Pending → Rejected |
 | POST | `/plaid/items/{id}/retry-onboarding` | Rejected → Pending |
+| POST | `/plaid/items/{id}/maintenance/account-metadata` | 只限 Active：刷新已知账户的显示元数据（D16） |
+| POST | `/plaid/transactions`、`/plaid/transactions/normalize`、`/plaid/accounts` | 只限 Pending onboarding（D16） |
 | PATCH | `/plaid/items/{id}/status` | 已退役：410（D3） |
 
 ## 9. 前端（6c）
 
-`/plaid/items/<item_id>`：头部（机构、状态徽章、同步时间）→ “Prepare for review”：说明当前状态和下一步（Pending 需要先在后端完成拉取和规范化；今晚**不在页面上提供拉取按钮**，避免页面触发 Plaid 调用，待决 D7）→ 交易预览表 → Pre-activation checks → Activate 按钮。点击后先打开弹窗，弹窗里取预览并展示影响，用户手动点“确认激活”才会提交 digest。Deactivate 和 Reactivate 走同样的流程（各自的预览端点和确认按钮）。Activate **永远**需要手动确认，页面上不会自动触发。Rejected 的机构不提供任何生命周期按钮，只提示先 retry-onboarding。
+`/plaid/items/<item_id>`：头部（机构、状态徽章、同步时间）→ “Prepare for review”：说明当前状态和下一步（Pending 需要先在后端完成拉取和规范化；今晚**不在页面上提供拉取按钮**，避免页面触发 Plaid 调用，待决 D7）→ 交易预览表 → Pre-activation checks → Activate 按钮。点击后先打开弹窗，弹窗里取预览并展示影响，用户手动点“确认激活”才会提交 digest。Deactivate 和 Reactivate 走同样的流程（各自的预览端点和确认按钮）。Activate **永远**需要手动确认，页面上不会自动触发。Pending 页面提供次要操作 **Cancel onboarding**（执行 reject），Rejected 页面提供 **Retry onboarding**（执行 retry-onboarding）。两者都要求二次确认，确认框明确写出“Rejected 状态下，已经 staging 的数据仍然保持 unpublished，不进入 scheduled sync，也不进入 analytics”。Retry 只做 Rejected → Pending，不导入、不 normalize、不发布、不激活（D17）。
 
 ## 10. 需要 owner 拍板的设计问题
 
@@ -235,6 +238,9 @@ Plaid cursor 有效期：Plaid 文档没有承诺 cursor 永久有效。如果�
 - **D2 ✔** Pending 不参与定时同步、启动 catch-up 和普通的 Active 手动同步；Pending 的摄取/刷新只能是显式 onboarding 动作。→ `sync_enabled = status='active'`。
 - **D3 ✔** 退役通用的 status PATCH。生命周期转换只能走显式的 activate / deactivate / reactivate 操作，各自带锁、校验和派生/发布语义。旧 PATCH 没有必需的调用方，所以 fail closed（410）。→ §6。
 - **D4 ✔** Rejected 不能直接激活。必须先 retry-onboarding 回到 Pending，再走正常的 onboarding 准备、预览和激活检查。→ §6、K1。
+
+- **D16 ✔** 拆分式的导入和 normalize 只用于 Pending onboarding；Active、Deactivated、Rejected 一律拒绝，相关测试改为调用原子同步的服务步骤。`/plaid/accounts` 只用于 Pending；Active 的元数据刷新只作为带锁、带校验的 maintenance 操作保留，不能替代同步。
+- **D17 ✔** reject 和 retry 都有 UI，都要求二次确认；retry 只改状态。
 
 仍待决：
 - **D5** 重新激活时 cursor 失效（Plaid 报错），是否允许受控重置 cursor？默认：否。走现有 `blocked`/`sync_paused` 路径，等 owner 处理。
@@ -278,3 +284,12 @@ Plaid cursor 有效期：Plaid 文档没有承诺 cursor 永久有效。如果�
   - Rejected 的 activate/reactivate 预览和执行都返回 409；retry-onboarding 回到 Pending 后，走正常激活成功；reject 和 retry 都不改变账本。
 - 变异检查：关掉 Production 闸门、把 Pending 加回 `sync_enabled`、允许 disabled 激活，各自都有对应测试失败。
 - 彩排库（含 pending 和 disabled）：`python -m api.lifecycle_preflight` 退出码 2；`PLAID_ENV=production` 下 `init_db` 在 DDL 前停止，库保持不变（见 `production-preflight-blocked.json`）。非 Production 迁移后，旧代码与新代码的指纹仍然完全一致。
+
+### D16、D17 落实后的补充验证
+
+- 新增 3 项测试（lifecycle 测试共 17 项）：
+  - Active、Deactivated、Rejected 调用三个拆分式路由和对应的模块 helper，全部返回 409，且在任何 Plaid 调用之前拒绝；Pending 照常 onboarding，并且不影响已发布账本。
+  - Active 的 maintenance 只改账户显示名，财务账本、cursor、分类都不变；账户集合增减或类型漂移时返回 409 且不写入；Deactivated 被拒绝。
+  - Retry onboarding 只改状态：不重新 normalize（被改动的 raw 未被应用）、不分类、不动 cursor、不进入同步，回到 Pending 后 K6 仍然要求重新 onboarding。
+- 变异检查：把 onboarding 路由放宽到 active，或让 retry 顺带 normalize，对应测试都会失败。
+- 前端：Jest 新增“取消接入需要二次确认、只写一次”和“重新接入只写 retry-onboarding 一次”。浏览器 QA 在三种宽度下覆盖了取消接入 → 重新接入 → 可以激活的完整流程。

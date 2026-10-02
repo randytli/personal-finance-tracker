@@ -17,7 +17,9 @@
 | 6b 后端 | `a889826` | 迁移、生命周期服务、API、测试、迁移彩排脚本和证据；设计文档 §2 按实现修订，并新增 §11 验证结果 |
 | 6c 前端 | `f59dca1` | `/plaid/items/<item_id>` 页面、确认弹窗、Jest 测试、浏览器 QA 脚本 |
 | 文档 | `a591ce2` | runbook 激活步骤改为“预览 + 确认”；本交接文档 |
-| D1–D4 | 见 git log | 按 owner 决定实现：Production 迁移只读闸门、Pending 排除出所有同步路径、退役 PATCH、Rejected 必须先 retry-onboarding |
+| D1–D4 | `b9a372b` `797363f` `4af3b39` | 按 owner 决定实现：Production 迁移只读闸门、Pending 排除出所有同步路径、退役 PATCH、Rejected 必须先 retry-onboarding |
+| D16 | `76b234e` | 拆分式导入和 normalize 只用于 Pending onboarding；Active 只保留带锁的账户元数据 maintenance |
+| D17 | `c4acb49` | Cancel onboarding / Retry onboarding UI，二次确认 |
 
 ### 关键实现
 
@@ -29,6 +31,7 @@
 
 ## 验证（全部只在临时集群和合成数据上）
 
+- **D16、D17 之后（最终）**：Python 全套 321 个测试 OK（lifecycle 测试 17 项）；Jest 13 个 suite、70 个测试 OK；`tsc`、`npm run build` 通过；三种宽度的浏览器 QA（新增取消接入 → 重新接入流程）通过。
 - **D1–D4 之后**：Python 全套 318 个测试 OK（lifecycle 测试从 9 项增加到 14 项，覆盖 D1–D4，并做了变异检查）；Jest 69 个测试、tsc、build、三种宽度的浏览器 QA（新增重新激活流程）全部通过。彩排库：严格 preflight 退出码 2，Production 下 `init_db` 在 DDL 前停止，库不变；旧代码与新代码指纹仍然一致。
 - Python（D1–D4 之前）：全套 313 个测试 OK（含所有 DB opt-in，以及新增的 `PFT_LIFECYCLE_SYNTHETIC_TEST`）；compileall、`git diff --check` 通过。
 - 迁移彩排：用 `main` 代码建库、灌数、分类，再用本分支代码迁移两次。迁移前后（以及各自重新分类后）四份指纹完全一致：transactions/raw md5、Item cursor/token 摘要、分类哈希、analytics 哈希（284 行、6 个月）。证据在 `docs/evidence/institution-lifecycle-2026-10-02/`。
@@ -46,30 +49,44 @@
 - 临时 PG16 集群在 job scratch 目录（127.0.0.1:55439，trust 认证），用完已停止并删除。
 - 只在 `feature/institution-lifecycle` 上 commit，未 push。
 
-## 待决（需要你拍板）
+## 已决定并实现
 
-已决定并实现（2026-10-02）：D1 强制只读迁移闸门；D2 Pending 排除出定时、catch-up 和手动同步；D3 退役 PATCH，fail closed（410）；D4 Rejected 必须先 retry-onboarding 回到 Pending。
+- D1 强制只读迁移闸门；D2 Pending 排除出定时、catch-up 和手动同步；D3 退役 PATCH，fail closed（410）；D4 Rejected 必须先 retry-onboarding。
+- D16 `/plaid/transactions`、`/plaid/transactions/normalize`、`/plaid/accounts` 只接受 Pending；摄取服务必须显式传入状态范围；Active 只保留 `POST /plaid/items/{id}/maintenance/account-metadata`（只限 Active、派生锁、账户集合或类型有变化就拒绝、不导入、不动 cursor）。
+- D17 Cancel onboarding / Retry onboarding，二次确认；retry 只改状态。
 
-设计问题（详见设计文档 §10）：
-- **D5** 重新激活时 cursor 失效，是否允许受控重置。默认否。
-- **D6** Deactivated 的机构能否继续导入账单。默认否。
-- **D7** 页面是否提供 Pending 的拉取/规范化按钮（会调用 Plaid）。默认不提供。
-- **D8** 停用是否调用 Plaid `/item/remove`。默认否，代价是可能继续计费。
-- **D9** K9 疑似重复检查的规则（目前未实现）。
-- **R-1..R-6** Remove institution data（设计文档 §7）：要不要先调用 Plaid `/item/remove`；override 是归档还是删除；账单导入行怎么处理；删除后能否重新 Link；软删除还是硬删除；备份里的残留数据。
+## 剩余待决：merge blocker 与 Production gate 的区分
 
-实现时新发现的问题：
-- **D10** 迁移会给 `items` 表加生成列，导致重写整表，并短暂持有 ACCESS EXCLUSIVE 锁（表很小）。Production 执行需要你批准，并选在没有同步运行的时间窗。
-- **D11** 回滚兼容性：迁移后旧镜像仍能工作，但旧镜像不认识 `deactivated`（会把它当作被排除），而且旧镜像的 PATCH 不经预览就能激活。建议 Production 迁移后，在停用任何 Item 之前，先确认新镜像已经上线。
-- **D12** 预览和激活各自都会做两次全账本快照和一次全量重分类，并持有派生锁。Production 规模下的耗时还没测（参见 M5 R13：分类是 O(n²) CPU）。
-- **D13** 旧的 `GET /items/{id}/classification-preview` 还保留着，是否删除？
-- **D14** App 里还没有通往 `/plaid/items/<id>` 的入口（没有机构列表页），只能直接输入 URL。是否从 Overview 或同步状态区链接过去？
-- **D15** 迁移彩排的合成库里没有账单导入行（statement import），这是覆盖缺口。
-- **D16** 逐 Item 的直连端点（`POST /plaid/accounts`、`/plaid/transactions`、`/plaid/transactions/normalize`）对 **Active** Item 仍然可用（现有测试和工具依赖这一点），而它们绕过了 `sync_all` 的原子流程。是否也限制为只用于 Pending onboarding？
-- **D17** 页面上没有 reject / retry-onboarding 按钮（只能通过 API），Rejected 页面只显示提示。是否需要按钮，是否需要确认弹窗？
+### Merge blocker
+
+代码层面**没有**未解决的 merge blocker：全部测试通过，D1–D4、D16、D17 都已实现。
+
+有一个需要你在 merge 前**确认**的耦合（不是缺陷）：
+- **M-1** merge 后，`main` 上的 API、jobs 和备份/恢复检查（`verify_runtime_schema`）在 lifecycle 迁移完成之前**拒绝启动**。所以 merge 之后，从 `main` 发出的任何 api/jobs 部署都必须带上这次迁移窗口。如果近期不打算做迁移，建议先不 merge，或者 merge 后暂停从 `main` 部署 api/jobs。M5 分支 rebase 到新的 `main` 时也会继承这个要求（例如备份恢复演练需要先迁移）。
+
+### Production deployment / migration gate（merge 不受影响，发布前必须处理）
+
+| 项 | 内容 | 什么时候必须解决 |
+|---|---|---|
+| D1 闸门的执行 | 已实现；在 Production 上只读运行 `python -m api.lifecycle_preflight` 需要你批准，退出码必须为 0 | 迁移前 |
+| D10 | 迁移会给 `items` 加生成列，重写整表并短暂持有 ACCESS EXCLUSIVE 锁：选在没有同步运行的时间窗，逐条命令批准 | 迁移时 |
+| D11 | 回滚兼容性：旧镜像不认识 `deactivated`，且旧镜像的 PATCH 可以不经预览就激活。api/jobs/web 要一起换成新镜像；在新镜像确认上线之前，不要停用任何 Item；回滚 packet 要写清楚这两点 | 部署时 |
+| D15 | 迁移彩排的合成库里没有账单导入行。建议在临时集群上用 Production 备份的恢复副本再彩排一次（需要你批准使用备份） | 迁移前 |
+| D12 | 预览和激活在 Production 规模下的耗时未测（要持有派生锁，并跑两次快照和一次全量分类）。在恢复副本上测一次 | 第一次在 Production 预览或激活之前（不影响迁移本身） |
+
+### 两者都不是（后续功能或策略，可在 merge 和发布之后再定）
+
+- **D5** 重新激活时 cursor 失效，是否允许受控重置（默认否：走 blocked 路径，等你处理）。
+- **D6** Deactivated 的机构能否导入账单（默认否）。
+- **D7** 页面上是否提供 Pending 的拉取/规范化按钮（会调用 Plaid；默认不提供，走 runbook）。
+- **D8** 停用时是否调用 Plaid `/item/remove`（默认否；代价是可能继续计费）。**第一次在 Production 停用之前**应当定下来。
+- **D9** K9 疑似重复检查（目前未实现，只会是 warn 级别）。
+- **D13** 旧的只读 `GET /items/{id}/classification-preview` 是否删除（无害，已被全账本预览取代）。
+- **D14** App 里还没有通往 `/plaid/items/<id>` 的入口（需要直接输入 URL）。
+- **R-1..R-6** Remove institution data（设计文档 §7，未实现）：是否先调用 `/item/remove`、override 是归档还是删除、账单导入行、删除后能否重新 Link、软删除还是硬删除、备份里的残留。这些只阻塞“删除机构数据”功能本身的实现。
 
 ## 下一步（都需要你批准）
 
-1. 审阅三个 commit：`git -C /home/randyli/code/pft-institution-lifecycle log --stat 47183eb..HEAD`。
-2. 决定是否合并到 `main`（合并和 push 由你执行）。
+1. 审阅全部 commit：`git -C /home/randyli/code/pft-institution-lifecycle log --stat 47183eb..HEAD`。
+2. 确认 M-1 之后，再决定是否合并到 `main`（合并和 push 由你执行）。
 3. Production 迁移和发布：按照 D10、D11 另写 action packet，逐条命令批准；第一步是在 Production 上只读运行 `python -m api.lifecycle_preflight`（需要你批准）。

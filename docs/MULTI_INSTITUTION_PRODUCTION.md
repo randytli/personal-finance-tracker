@@ -16,7 +16,8 @@ published classification until explicitly activated. Never reconnect Chase.
    institution through Plaid and saves a valid new Item as `pending`.
 3. Immediately set `PLAID_PILOT_LINK_ENABLED=false` and restart the API. Confirm
    `GET /plaid/items` shows Chase active and Amex pending; no token is returned.
-4. For the returned Amex `item_id`, call in order:
+4. For the returned Amex `item_id` (Pending only — these split onboarding calls
+   refuse Active, Deactivated and Rejected Items), call in order:
    `GET /plaid/accounts?item_id=...`, `GET /plaid/transactions?item_id=...`, and
    `POST /plaid/transactions/normalize?item_id=...`. Repeat transaction sync until
    stable, then call `POST /plaid/transactions/classify`.
@@ -32,10 +33,16 @@ published classification until explicitly activated. Never reconnect Chase.
    `PATCH .../status` is retired and returns 410. Re-run analytics checks afterwards.
 
 Pending Items never join scheduled, catch-up or normal manual sync; steps 4 and
-5 are the only way they ingest. To reject a reviewed Pending Item use
-`POST /plaid/items/{id}/reject`; a rejected Item cannot be activated and must
-first return to Pending with `POST /plaid/items/{id}/retry-onboarding`, then
-repeat steps 4–6.
+5 are the only way they ingest. To stop onboarding, use **Cancel onboarding** on
+the institution page (`POST /plaid/items/{id}/reject`). A rejected Item cannot
+be activated; **Retry onboarding** (`POST /plaid/items/{id}/retry-onboarding`)
+only returns it to Pending, without importing, normalizing, publishing or
+activating anything, and steps 4–6 must then be repeated.
+
+Active Items ingest only through the atomic sync. If an Active Item's account
+names or masks must be refreshed, use the maintenance operation
+`POST /plaid/items/{id}/maintenance/account-metadata`; it refuses any change to
+the account set or account types and never imports or moves the cursor.
 
 Deactivating an active Item (`/deactivation-preview`, then `/deactivate`) stops
 its sync but keeps its transactions in analytics and classification;
