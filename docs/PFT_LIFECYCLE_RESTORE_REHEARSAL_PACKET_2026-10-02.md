@@ -1,6 +1,6 @@
 # 恢复副本彩排命令清单（D15 + D12）— 2026-10-02
 
-**状态：等待 owner 逐条批准。本文中的命令一条都还没有对真实备份执行过。**
+**状态：owner 已授权自主执行；真实彩排已开始，R2 因 manifest 的 application_commit 格式校验失败而停止。未创建集群、恢复、迁移或执行 D12。见下方执行记录。**
 
 目的：把最近一份 Production 备份恢复到一次性的临时集群，在副本上依次执行旧代码指纹、严格 preflight、迁移、新代码指纹，并测量预览和激活的耗时。全程**不连接 Production**（不连它的数据库，不执行 docker 命令），不调用 Plaid，用完删除集群。
 
@@ -70,3 +70,13 @@ export PFT_REHEARSAL_OLD_COMMIT=<R2 输出的 application_commit>
 - S9 清理后没有残留的 socket 监听，所有合成文件都已删除。
 
 真实备份的规模更大，耗时以真实彩排为准。
+
+## 真实彩排执行记录（2026-10-02）
+
+- 代码：`feature/institution-lifecycle`，彩排工具提交 `6bc942de83bd9a77c989e69244baa14e74af5528`。owner 随后授权自主选择最新有效备份并执行到 S9；安全检查失败仍须停止。
+- **父目录 bootstrap（单独授权的本地操作，不属于 S0）**：检查 `/home/randyli/.local/share/pft` 及其祖先均为真实目录、无符号链接且属于当前用户；PFT 目录权限为 0700，`rehearsals` 不存在。执行 `mkdir -m 0700 /home/randyli/.local/share/pft/rehearsals`，仅创建这个本地 app-state 子目录，不创建或修改其他祖先。S0 本身仍不允许递归创建父目录。
+- **S0**：通过 wrapper 执行成功；`/home/randyli/.local/share/pft/rehearsals/lifecycle-20261002` 路径、当前用户所有权及 0700 权限均通过验证。
+- **R1**：通过 wrapper 只读列出 12 个候选。最新 manifest 为 `pft-daily-20261002T193523283029Z.json`，文件大小 435 字节，文件系统修改时间 `2026-10-02T19:35:23.482944+00:00`；因此选定同名 `.dump` 做 R2 校验。
+- **R2**：退出码 1，安全错误为 `refusing: manifest application_commit must be a full Git commit hash`。在计算 dump SHA256、archive inspection 之前停止，没有输出被拒绝的 metadata，也没有绕过 wrapper 读取其内容。没有改写 manifest 或备份，也没有选择其他备份绕过这个失败。
+- **结果**：D15、D12 尚未完成；S1–S9 均未执行，没有临时 PostgreSQL 集群或恢复副本需要清理。仅保留上述本地私有目录和此执行记录。未连接 Production 数据库、调用 Plaid、修改 cloud、merge 或 push。
+- **阻塞项**：需要明确如何处理真实 manifest 与当前 `application_commit` 格式检查的不一致，再恢复执行。不能声称该备份完整性已验证。
