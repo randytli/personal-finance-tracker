@@ -27,7 +27,7 @@ Status keys: **BLOCKER** = known incompatibility of current code or config; **UN
 | --- | --- | --- | --- | --- |
 | R1 | Independent encrypted backup: destination, key custody, retention, unattended run, restore drill | BLOCKER/UNKNOWN | feasibility matrix; plan §12.6, §16.1–16.2; experiment B2 gate | Task 1 (design + local prototype) |
 | R2 | Remote backup connection profile (TLS/identity) replacing `api/backup.py:connection()` local-only guard; PG17 client | BLOCKER | feasibility; compatibility (pg_dump 17.11 packaged, not wired) | Task 1 (design; prototype uses its own guarded profile, local guard untouched) |
-| R3 | Backup-before-sync coupling in `tick`; cancelled backup thread can outlive caller | BLOCKER | feasibility "tick", matrix | Task 1/2 design (separate job kinds) |
+| R3 | Backup-before-sync coupling in `tick`; cancelled backup thread can outlive caller | **Resolved by design 2026-10-02** (owner P1-2: backups move to GitHub Actions; cloud tick uses `backup_fn=None`). Still to be proven in M7. | feasibility "tick", matrix | Backup design §3 |
 | R4 | Single free trigger: Supabase Cron + pg_net, 5-minute tick; pg_net timeout; duplicate/timeout delivery | UNKNOWN / BLOCKER (default 2 s timeout) | plan §12.4; feasibility | Task 2 (design + endpoint auth code) |
 | R5 | Free-project pause/inactivity rules; whether scheduled traffic keeps the project active; no anti-pause traffic | UNKNOWN | plan §12.5 | Task 2 (docs research) |
 | R6 | Owner Auth (Supabase Auth), signup disabled, BFF vs bearer, FastAPI JWT verification, DB roles | BLOCKER (current code) / UNKNOWN | plan §13.1–13.2; feasibility | Task 3 (design only) |

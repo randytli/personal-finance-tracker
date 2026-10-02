@@ -114,7 +114,7 @@ Implemented in `api/trigger_auth.py` (not mounted in `api/main.py`). The SQL sig
 3. Observe real cadence and jitter. Inject duplicates and timeouts. Confirm that durable state, not the net response, decides the outcome. Run one deliberately overdue interval. Prune history.
 4. **Honest status (R15):** replace the 7-minute heartbeat interpretation with last trigger / start / completion and next due / retry. "Idle and healthy" must not hide stale bank or backup state.
 5. **Known gap carried from M5 (R10):** cancellation leaves a durable `running` row until the next owner reconciles it. On a 5-minute tick that bounds staleness to about 5 minutes [E], but the unattended policy still needs review.
-6. **Backup separation (R3):** the backup design recommends taking backups out of `tick`. If they stay in, the 300 s function must fit backup plus sync.
+6. **Backup separation (R3), decided 2026-10-02:** backups run in GitHub Actions (backup design P1-2). The cloud tick passes `backup_fn=None`, and this cron dispatches only `kind=tick`. `KINDS` stays `{"tick"}`, so the 300 s budget covers sync alone. Backup freshness for status comes from the runner's `backup_runs` row, not from `sync_runtime_state.last_backup_*`. That status change is M6 work.
 
 ## 6. Files
 

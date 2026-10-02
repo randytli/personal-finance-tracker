@@ -57,7 +57,17 @@ From plan §12.6, §16.1 and §16.2, plus tonight's owner requirement:
 | DB route | Session pooler, verified TLS [M] | Session pooler over IPv4. Runner IPv6 support 未核实, so direct IPv6 should not be assumed. |
 | Status reporting | Writes `last_backup_*` in the same DB | Needs a narrow write path, e.g. a `backup_runs` table that only the backup role can `INSERT`. Otherwise status cannot see the result. |
 
-**Recommendation: B**, if the owner accepts a read-only second schedule. It removes the backup-before-sync blocker (R3) without changing `tick`. It runs outside both Vercel and Supabase. It is the only option tonight with a documented hard-stop at the free quota. If the owner rejects a second schedule, use A with a separate job kind and its own claim, as plan §12.4 allows.
+**Owner decision, 2026-10-02: B adopted (P1-2).** The owner accepted a read-only second schedule. This is an explicit, scoped exception to plan §12.4's "Do not implement two competing cron systems". It holds only under these limits:
+- the backup schedule runs a read-only export;
+- it takes no advisory lock;
+- it makes no financial writes, no Plaid call and holds no Fernet key;
+- its only write is one `backup_runs` outcome row.
+
+Any extension beyond that needs a new decision. Consequences:
+- **R3 is resolved by design.** The cloud one-shot tick runs with `backup_fn=None` (as `run_scheduler_once` already allows), and Supabase Cron dispatches only `tick`.
+- The Windows `tick` keeps its local daily backup unchanged until M8c.
+
+Original recommendation text: **Recommendation: B**, if the owner accepts a read-only second schedule. It removes the backup-before-sync blocker (R3) without changing `tick`. It runs outside both Vercel and Supabase. It is the only option tonight with a documented hard-stop at the free quota. If the owner rejects a second schedule, use A with a separate job kind and its own claim, as plan §12.4 allows.
 
 ## 4. Storage destination
 
@@ -74,7 +84,7 @@ From plan §12.6, §16.1 and §16.2, plus tonight's owner requirement:
 | Supabase Storage | 1 GB on Free [D, pricing] | — | Same failure domain as the DB | Excluded (not independent). |
 | Owner's PC | — | — | Same failure domain as current Production | Allowed only as an extra copy. Must not be required for recovery (plan §16.2 item 6). |
 
-### 4.2 Recommendation
+### 4.2 Recommendation — **adopted by the owner 2026-10-02 (P1-1)**
 
 - **Primary:** a dedicated private GitHub repo used only for backups. Each backup is one release asset named `pft-backup-<UTC>-<random>.pftenc3`. It carries no database name, kind or financial identifier (implemented in the prototype `object_name`).
 - **Why:** it is the only candidate with a documented hard stop at $0 (Actions) and no stated storage charge (releases). It needs no payment method. It is independent of both Supabase and Vercel.
@@ -172,7 +182,7 @@ Single runs on loopback. These exclude network, TLS, pooler and provider time.
 
 ## 7. What remains for G7 (needs approval)
 
-1. Owner decisions P1-1…P1-5 (handoff document).
+1. Owner decisions: P1-1 (GitHub private repo releases) and P1-2 (GitHub Actions runner) **decided 2026-10-02**. P1-3 (secondary copy), P1-4 (envelope format) and P1-5 (frequency) remain open.
 2. Create the private backup repo, the read-only Supabase backup role, and the workflow with the public key only. The owner generates the real key pair offline.
 3. Real run against the **synthetic** M5 project:
    - PG 17 dump through the session pooler with verified TLS;
