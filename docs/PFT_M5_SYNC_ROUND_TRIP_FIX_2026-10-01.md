@@ -2,7 +2,9 @@
 
 **A no-op sync of 35,600 synthetic retained rows went from 71,341 SQL statements and 5/5 cloud timeouts at the 210-second deadline to 141 statements and 5/5 cloud successes (shared-sync median 5.27 s). The 2,610-row no-op went from a 24.75 s to a 1.29 s shared-sync median. SERVERLESS_GO remains withheld: this removes the round-trip blocker only; data transfer and CPU still grow with history, and the other open M5 items are unchanged.**
 
-This follows the [bounded real-cloud latency pass](PFT_M5_REAL_CLOUD_LATENCY_2026-10-01.md), which found that the unchanged 35.6k no-op could not complete. It records the read-only investigation, the two-commit fix on branch `m5-derivation-diff-writes`, local verification, and an owner-authorized cloud rerun on the existing disposable M5 resources. Production, Production data/credentials and Plaid were not accessed.
+This follows the [bounded real-cloud latency pass](PFT_M5_REAL_CLOUD_LATENCY_2026-10-01.md), which found that the unchanged 35.6k no-op could not complete. It records the read-only investigation, the two-commit fix on branch `m5-derivation-diff-writes`, local verification, and an owner-authorized cloud rerun on the existing disposable M5 resources. During that work, Production, Production data/credentials and Plaid were not accessed.
+
+Later owner-approved follow-up: the fix was **deployed to the local Production runtime on 2026-10-02** in two phases, following the [Production action packet](PFT_SYNC_DIFF_WRITES_PRODUCTION_ACTION_PACKET_2026-10-01.md). On the same data with zero Plaid delta, a controlled sync went from 5,374 statements and 5.92 s on the old path to **144 statements and 2.57 s** with the fix. Classification time fell from 1,375 ms to 61 ms. No unchanged row was rewritten, and every business table, including full `transactions` fingerprints with timestamps, was identical before and after [M].
 
 Legend: **[M]** measured; **[E]** estimate or inference, not measured.
 
@@ -161,7 +163,9 @@ A changed classification digest would have been listed row by row rather than fa
 - **`build_classifications` CPU** is close to O(n²) [E]: 2.87 s at 35,600 rows [M], with a likely 4× increase if history doubles [E].
 - **Review override latency.** Override changes do not reclassify until the next sync.
 - **Test isolation.** `test_category_overrides` fails when the shell inherits `PLAID_PILOT_USER_ID`, so tests must run with a clean environment.
-- **Rollout.** This fix is not deployed to the local Production runtime. Merging and deployment need the established pattern: backup, pre/post preservation fingerprints (excluding `transactions.created_at`/`updated_at`), service restart, and verification. The first Production sync after deployment may perform a one-time convergence write, as seen on the 35.6k fixture [E].
+- **Rollout — done 2026-10-02.** Local `main` was fast-forwarded to include the fix and was not pushed. The action packet records the full procedure: backup with a restorability check, pre/post fingerprints with timestamps excluded, single-file image overlays, and a controlled sync.
+  - The predicted one-time convergence write did **not** occur in Production [M]. The old code had kept derived rows converged by rewriting them on every sync.
+  - Open items: the running image pin files live only under `/tmp`, so a durable copy is needed. The `:latest` image tags are stale. Pushing `main` is a separate decision.
 - Earlier M5 items remain open: the cancellation terminal-status gap, cron, owner Auth, backup packaging and B2.
 
 ## Safety boundaries and operation record

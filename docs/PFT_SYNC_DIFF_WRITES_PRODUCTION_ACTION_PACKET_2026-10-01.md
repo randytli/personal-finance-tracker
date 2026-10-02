@@ -1,6 +1,6 @@
 # Sync diff-writes — local Production action packet — 2026-10-01
 
-**Status: PHASE 1 COMPLETE (2026-10-02 00:27 UTC); PHASE 2 NOT STARTED.** See the [Phase 1 execution record](#phase-1-execution-record-2026-10-02). Phase 2 requires its own build-method decision and approvals. Every step marked as changing state requires the owner's explicit approval at execution time. Each phase's controlled sync makes a real Production Plaid call and Production financial writes; each needs its own approval.
+**Status: COMPLETE.** Phase 1 finished 2026-10-02 00:27 UTC and Phase 2 at 00:35 UTC. Both passed; see the [Phase 1](#phase-1-execution-record-2026-10-02) and [Phase 2](#phase-2-execution-record-2026-10-02) execution records. Every step marked as changing state requires the owner's explicit approval at execution time. Each phase's controlled sync makes a real Production Plaid call and Production financial writes; each needs its own approval.
 
 Scope: deploy the [sync round-trip amplification fix](PFT_M5_SYNC_ROUND_TRIP_FIX_2026-10-01.md) (`a5f2dfd`, `b646fb9`) to the local Production runtime, Compose project `pft-runtime`, in **two phases**. Phase 1 recreates only `jobs`; Phase 2 recreates only `api` and `jobs`. `db` and `web` are not touched. There is no schema change and no migration.
 
@@ -293,6 +293,45 @@ Owner-approved, in the order of the per-phase procedure. Private evidence: `/tmp
 | S7 — start jobs (00:27:29 UTC) | Heartbeat fresh within 1 s; status `running`; backup healthy; no log errors; restarts 0 |
 
 Current pins for later phases: api `sha256:d5e5e8a3…` (unchanged), jobs `sha256:1d17e2b5…`, web `sha256:6ad6b7bc…`. Phase 2's `current-images.yml` must be generated from these running IDs. The next scheduled sync is due about 2026-10-03 00:24 UTC [E]. The next daily backup is about 2026-10-02 19:35 UTC [E], because the one-off extra backup does not update the scheduler's backup marker.
+
+## Phase 2 execution record, 2026-10-02
+
+Owner-selected build method: single-file overlay of `api/services/derivation.py` (same method as Phase 1) on the running api and jobs images. Owner-approved S0–S7, including the Plaid call. Private evidence: `/tmp/pft-sync-diff-writes-release-20261002T001220Z/phase2/`. All values [M].
+
+| Step | Result |
+| --- | --- |
+| 0 — preflight (00:30 UTC) | Target `6ac9612`: among image paths, only `api/services/derivation.py` differs from `a047b0f` (content = `b646fb9`). Local suite 304 passed, 0 skipped. Both running containers differed from the target only in `derivation.py`; packages unchanged. Next sync about 24 h away |
+| S0 — merge | Local `main` fast-forwarded `a047b0f` → `6ac9612`; not pushed |
+| S1 — stop jobs (00:33:15) | No running run, no advisory locks |
+| S2 — backup | `pft-extra-20261002T003316753226Z.dump`, 496,641 B, SHA-256 matches manifest, 15 tables; restore into a disposable cluster identical to Production in all 15 tables |
+| 3 — pre-deploy fingerprints | 15 tables, integrity zero, classification digest `4a570eb1…` (unchanged since Phase 1) |
+| S3 — rollback tags | `pft-runtime-api:sdw-p2-pre-20261002T001220Z` → `sha256:d5e5e8a3…`; `pft-runtime-jobs:sdw-p2-pre-20261002T001220Z` → `sha256:1d17e2b5…` |
+| S4 — overlays | api `sha256:6f6d9560e50e91117307d01386af0f1073aa87f5e7788e77075b5f707b1acd7a`, jobs `sha256:838b2833a882699a942c61d53ed2aea67e3aeda1eb82e7f18636f82c11733098`. Each is the old layers + 1, with unchanged image config; 34/34 files equal the target; packages and Python unchanged; `derivation.py` `root:root 0644`; imports pass (jobs as uid 1000) and the diff-write functions are present |
+| S5 — recreate | api healthy 6 s after recreation (`/` and `/api/pft/sync/status` 200; no migration). jobs created, not started; user, command and mounts unchanged; web/db unchanged |
+| S6 — controlled sync (00:34 UTC) | Run `3a2aa3a6`, success for all 5 Items, Plaid delta 0/0/0. **144 SQL statements** (SELECT 103, UPDATE 24, INSERT 7, SAVEPOINT/RELEASE 5/5), wall 2.57 s, `duration_ms` 2,176, classification 61 ms. `normalized_count` 2,615 and `classified_count` 2,574 are unchanged from Phase 1 |
+| 7 — comparison | Every business table identical **including full fingerprints with timestamps**: `transactions.updated_at` is no longer rewritten. Row level 0/0/0/0; classification digest identical; integrity zero. Expected only: `sync_runs` +1, `sync_item_runs` +5; `items` `last_sync_attempt_at`, `last_sync_success_at`, `updated_at`; `sync_runtime_state` `last_published_run_id`, `published_at`. **PASS** |
+| S7 — start jobs (00:35:27 UTC) | Heartbeat within 1 s; status `running`; backup healthy; no log errors; all four containers restarts 0 |
+
+### Production before/after, same data and zero Plaid delta [M]
+
+| Metric | Old path (Phase 1 run) | Fixed (Phase 2 run) |
+| --- | --- | --- |
+| SQL statements | 5,374 | **144** |
+| Wall time | 5.92 s | **2.57 s** |
+| `duration_ms` | 5,331 | 2,176 |
+| Classification | 1,375 ms | **61 ms** |
+| Rows rewritten with no change | 2,636 (`updated_at`) | **0** |
+
+### Running state and rollback after Phase 2
+
+Running pins: api `sha256:6f6d9560…`, jobs `sha256:838b2833…`, web `sha256:6ad6b7bc…`, db `postgres:16`. The pin files are in the Phase 2 evidence directory (`current-images.yml` + `api-new.yml` + `jobs-new.yml`). **Any future recreation must use these pins or pins regenerated from the running IDs, never `:latest`.** These files contain image IDs only, but `/tmp` is not durable.
+
+Rollback to the Phase 1 state:
+- `compose -f "$PH/api-rollback.yml" up -d --no-deps --no-build --pull never --force-recreate --wait --wait-timeout 120 api`
+- `compose -f "$PH/api-rollback.yml" -f "$PH/jobs-rollback.yml" up --no-deps --no-build --pull never --force-recreate --no-start jobs`, then start jobs after verification.
+- Local `git reset --hard a047b0f4b32c2db23203fbab9b25cd5fe7678400` on `main`, after checking for no tracked changes.
+
+Derived data re-converges on the next sync under either code version.
 
 ## Appendix A — Read-only SQL
 
