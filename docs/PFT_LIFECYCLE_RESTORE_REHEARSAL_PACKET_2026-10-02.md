@@ -26,14 +26,15 @@ export PFT_REHEARSAL_BACKUP=$PFT_BACKUP_SOURCE_DIR/<chosen>.dump
 export PFT_REHEARSAL_OLD_COMMIT=<R2 输出的 application_commit>
 ```
 
-开始前：`install -d -m 0700 "$PFT_REHEARSAL_DIR"`（**[STATE]**，只创建本地私有空目录）。
+开始前：`scripts/pft_lifecycle_restore_rehearsal.sh S0`（**[STATE]**，只创建配置的本地私有目录并验证路径、当前用户所有权和 0700 权限；路径必须为绝对、规范、非根且无符号链接的路径，直接父目录必须已存在且为目录，不能创建或修改父目录）。
 
 ## 命令清单
 
 | 步骤 | 类别 | 做什么 | 读/写 | 停止条件 |
 |---|---|---|---|---|
-| R1 | READ | 列出最近 12 个 manifest（文件名、大小、时间） | 读备份目录元数据 | — |
-| R2 | READ | 打印所选备份 manifest 的字段（时间、kind、size、sha256、schema_sha256、application_commit），计算 sha256，统计 `pg_restore -l` 中的表数量 | 读备份文件 | sha256 或 size 与 manifest 不一致 → 停 |
+| S0 | **STATE** | 在已存在的直接父目录下只创建最终彩排目录（0700），验证路径和所有权；输出安全路径/状态 | 只写最终本地目录 | 父目录不存在或不是目录，路径、所有权或权限不符合要求 → 停 |
+| R1 | READ | 按文件系统修改时间从新到旧列出最多 12 个 manifest（`filename`、`size`、UTC `modified_at`）；不读取内容、不自动选择 | 读备份目录元数据 | 候选不是普通文件或是符号链接 → 停 |
+| R2 | READ | 校验 owner 选定的 `.dump` 和同目录同名 `.json`；输出 manifest 字段（时间、kind、size、sha256、schema_sha256、application_commit、format），`actual_size`、`actual_sha256`、`table_data_count` | 只读所选 manifest 和 dump，执行 `pg_restore -l` | sha256 或已记录的 size 不一致、字段/文件缺失、映射不明确、manifest 格式错误或 archive 不可读 → 非零退出并停 |
 | S1 | **STATE** | `initdb` 一次性集群（peer 认证、拒绝 host 连接） | 写 `$PFT_REHEARSAL_DIR/data` | 目录已存在 → 拒绝 |
 | S2 | **STATE** | 启动集群（不开 TCP） | 本地进程 | — |
 | R3 | READ | 确认 `listen_addresses=''`，以及 data_directory 和版本 | 读副本 | 不是该目录 → 停 |
@@ -54,6 +55,7 @@ export PFT_REHEARSAL_OLD_COMMIT=<R2 输出的 application_commit>
 
 ## 预期与判定
 
+- **R1/R2 备份合同**：由 owner 选择规范绝对路径 `$PFT_BACKUP_SOURCE_DIR/<stem>.dump`（不接受 `..` 或符号链接路径），manifest 必须为同目录的 `<stem>.json`；二者必须是普通文件且不能是符号链接，不使用 manifest 字段指定备用文件路径。R2 必需字段为 `created_at`、`kind`、`sha256`、`schema_sha256`、`application_commit`、`format`：`created_at` 必须为备份工具输出的 UTC `datetime.isoformat()` 格式（`+00:00`，可含六位微秒）；`kind` 必须为 daily/weekly/monthly/extra；两种 SHA256 必须为 64 位小写十六进制；`application_commit` 必须为运行指南中 `git rev-parse HEAD` 输出的完整 40 位小写 Git hash；`format` 必须为 `pg_dump-custom`。拒绝重复字段。`size` 如有记录必须为非负整数且与实际字节数一致；未记录时输出 `size: null`，仍验证 SHA256。R2 仅在所有校验及 archive inspection 成功后输出结果；不输出 archive listing 或错误中的原始内容。
 - **D15 通过**：R7 输出 `all_identical: true`，也就是迁移前后、重新分类前后，表、Item、分类和 analytics 的哈希全部一致。
 - **D12**：S8 输出各项耗时（单位秒），以及每个操作的 `preview_equals_apply`。`*_apply_seconds` 约等于派生锁被持有的时间，这段时间里同步和 review 写入都要等待。是否可以接受由你判定。
 - **R5 或 S6 被拦**：说明当前 Production 有非 active 的 Item，D1 闸门会阻止真实迁移。要先决定如何处理这些 Item，然后才能进入发布窗口。S6b 只用于在副本上继续完成彩排。

@@ -10,6 +10,7 @@
 # The cluster listens on a Unix socket only, uses peer authentication, never TCP.
 # Nothing here connects to Production, runs docker, or constructs a Plaid client.
 set -euo pipefail
+umask 077  # Result files are private from creation, not only after S9.
 
 STEP=${1:?step}
 WORKTREE=$(cd "$(dirname "$0")/.." && pwd)
@@ -33,13 +34,112 @@ backup_file() {
 }
 
 case "$STEP" in
+  S0)  # [STATE: local only] create exactly the configured private directory
+    "$PY" - "$DIR" <<'EOF'
+import os, stat, sys
+from pathlib import Path
+directory = Path(sys.argv[1])
+if not directory.is_absolute() or directory == Path('/') or directory.resolve() != directory:
+    raise SystemExit('refusing: rehearsal path must be absolute, canonical and not symlinked')
+if not directory.parent.is_dir():
+    raise SystemExit('refusing: rehearsal parent must already exist as a directory')
+if directory.exists() and (not directory.is_dir() or directory.stat().st_uid != os.getuid()):
+    raise SystemExit('refusing: rehearsal directory must be owned by the current user')
+if not directory.exists():
+    directory.mkdir(mode=0o700)  # parents=False: never create an ancestor.
+directory.chmod(0o700)
+info = directory.stat()
+if directory.resolve() != directory or info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) != 0o700:
+    raise SystemExit('refusing: rehearsal directory identity, ownership or permissions differ')
+print(f'private rehearsal directory ready: {directory} (mode 0700)')
+EOF
+    ;;
   R1)  # [READ] newest manifests: names, sizes, times only
-    ls -l --time-style=+%FT%T "${PFT_BACKUP_SOURCE_DIR:?}"/*.json | tail -n 12 ;;
+    "$PY" - "${PFT_BACKUP_SOURCE_DIR:?}" <<'EOF'
+import json, sys
+from datetime import datetime, timezone
+from pathlib import Path
+source = Path(sys.argv[1]).resolve(strict=True)
+if not source.is_dir():
+    raise SystemExit('refusing: backup source must be a directory')
+candidates = []
+for manifest in source.glob('*.json'):
+    if manifest.is_symlink() or not manifest.is_file():
+        raise SystemExit('refusing: manifest candidates must be regular, non-symlink files')
+    info = manifest.stat()
+    candidates.append((info.st_mtime_ns, manifest.name, info.st_size))
+for timestamp, filename, size in sorted(candidates, key=lambda row: (-row[0], row[1]))[:12]:
+    print(json.dumps({'filename': filename, 'size': size,
+                      'modified_at': datetime.fromtimestamp(timestamp / 1e9, timezone.utc).isoformat()}))
+EOF
+    ;;
   R2)  # [READ] manifest fields, checksum and archive listing of the chosen backup
-    file=$(backup_file)
-    "$PY" -c 'import json,sys; m=json.load(open(sys.argv[1])); print(json.dumps({k: m[k] for k in ("created_at","kind","size","sha256","schema_sha256","application_commit","format")}, indent=1))' "${file%.dump}.json"
-    sha256sum "$file" | cut -c1-64
-    "$PG/pg_restore" -l "$file" | grep -c ' TABLE DATA ' ;;
+    "$PY" - "${PFT_BACKUP_SOURCE_DIR:?}" "${PFT_REHEARSAL_BACKUP:?}" "$PG/pg_restore" <<'EOF'
+import hashlib, json, re, subprocess, sys
+from datetime import datetime, timedelta
+from pathlib import Path
+
+def unique_fields(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError('duplicate manifest field')
+        result[key] = value
+    return result
+
+try:
+    source = Path(sys.argv[1]).resolve(strict=True)
+    archive = Path(sys.argv[2])
+    if (not source.is_dir() or not archive.is_absolute() or archive.suffix != '.dump'
+            or archive.is_symlink() or archive.resolve(strict=True) != archive
+            or archive.parent != source
+            or not archive.is_file()):
+        raise ValueError('selected dump must be a regular .dump inside the backup source')
+    manifest = archive.with_suffix('.json')
+    if manifest.is_symlink() or not manifest.is_file() or manifest.resolve(strict=True).parent != source:
+        raise ValueError('matching same-stem manifest is missing or outside the backup source')
+    metadata = json.loads(manifest.read_text(), object_pairs_hook=unique_fields)
+    fields = ('created_at', 'kind', 'sha256', 'schema_sha256', 'application_commit', 'format')
+    if not isinstance(metadata, dict) or any(not isinstance(metadata.get(key), str)
+                                            or not metadata[key] for key in fields):
+        raise ValueError('required manifest fields are missing or malformed')
+    try:
+        created_at = datetime.fromisoformat(metadata['created_at'])
+    except ValueError:
+        raise ValueError('manifest created_at is malformed') from None
+    if created_at.isoformat() != metadata['created_at'] or created_at.utcoffset() != timedelta(0):
+        raise ValueError('manifest created_at must be a UTC isoformat timestamp')
+    if metadata['kind'] not in ('daily', 'weekly', 'monthly', 'extra'):
+        raise ValueError('manifest kind is malformed')
+    # Runtime instructions set PFT_APP_COMMIT with git rev-parse HEAD (full SHA-1).
+    if not re.fullmatch(r'[0-9a-f]{40}', metadata['application_commit']):
+        raise ValueError('manifest application_commit must be a full Git commit hash')
+    if (metadata['format'] != 'pg_dump-custom'
+            or any(not re.fullmatch(r'[0-9a-f]{64}', metadata[key]) for key in ('sha256', 'schema_sha256'))):
+        raise ValueError('manifest format or hashes are malformed')
+    if 'size' in metadata and (type(metadata['size']) is not int or metadata['size'] < 0):
+        raise ValueError('manifest size is malformed')
+    actual_size = archive.stat().st_size
+    digest = hashlib.sha256()
+    with archive.open('rb') as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b''):
+            digest.update(chunk)
+    actual_sha256 = digest.hexdigest()
+    if actual_sha256 != metadata['sha256']:
+        raise ValueError('backup checksum mismatch')
+    if 'size' in metadata and actual_size != metadata['size']:
+        raise ValueError('backup size mismatch')
+    listing = subprocess.run([sys.argv[3], '-l', str(archive)], capture_output=True, check=True, text=True)
+    report = {key: metadata[key] for key in fields}
+    report.update(size=metadata.get('size'), actual_size=actual_size, actual_sha256=actual_sha256,
+                  table_data_count=sum(' TABLE DATA ' in line for line in listing.stdout.splitlines()))
+    print(json.dumps(report, indent=1))
+except (OSError, ValueError, subprocess.SubprocessError) as error:
+    # Never print archive listing, manifest contents or pg_restore stderr on failure.
+    message = str(error) if type(error) is ValueError else 'manifest/dump unreadable, malformed or archive inspection failed'
+    raise SystemExit(f'refusing: {message}')
+EOF
+    ;;
   S1)  # [STATE: local disposable] create the socket-only cluster
     private "$DIR"; [ ! -e "$DIR/data" ] || { echo "refusing: $DIR/data exists" >&2; exit 1; }
     install -d -m 0700 "$SOCK" "$OUT"
