@@ -232,7 +232,7 @@ Disposable PostgreSQL 16.15 on 127.0.0.1:55439 in the scratchpad, deleted afterw
 
 Single loopback runs; no network, TLS, pooler or GitHub time.
 
-`tests/test_m5_backup_age.py`: **19 pass**. 6 need the database opt-in (`PFT_M5_BACKUP_SYNTHETIC_TEST=1`) plus `PFT_AGE_BIN`; 3 more need only `PFT_AGE_BIN`.
+`tests/test_m5_backup_age.py`: **20 pass**. 6 need the database opt-in (`PFT_M5_BACKUP_SYNTHETIC_TEST=1`) plus `PFT_AGE_BIN`; 3 more need only `PFT_AGE_BIN`.
 
 - **Recipients and policy:**
   - fewer than two keys, duplicates, SSH, post-quantum and secret keys are rejected;
@@ -274,7 +274,7 @@ These are the approved real run (§7).
 
 1. Owner decisions P1-1…P1-5 are recorded (2026-10-02). Nothing is pending there.
 2. **Approvals still needed:**
-   1. create the dedicated private backup repository and install the template (README in `deploy/backup_runner/`);
+   1. ~~create the dedicated private backup repository~~ **done by the owner 2026-10-02: `randytli/pft-backups`** (private, initial README; anonymous API 404 [M]). Installing the template (stage → review → commit → push) still needs approval; install order in `deploy/backup_runner/README.md`;
    2. the owner generates the two key pairs offline and commits only the public keys;
    3. create the read-only `pft_backup` role on the **synthetic** M5 project and store its password as the only repository secret;
    4. run the workflow manually against the synthetic project, then download on a different machine, restore to PostgreSQL 17 using the runbook, and compare fingerprints.
@@ -289,7 +289,7 @@ These are the approved real run (§7).
 
 ## 8. Files
 
-- `deploy/backup_runner/pft_backup_runner.py`, `release_store.py`, `snapshot_dump.sql`, `fingerprint.sql`, `SHA256SUMS`, `pft-backup.yml`, `README.md`: runner, stores and workflow template. Standard library only.
+- `deploy/backup_runner/pft_backup_runner.py`, `release_store.py`, `snapshot_dump.sql`, `fingerprint.sql`, `SHA256SUMS`, `pft-backup.yml`, `README.md`, `stage_backup_repo.py`: runner, stores, workflow template and the staging helper for `randytli/pft-backups`. Standard library only.
 - `scripts/pft_backup_restore.py`: multi-format restore tool (age, PFTENC2, plain local dump).
 - `scripts/pft_m5_backup_fixture.py`: populated synthetic fixture.
 - `tests/test_m5_backup_age.py`: tests.

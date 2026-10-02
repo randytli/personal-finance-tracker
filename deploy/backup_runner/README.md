@@ -2,7 +2,9 @@
 
 Source of truth for the independent cloud backup (owner decisions P1-1, P1-2 and P1-4, 2026-10-02). Design: [docs/PFT_M5_INDEPENDENT_BACKUP_DESIGN_2026-10-02.md](../../docs/PFT_M5_INDEPENDENT_BACKUP_DESIGN_2026-10-02.md). Recovery without any PFT code: [docs/PFT_BACKUP_RESTORE_RUNBOOK.md](../../docs/PFT_BACKUP_RESTORE_RUNBOOK.md).
 
-**Nothing here is deployed.** Creating the backup repository, roles, keys and secrets needs the owner's separate approval.
+**Backup repository: `randytli/pft-backups`.** The owner created it on 2026-10-02: private, with an initial README commit. Anonymous API access returns 404 while the user exists, consistent with private visibility [M].
+
+**Nothing is installed there yet.** Pushing files, creating keys, roles and secrets, and running the workflow each need the owner's separate approval.
 
 | File | Purpose |
 | --- | --- |
@@ -12,6 +14,7 @@ Source of truth for the independent cloud backup (owner decisions P1-1, P1-2 and
 | `fingerprint.sql` | Deterministic fingerprint; also used by restores, standalone. |
 | `pft-backup.yml` | Workflow template. Not active in this repository. |
 | `SHA256SUMS` | Hashes of the four runner files as `runner/<file>`. Checked by the workflow; `tests/test_m5_backup_age.py` fails if it is stale. |
+| `stage_backup_repo.py` | Copies exactly the files above (plus `RESTORE.md` and an example recipients file) into a local clone of the backup repository and verifies `SHA256SUMS`. Never runs git. |
 
 ## Layout of the dedicated private backup repository
 
@@ -23,7 +26,21 @@ config/supabase-ca.crt             ← Supabase public root CA (verify-full)
 RESTORE.md                         ← copy of docs/PFT_BACKUP_RESTORE_RUNBOOK.md
 ```
 
-Record the PFT commit the runner was copied from in the backup repo's commit message. Update only by copying the files again together with `SHA256SUMS`.
+Stage with `python3 deploy/backup_runner/stage_backup_repo.py <clone of randytli/pft-backups>`. It records the PFT commit in `STAGED_FROM.txt` and refuses uncommitted runner files or overwriting existing ones.
+
+## Install order (each step separately approved)
+
+Schedule last, so the daily schedule never runs against an incomplete setup. Every failure would send a notification, although the runner fails closed.
+
+1. **Keys (owner, offline).** Create `daily.key.age` and `emergency.key.age` (backup design §5.2). Write the two **public** keys into `config/recipients.txt` in the clone.
+2. **Database role.** Create the read-only `pft_backup` role on the **synthetic** M5 project. In the backup repository, set the variables `PFT_BACKUP_PGHOST` / `PGPORT` / `PGUSER` / `PGDATABASE` and the secret `PFT_BACKUP_PGPASSWORD`.
+3. **CA certificate.** Put the Supabase public root CA in `config/supabase-ca.crt`. The certificate used in M5 has SHA-256 fingerprint `807025AD50D4ED219D2C9C7D299C004F824EB00CF7F65AFEF607D07B72E6CAFA` (`openssl x509 -noout -fingerprint -sha256 -in config/supabase-ca.crt`).
+4. **Stage, review, commit, push** (`stage_backup_repo.py`, then `git diff`). Then trigger **Run workflow** manually once. Check that the release is published, then restore it on another machine with `RESTORE.md`.
+5. Only after a successful restore, leave the daily schedule enabled.
+
+Point the variables at Production only in the cutover stage (cutover draft, prerequisite C6). Until then everything targets the synthetic project.
+
+Not yet verified: whether Actions is enabled for this private repository by default, and that `permissions: contents: write` takes effect. GitHub documents that only organization or enterprise policy can restrict it, and this is a personal repository. Both are checked on the first manual run.
 
 ## Configuration (backup repository settings)
 

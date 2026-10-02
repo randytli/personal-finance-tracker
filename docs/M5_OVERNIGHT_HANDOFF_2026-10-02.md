@@ -119,7 +119,8 @@
   - **workflow 模板**放在 `deploy/backup_runner/`，故意不放进 `.github/workflows`，所以在本仓库里不会运行。三项都固定：`actions/checkout` 固定到 commit SHA；PG17.11 客户端镜像固定到 digest；runner 文件用 `SHA256SUMS` 校验。runner 只用标准库，不需要 pip 安装。
   - **GitHub 存储**：先建 draft，上传后逐个回读并比对 SHA-256，全部通过才发布；token 不会随重定向发到存储主机。
   - **快照一致性**：用测试注入一次“导出快照之后、pg_dump 之前”提交的写入，它既不在 dump 里也不在指纹里；去掉 `--snapshot` 的变异版本会让这个测试失败。
-- 测试：`tests/test_m5_backup_age.py` 19 个全部通过。所有密钥都在测试中临时生成，用完删除。
+- 测试：`tests/test_m5_backup_age.py` 共 20 个，全部通过（含后来加的 staging 测试）。
+- **备份仓库**：`randytli/pft-backups`，由你在 2026-10-02 创建，private，已有初始 README。匿名访问 API 返回 404，而该用户本身存在，说明仓库确实不公开（实测）。`deploy/backup_runner/stage_backup_repo.py` 会把应放进该仓库的文件按目录排好，并校验 `SHA256SUMS`，但它不会运行 git，也不会 push。安装顺序见 `deploy/backup_runner/README.md`：密钥 → 备份角色、variables 和 secret → CA 证书 → 暂存、审阅、push → 手动触发首次运行并在另一台机器上恢复 → 恢复成功后再启用每日定时。所有密钥都在测试中临时生成，用完删除。
 - **本地没测到的部分**：真实的 docker 运行 PG17 镜像（测试里用 `env` 代替这层包装）、真实的 GitHub API（测试用本地假 API）、到 Supabase 的 verify-full TLS、`--snapshot` 能否穿过 Supavisor。这些都要等你批准的真实运行来验证。
 
 ## 待决（需要 owner 拍板或批准）

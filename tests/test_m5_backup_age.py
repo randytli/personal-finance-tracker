@@ -89,9 +89,30 @@ class RunnerBundleTests(unittest.TestCase):
         for line in (runner.HERE / "SHA256SUMS").read_text().splitlines():
             digest, name = line.split("  ", 1)
             listed[name] = digest
-        actual = {f"runner/{p.name}": hashlib.sha256(p.read_bytes()).hexdigest()
-                  for p in runner.HERE.iterdir() if p.suffix in (".py", ".sql")}
+        from deploy.backup_runner import stage_backup_repo
+        actual = {f"runner/{name}": hashlib.sha256((runner.HERE / name).read_bytes()).hexdigest()
+                  for name in stage_backup_repo.RUNNER_FILES if name != "SHA256SUMS"}
         self.assertEqual(listed, actual, "regenerate deploy/backup_runner/SHA256SUMS")
+
+    def test_stage_backup_repo_layout_and_fail_closed_recipients(self):
+        from deploy.backup_runner import stage_backup_repo
+        target = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, target)
+        (target / "README.md").write_text("initial commit")
+        result = stage_backup_repo.stage(target, commit="abc123")
+        self.assertIn(".github/workflows/pft-backup.yml", result["staged"])
+        self.assertEqual(result["still_required_before_first_run"],
+                         ["config/recipients.txt", "config/supabase-ca.crt"])
+        self.assertEqual((target / "README.md").read_text(), "initial commit")
+        self.assertEqual((target / "RESTORE.md").read_text(),
+                         (runner.HERE.parents[1] / "docs" / "PFT_BACKUP_RESTORE_RUNBOOK.md").read_text())
+        for line in (target / "runner" / "SHA256SUMS").read_text().splitlines():
+            digest, name = line.split("  ", 1)
+            self.assertEqual(hashlib.sha256((target / name).read_bytes()).hexdigest(), digest)
+        with self.assertRaises(runner.RunnerError):  # placeholders never pass as real keys
+            runner.read_recipients(target / "config" / "recipients.txt.example")
+        with self.assertRaisesRegex(stage_backup_repo.StageError, "refusing to overwrite"):
+            stage_backup_repo.stage(target, commit="abc123")
 
     def test_workflow_pins_and_never_lives_in_github_workflows(self):
         text = (runner.HERE / "pft-backup.yml").read_text()
