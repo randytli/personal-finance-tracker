@@ -438,6 +438,30 @@ class JobsDatabaseTests(unittest.IsolatedAsyncioTestCase):
                 "SELECT pg_try_advisory_lock(hashtextextended(:key,0))"), {"key": key}))
             await other.scalar(text("SELECT pg_advisory_unlock(hashtextextended(:key,0))"), {"key": key})
 
+    async def test_lock_inherited_by_reused_backend_is_refused_and_cleared(self):
+        # Supavisor hands a dead client's backend to the next client (measured in M5). If its
+        # lock survived, re-entering would succeed and unlocking would leave a count behind.
+        key = "pft-jobs:synthetic-user"
+        async with self.engine.connect() as leaked:
+            self.assertTrue(await leaked.scalar(text(
+                "SELECT pg_try_advisory_lock(hashtextextended(:key,0))"), {"key": key}))
+            leaked_pid = await leaked.scalar(text("SELECT pg_backend_pid()"))
+            await leaked.commit()
+        sync = Mock(side_effect=AssertionError("sync must not run"))
+        with self.assertRaisesRegex(RuntimeError, "already held"):
+            await self.poll(sync)
+        async with self.admin.connect() as other:
+            self.assertFalse(await other.scalar(text(
+                "SELECT count(*) > 0 FROM pg_stat_activity WHERE pid = :pid"), {"pid": leaked_pid}))
+            self.assertTrue(await other.scalar(text(
+                "SELECT pg_try_advisory_lock(hashtextextended(:key,0))"), {"key": key}))
+            await other.scalar(text("SELECT pg_advisory_unlock(hashtextextended(:key,0))"), {"key": key})
+            await other.commit()
+
+        async def idle(*args, **kwargs):
+            return {"status": "idle", "run_id": None, "items": {}}
+        self.assertEqual((await self.poll(idle))["status"], "idle")
+
     async def test_global_rollback_records_retry_without_publication(self):
         await self.request(["a"])
         with patch.object(service, "classify_active_transactions", side_effect=RuntimeError("synthetic")):
