@@ -1,6 +1,8 @@
 # Frontend redesign — local Production web release packet — 2026-10-02
 
-**Status: PREPARED, not executed.** Nothing in this packet has run against Production. Every step marked **[STATE]** requires the owner's explicit approval at execution time, one step at a time.
+**Status: EXECUTED — 2026-10-02 01:38 UTC (2026-10-01 21:38 EDT).** The owner authorized the complete frontend deployment in the current session. Production web now runs the redesign plus the reviewed negative-net-cost composition fix at `b219188`. Only web was recreated.
+
+The preparation and proposed commands below are retained as the original packet. The execution record at the end supersedes their source revision, image tags, evidence directory and step-by-step approval wording. No separate approval was required for each step after the owner's complete web deployment authorization.
 
 Scope: deploy the dark-theme redesign of Overview, Review and Memberships (`38c04f5`, on top of `main` `4c3594d`) to the local Production runtime, Compose project `pft-runtime`. **Only `web` is rebuilt and recreated.** `api`, `jobs` and `db` are not touched, so jobs keeps running, no backup is needed, and there is no schema change, migration, sync or Plaid call. A web interruption of a few seconds is expected during recreation.
 
@@ -257,16 +259,40 @@ No data rollback is needed. The release changes no data, and the frontend makes 
 
 ## Execution record
 
-Not yet executed. Fill in with [M] values when run.
+Executed under the owner's instruction to deploy the frontend redesign. Actual released source is `b219188bcd7b5fcc45b1f888c6c8c757cd9fdedb`: redesign `38c04f5`, the release packet, and the reviewed Membership composition fix. The fix hides the part-to-whole bar when any component is negative while retaining the signed monetary amounts and calculation explanation. The worktree was clean at packaging; no API or dependency changes were included.
+
+Private durable evidence: `~/.local/share/pft/releases/2026-10-02-web-redesign-b219188/` (directories 0700, files 0600). It contains source fingerprints, the allowlisted build context, fixed base-image digest, container/Serve baselines, table and analytics fingerprints, image checks, candidate and live browser results, rollback pins, before/after running pins and the release receipt. `/tmp/pft-redesign-release-b219188/` is the working copy, not the sole retained evidence.
 
 | Step | Result |
 | --- | --- |
-| 0 — merge | |
-| 1 — preflight | |
-| 2 — rollback tag | |
-| 4 — build | |
-| 5 — image verification | |
-| 6 — recreate web | |
-| 7 — post-deploy verification | |
-| 8 — pin file | |
-| 9 — Compose resolution | |
+| 0 — source | `38c04f5` already on main; reviewed correction committed locally as `b219188`. No push. |
+| 1 — preflight | Running api/jobs/web matched the durable pins; DB image matched `postgres:16`. Web healthy, jobs running, no current sync, earliest automatic sync approximately 23 hours away. Baseline captured for 14 public tables excluding the active heartbeat table `sync_runtime_state`, plus 8 analytics responses. |
+| 2 — rollback tag | Pre-release web `sha256:6ad6b7bc0f9962854c1c61467ea049baa61266ab281ed3b369774ba3be0f2180` retained as `pft-runtime-web:rollback-redesign-b219188`. |
+| 4 — build | `node:22-alpine` was missing, so downloaded under the authorized deployment and pinned to `node@sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402` in both stages of the isolated Dockerfile. Only tracked web-build inputs were staged; no env files, financial exports or backend source. Next.js production build, lint and type validation passed. |
+| 5 — image verification | New image `sha256:60f50b6b4fb71d607cef9f6826d53ea5eabf3a17e40c441bda551ada2c12a2f1`, tagged `pft-runtime-web:redesign-b219188`, with source revision label `b219188…`. Empty basePath, four rewrites to `http://api:8000`, no design-preview code, category emoji assets present. Dry run recreated only web. |
+| 6 — recreate web | Web-only `--no-deps --no-build --pull never --force-recreate --wait` completed; new web healthy. API, jobs and DB were not recreated or restarted. |
+| 7 — post-deploy verification | 14 table fingerprints and all 8 analytics fingerprints identical. API/jobs/DB container IDs, image IDs, start times and restart counts identical. Serve configuration unchanged. Three pages and sync status returned 200. Local/private HTTPS HTML for all three pages, 16 static assets and 2 analytics responses matched. |
+| 8 — pin file | Atomically updated only the web image in `~/.local/share/pft/releases/2026-10-02/running-images.yml`; previous pins retained in durable evidence. API/jobs pins and the jobs commit value unchanged. |
+| 9 — Compose resolution | Final config resolves new web and unchanged api/jobs/DB. Full api/web/jobs dry run required no creates or recreates. Web restart policy remains `unless-stopped`. |
+
+Validation [M]:
+
+- Jest: 60/60 tests in 12 suites, including positive, zero and negative Membership net-cost regressions.
+- Candidate image at isolated `127.0.0.1:3026`, synthetic APIs only: 12/12 page-flow cases at 320/390/768/1440 px; 18/18 bottom-layout cases at 320/390/1440 px; 6/6 composition cases at 320/1440 px. Checks cover filters, category disclosures, editing with synthetic writes, loading/error recovery, pagination, bulk toolbar, keyboard viewport and overflow.
+- Live Production: 12/12 read-only browser cases (three pages × 390/1440 px × local/private origins). Overview component history, category select/clear and chevrons, both Review modes, and Membership filters passed. No runtime errors, rendered API errors or horizontal overflow. All non-GET requests were blocked; no mutation attempts occurred.
+- Private-origin browser content was retrieved over Windows curl HTTPS and rendered in Chromium because Tailscale runs on Windows. This verifies private HTTPS transport plus browser rendering; no physical-phone acceptance was performed in this session.
+- No financial-data write, schema migration, manual sync or Plaid API call. Jobs stayed running throughout. The jobs heartbeat table was excluded from financial preservation comparison because its routine heartbeat continues to advance.
+
+### Rollback for this executed release
+
+The retained `web-rollback.yml` pins the full pre-release image ID above. With the runtime environment variables from the original packet set, the web-only rollback command is:
+
+```bash
+PFT_WEB_RELEASE="$HOME/.local/share/pft/releases/2026-10-02-web-redesign-b219188"
+env -u PFT_ALLOWED_HOSTS -u PFT_ALLOWED_ORIGINS docker compose -p pft-runtime \
+  -f compose.runtime.yml -f docker-compose.production.yml \
+  -f "$PFT_WEB_RELEASE/current-images.yml" -f "$PFT_WEB_RELEASE/web-rollback.yml" \
+  up -d --no-deps --no-build --pull never --force-recreate --wait --wait-timeout 120 web
+```
+
+After an authorized rollback, restore the single durable pin file from `running-images.before-web.yml` and repeat the container/Serve/analytics checks. No data rollback is needed.
