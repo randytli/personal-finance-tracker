@@ -1,6 +1,6 @@
 # 恢复副本彩排命令清单（D15 + D12）— 2026-10-02
 
-**状态：owner 已授权自主执行；真实彩排已开始，R2 因 manifest 的 application_commit 格式校验失败而停止。未创建集群、恢复、迁移或执行 D12。见下方执行记录。**
+**状态：owner 已授权自主执行。provenance 调查后选定较早的可定位 commit 的备份；R2–R5 通过，S6 被独立的 Dining schema gate 拦住，随后 S9 清理成功。D15/D12 未完成。见下方执行记录。**
 
 目的：把最近一份 Production 备份恢复到一次性的临时集群，在副本上依次执行旧代码指纹、严格 preflight、迁移、新代码指纹，并测量预览和激活的耗时。全程**不连接 Production**（不连它的数据库，不执行 docker 命令），不调用 Plaid，用完删除集群。
 
@@ -84,6 +84,18 @@ export PFT_REHEARSAL_OLD_COMMIT=<R2 输出的 application_commit>
 ### application_commit 调查与候选选择（owner 随后授权）
 
 - `api.backup.backup()` 原样记录环境变量 `PFT_APP_COMMIT`，没有强制 SHA 格式；`api.backup.restore()` 只校验 archive 的 SHA256 和 size。运行指南推荐完整 Git SHA，但后续 jobs overlay 的发布记录明确使用 release label（见 `docs/PFT_SYNC_DIFF_WRITES_PRODUCTION_ACTION_PACKET_2026-10-01.md` 的 Phase 1 Step 4）。因此 release label 是生产者允许的 provenance，不是短 SHA，也不能直接作为本彩排的旧代码 revision。
-- 只读调查最近 12 个 manifest 的 approved metadata：最新五个 `application_commit` 均为非十六进制 label，没有发现短 SHA。不能从 label 猜测或截取 commit；这些候选不满足本彩排的旧代码定位要求，不修改它们。按 mtime 顺序，下一个候选是 `pft-daily-20260929T193412879163.dump`，记录完整 SHA `2b413550433e83db151ef1f62ad98b26d70fbd9e`。
+- 只读调查最近 12 个 manifest 的 approved metadata：最新五个 `application_commit` 均为非十六进制 label，没有发现短 SHA。不能从 label 猜测或截取 commit；这些候选不满足本彩排的旧代码定位要求，不修改它们。按 mtime 顺序，下一个候选是 `pft-daily-20260929T193412879163Z.dump`，记录完整 SHA `2b413550433e83db151ef1f62ad98b26d70fbd9e`。
 - R2 保持完整 40 位小写 SHA 要求，并新增 `git rev-parse --verify <SHA>^{commit}` 校验，要求它在本 repo 中存在且解析结果与原 SHA 完全相同；拒绝未知 object、非 commit object 及 label。若 R2 失败，不声称该候选有效。
 - 新增未知 SHA、非 commit object、release label 的合成回归测试；测试使用临时合成 Git repo，不依赖真实备份或数据库。
+
+### 恢复副本执行结果及清理
+
+- 工具修订提交 `5a5992d`；21 个合成 wrapper 测试、shell syntax、`git diff --check` 均通过。
+- **R2**：`pft-daily-20260929T193412879163Z.dump` 验证通过；SHA256 `e40c88f8a5544faa498291794560b3f67ae715f26009983f0e7cba9d8d7b0516`，size 492321 字节，15 个 TABLE DATA；`application_commit` 在本 repo 中存在。
+- **S1/S2/R3/S3/S4**：通过 wrapper 创建并验证 PostgreSQL 16.15 的 peer-auth、无 TCP、私有 socket 临时集群；只恢复到 `pft_restore_lifecycle_20261002`，导出已验证的旧代码 revision。副本有 5 个 Active Item。
+- **R4/S5**：2620 笔 transactions/raw，2605 个 analytics rows，25 个月。R4 和旧代码重新分类后的 S5 在 R7 的全部七个 preservation key 上相同。旧 classifier 报告 `reclassified_count=2564`（旧代码会重新写入分类；这不是零写入证明），但所有排除时间字段的表哈希、Item、分类和 analytics 指纹一致。
+- **R5**：副本严格 lifecycle preflight 通过（5 Active，`applied=false`，无 blocker）；这仅描述该备份副本，不声称当前 Production preflight 会通过。
+- **S6**：非零退出；`api.migrations.migrate_manual_categories()` 检测到旧 `FOOD_AND_DRINK` manual overrides，报 `Explicit reviewed Dining migration required before schema migration`。没有绕过此独立 safety gate。整个 `init_db()` 在单个事务中；异常回滚，随后只读 R5 再次确认 lifecycle 未应用、5 Active 不变。R6/S7/R7/S8 未执行；D15/D12 不能判定通过。
+- **S9**：停止临时集群并删除 data、socket、旧源码和日志。核验只剩 `results/` 的四个有效 JSON 文件，均为 0600：`before.json`、`before_reclassified.json`、`preflight.json`、`migrate.json`。S6 没有输出 JSON，因此空的 `migrate.json` 被替换为安全的失败阶段/错误/status counts 摘要，不含任何金融行或 ID。收尾 R2 再次通过，源备份 SHA256 和 size 保持不变。
+- **真正阻塞项**：最近的备份缺少可直接解析的 old-code commit provenance；可定位 commit 的旧备份又早于已审阅的 Dining 迁移。本 packet 没有授权绕过或重定义四指纹比较来消化这项前置金融数据迁移。需要一份可证明代码 provenance 且已满足 Dining 前置条件的备份，或独立审阅的副本前置迁移及 baseline 比较方案。
+- 全程未连接 Production、未修改源备份、未调用 Plaid、未改 cloud、未 push/merge/deploy。
