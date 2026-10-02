@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { cn } from '@/lib/utils'
 
 export type LifecycleStatus = 'pending' | 'active' | 'deactivated' | 'disabled'
-export type LifecycleKind = 'activate' | 'deactivate'
+export type LifecycleKind = 'activate' | 'reactivate' | 'deactivate'
 
 export type ActivationCheck = { id: string; label: string; result: 'pass' | 'warn' | 'fail'; detail: string }
 
@@ -55,11 +55,17 @@ function signedMoney(value: string) {
   return `${amount > 0 ? '+' : ''}${money(value)}`
 }
 
-// Activation needs passing checks; deactivation is available to any active Item.
+// One explicit operation per status. Rejected Items have none here: they return to
+// Pending (retry onboarding) before the normal activation path applies.
 export function availableTransition(status: LifecycleStatus): LifecycleKind | null {
   if (status === 'active') return 'deactivate'
-  if (status === 'pending' || status === 'deactivated') return 'activate'
+  if (status === 'pending') return 'activate'
+  if (status === 'deactivated') return 'reactivate'
   return null
+}
+
+const PREVIEW_PATHS: Record<LifecycleKind, string> = {
+  activate: 'activation-preview', reactivate: 'reactivation-preview', deactivate: 'deactivation-preview',
 }
 
 export function checksAllowActivation(checks: ActivationCheck[] | null) {
@@ -182,6 +188,11 @@ const COPY: Record<LifecycleKind, { title: string; confirm: string; description:
     confirm: 'Confirm activation',
     description: 'Activation publishes this institution: its transactions enter analytics and classification, and scheduled sync starts. This preview compares the whole ledger before and after.',
   },
+  reactivate: {
+    title: 'Reactivate institution',
+    confirm: 'Confirm reactivation',
+    description: 'Reactivation resumes syncing from the saved cursor. The institution stayed published while deactivated, so the ledger normally does not change; this preview confirms it.',
+  },
   deactivate: {
     title: 'Deactivate institution',
     confirm: 'Confirm deactivation',
@@ -204,7 +215,7 @@ export function LifecycleDialog({ itemId, institutionName, kind, open, onOpenCha
     let active = true
     setPreview(null)
     setError('')
-    fetch(`${base}/${kind === 'activate' ? 'activation' : 'deactivation'}-preview`, { method: 'POST' })
+    fetch(`${base}/${PREVIEW_PATHS[kind]}`, { method: 'POST' })
       .then(async response => response.ok ? response.json() : Promise.reject(new Error(await errorDetail(response))))
       .then(data => { if (active) setPreview(data) })
       .catch((reason: Error) => { if (active) setError(reason.message || 'The impact preview could not be loaded.') })

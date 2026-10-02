@@ -53,7 +53,10 @@ beforeEach(() => {
     else if (url.pathname.endsWith('/activation-preview') && method === 'POST') data = activationPreview
     else if (url.pathname.endsWith('/deactivation-preview') && method === 'POST') data = {
       ...activationPreview, digest: 'd'.repeat(64), summary_by_month: [], new_transactions: [], changed_existing_transactions: [] }
+    else if (url.pathname.endsWith('/reactivation-preview') && method === 'POST') data = {
+      ...activationPreview, digest: 'r'.repeat(64), summary_by_month: [], new_transactions: [], changed_existing_transactions: [] }
     else if (url.pathname.endsWith('/activate') && method === 'POST') { status = 'active'; data = { status } }
+    else if (url.pathname.endsWith('/reactivate') && method === 'POST') { status = 'active'; data = { status } }
     else if (url.pathname.endsWith('/deactivate') && method === 'POST') { status = 'deactivated'; data = { status } }
     else throw new Error(`Unexpected request: ${method} ${url.pathname}`)
     return { ok: true, json: async () => data } as Response
@@ -116,4 +119,29 @@ test('deactivation shows an unchanged ledger and needs confirmation', async () =
   await screen.findByText(/Institution deactivated/)
   expect(writes().at(-1)?.body).toEqual({ preview_digest: 'd'.repeat(64) })
   await screen.findByRole('button', { name: 'Reactivate' })
+})
+
+test('reactivation uses its own preview and confirmation', async () => {
+  status = 'deactivated'
+  render(createElement(InstitutionItemPage))
+  await screen.findByText('Item can be activated')
+  expect(writes()).toEqual([])
+  fireEvent.click(screen.getByRole('button', { name: 'Reactivate' }))
+  const dialog = await screen.findByRole('dialog')
+  await within(dialog).findByText(/No change: analytics/)
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Confirm reactivation' }))
+  await screen.findByText('Institution reactivated.')
+  expect(writes()).toEqual([
+    { path: '/api/pft/plaid/items/ally-item/reactivation-preview', method: 'POST', body: null },
+    { path: '/api/pft/plaid/items/ally-item/reactivate', method: 'POST', body: { preview_digest: 'r'.repeat(64) } },
+  ])
+})
+
+test('a rejected institution offers no lifecycle action', async () => {
+  status = 'disabled'
+  render(createElement(InstitutionItemPage))
+  await screen.findByText(/Rejected institutions cannot be activated/)
+  expect(screen.queryByRole('button', { name: /activate|deactivate/i })).toBeNull()
+  expect(requests.some(request => request.path.endsWith('/activation-checks'))).toBe(false)
+  expect(writes()).toEqual([])
 })

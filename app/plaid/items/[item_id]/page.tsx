@@ -95,13 +95,14 @@ export default function InstitutionItemPage() {
   }, [base, offset, pageSize, reload])
 
   const done = useCallback((kind: LifecycleKind) => {
-    setNotice(kind === 'activate' ? 'Institution activated.' : 'Institution deactivated. Its transactions stay in analytics.')
+    setNotice(kind === 'deactivate' ? 'Institution deactivated. Its transactions stay in analytics.'
+      : kind === 'reactivate' ? 'Institution reactivated.' : 'Institution activated.')
     setChecks(null)
     setReload(value => value + 1)
   }, [])
 
   const transition = item ? availableTransition(item.status) : null
-  const activationBlocked = transition === 'activate' && !checksAllowActivation(checks)
+  const activationBlocked = (transition === 'activate' || transition === 'reactivate') && !checksAllowActivation(checks)
   const enabledAccounts = item?.accounts.filter(account => account.consumer_transactions_enabled).length ?? 0
 
   return <div className="pft-app">
@@ -117,7 +118,7 @@ export default function InstitutionItemPage() {
         </div>}
         actions={transition && <Button variant={transition === 'deactivate' ? 'outline' : 'default'}
           disabled={activationBlocked} onClick={() => { setNotice(''); setDialog(transition) }}>
-          {transition === 'deactivate' ? 'Deactivate' : item?.status === 'deactivated' ? 'Reactivate' : 'Activate'}
+          {transition === 'deactivate' ? 'Deactivate' : transition === 'reactivate' ? 'Reactivate' : 'Activate'}
         </Button>} />
 
       {error && <Alert variant="destructive" role="alert" className="mt-4"><CircleAlert aria-hidden="true" />
@@ -128,6 +129,9 @@ export default function InstitutionItemPage() {
       {activationBlocked && checks && <Alert variant="warning" className="mt-4"><CircleAlert aria-hidden="true" />
         <p className="text-sm">Activation is unavailable until every failed pre-activation check passes.</p></Alert>}
 
+      {item?.status === 'disabled' && <Alert variant="warning" className="mt-4"><CircleAlert aria-hidden="true" />
+        <p className="text-sm">Rejected institutions cannot be activated. Return it to pending with the retry-onboarding
+          operation, then repeat onboarding, the checks and a confirmed activation.</p></Alert>}
       {!item && !error && <LoadingState label="Loading institution" />}
 
       {item && <div className="mt-6 grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,22rem)]">

@@ -67,6 +67,8 @@ async function routes(page, data) {
     }
     if (p === '/activation-checks') return reply({ checks: data.checks })
     if (p === '/activation-preview') { await new Promise(resolve => setTimeout(resolve, 300)); return reply(preview) }
+    if (p === '/reactivation-preview') return reply({ ...preview, digest: 'r'.repeat(64), summary_by_month: [], new_transactions: [], changed_existing_transactions: [] })
+    if (p === '/reactivate') { data.status = 'active'; return reply({ status: 'active' }) }
     if (p === '/deactivation-preview') return reply({ ...preview, digest: 'd'.repeat(64), summary_by_month: [], new_transactions: [], changed_existing_transactions: [] })
     if (p === '/activate') { data.status = 'active'; return reply({ status: 'active' }) }
     if (p === '/deactivate') { data.status = 'deactivated'; return reply({ status: 'deactivated' }) }
@@ -145,6 +147,12 @@ const results = []
       await page.getByRole('dialog').getByRole('button', { name: 'Confirm deactivation' }).click()
       await page.getByRole('button', { name: 'Reactivate' }).waitFor()
       await noHorizontalScroll(page, `${name} deactivated`)
+      await page.getByRole('button', { name: 'Reactivate' }).click()
+      await page.getByRole('dialog').getByText(/No change: analytics/).waitFor()
+      await page.screenshot({ path: path.join(out, `${name}-reactivate-dialog.png`) })
+      await page.getByRole('dialog').getByRole('button', { name: 'Confirm reactivation' }).click()
+      await page.getByText('Institution reactivated.').waitFor()
+      assert.deepEqual(data.writes.slice(-4), ['/deactivation-preview', '/deactivate', '/reactivation-preview', '/reactivate'])
 
       // Failed check disables activation; read failures show a retryable error.
       const blocked = fixture('pending')
