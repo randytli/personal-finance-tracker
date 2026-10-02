@@ -40,7 +40,7 @@ Status keys: **BLOCKER** = known incompatibility of current code or config; **UN
 | R13 | `build_classifications` ~O(n²) CPU | UNKNOWN | round-trip fix | No |
 | R14 | Aggregate connection budget across warm instances | UNKNOWN | feasibility; compatibility | No |
 | R15 | Honest serverless status model (heartbeat replacement) | UNKNOWN | feasibility "Status"; plan §13 | Task 2 design touches it |
-| R16 | PUBLIC TEMP privilege least-privilege gap on probe roles | Recorded gap | cloud run | Task 3 (role design) |
+| R16 | PUBLIC TEMP privilege least-privilege gap: every role (pft_m5_reader, pft_m5_jobs, pft_backup) can create temporary tables through PUBLIC | **Known issue (owner, 2026-10-02): handle once during Production configuration** (cutover prerequisite C4), not per role now | cloud run; backup role check 2026-10-02 [M] | Auth design §7 |
 | R17 | `api.db` module-level engine should become lazy | M6 note | experiment follow-up | No |
 | R18 | `PLAID_PILOT_USER_ID` leaks into `test_category_overrides` | Test defect | round-trip fix "Open decisions" | Task 5 |
 | R19 | $0 billing proof (Vercel usage, Supabase dashboard, backup store) | UNKNOWN | compatibility usage table | No (owner dashboards) |

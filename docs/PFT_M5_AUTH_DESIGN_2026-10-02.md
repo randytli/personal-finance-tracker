@@ -152,7 +152,7 @@ Verification rules, applied in one shared dependency on every financial route:
 | `service_role` key | — | Not stored in any PFT project | — |
 
 **Extra controls:**
-- `REVOKE TEMP ON DATABASE postgres FROM PUBLIC`, plus explicit TEMP only where needed. This closes the recorded probe-role gap R16. Whether the managed `postgres` role can revoke it from PUBLIC is 未核实.
+- **Known issue, deferred by owner decision (2026-10-02) to Production configuration:** `REVOKE TEMP ON DATABASE postgres FROM PUBLIC`, plus explicit TEMP only where needed. This closes the recorded probe-role gap R16. Whether the managed `postgres` role can revoke it from PUBLIC is 未核实.
 - Each role has its own password and connection limit, sized from the measured budget (feasibility: jobs peak 3 + observer).
 - The existing DB-name, schema and identity sentinel checks still run for every writer (plan §15.1).
 
@@ -176,6 +176,8 @@ Verification rules, applied in one shared dependency on every financial route:
 **Net [E]:** the cloud design is **safer against misuse by anyone who reaches the app**, because there is real authentication, MFA and least-privilege roles. It is **riskier in exposure**: public reachability, more secret holders, and every app-layer auth bug becomes internet-facing. The plan's rule stands: no public release until the direct-API negative tests and reader-capability tests pass (plan §13.3).
 
 ## 9. Decisions and approvals
+
+**Status 2026-10-02: P3-1…P3-4 are pending the owner's review** (not approved). Options, recommendation, rationale and the cost of a wrong choice for each are in the [handoff decision list](M5_OVERNIGHT_HANDOFF_2026-10-02.md#决策清单p3-与-p4待-owner-审阅).
 
 - **P3-1** Session model: SDK cookies + server proxy (recommended) or full BFF.
 - **P3-2** Python JWT library: PyJWT (recommended), pinned in M6.

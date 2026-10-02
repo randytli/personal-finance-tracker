@@ -1,5 +1,7 @@
 # M5 scheduled trigger (Cron) — design and endpoint authentication (2026-10-02)
 
+**Owner decisions confirmed 2026-10-02:** P2-1 five-minute tick to start; P2-2 accept possible Free-project pausing (no keep-alive traffic); P2-3 option (a): unprotected Vercel production target guarded by the HMAC trigger, after confirming that target exposes no other route.
+
 **Status: design plus local code and tests. This does not close inventory item R4.** Nothing was scheduled, enabled or deployed. Supabase, Vercel and Production were not contacted. All limits below were looked up on 2026-10-02 unless marked otherwise.
 
 Legend: **[M]** measured locally tonight; **[D]** official documentation quote; **[E]** estimate or inference; **未核实** not verified.

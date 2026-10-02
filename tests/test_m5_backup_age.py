@@ -11,6 +11,7 @@ import hashlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -125,8 +126,14 @@ class RunnerBundleTests(unittest.TestCase):
         text = (runner.HERE / "pft-backup.yml").read_text()
         self.assertIn("AGE_VERSION: v1.3.2", text)
         self.assertIn("sha256sum -c -", text)
-        self.assertRegex(text, r"actions/checkout@[0-9a-f]{40}")
-        self.assertRegex(text, r"postgres:17\.11-alpine@sha256:[0-9a-f]{64}")
+        uses = re.findall(r"^\s*-?\s*uses:\s*(\S+)", text, re.MULTILINE)
+        self.assertTrue(uses)
+        for ref in uses:  # backup design §5.6: full commit SHA only, never a tag or branch
+            self.assertRegex(ref, r"^[\w.-]+/[\w.-]+(/[\w./-]+)?@[0-9a-f]{40}$", ref)
+        images = re.findall(r"\b(postgres:[^\s\"']+)", text)
+        self.assertTrue(images)
+        for image in images:
+            self.assertRegex(image, r"@sha256:[0-9a-f]{64}$", image)
         self.assertIn("contents: write", text)
         self.assertNotIn("secrets.", text.replace("secrets.PFT_BACKUP_PGPASSWORD", ""))
         self.assertFalse((Path(__file__).resolve().parents[1] / ".github" / "workflows" / "pft-backup.yml").exists())
