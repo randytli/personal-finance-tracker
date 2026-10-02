@@ -25,7 +25,8 @@ function fixture(status) {
 }
 const item = data => ({
   item_id: 'ally-item', institution_name: 'Ally Bank', status: data.status,
-  sync_enabled: data.status !== 'deactivated', published: data.status !== 'pending',
+  // Mirrors the generated columns: sync_enabled = active; published = active or deactivated.
+  sync_enabled: data.status === 'active', published: data.status === 'active' || data.status === 'deactivated',
   activated_at: null, deactivated_at: null, has_cursor: true, sync_paused: false, last_sync_success_at: null,
   metadata_warning: null, raw_transaction_count: 42, normalized_transaction_count: 42,
   accounts: [
@@ -69,6 +70,8 @@ async function routes(page, data) {
     if (p === '/activation-preview') { await new Promise(resolve => setTimeout(resolve, 300)); return reply(preview) }
     if (p === '/reactivation-preview') return reply({ ...preview, digest: 'r'.repeat(64), summary_by_month: [], new_transactions: [], changed_existing_transactions: [] })
     if (p === '/reactivate') { data.status = 'active'; return reply({ status: 'active' }) }
+    if (p === '/reject') { data.status = 'disabled'; return reply({ status: 'disabled' }) }
+    if (p === '/retry-onboarding') { data.status = 'pending'; return reply({ status: 'pending' }) }
     if (p === '/deactivation-preview') return reply({ ...preview, digest: 'd'.repeat(64), summary_by_month: [], new_transactions: [], changed_existing_transactions: [] })
     if (p === '/activate') { data.status = 'active'; return reply({ status: 'active' }) }
     if (p === '/deactivate') { data.status = 'deactivated'; return reply({ status: 'deactivated' }) }
@@ -166,6 +169,33 @@ const results = []
       await second.getByText('The transaction preview could not be loaded.').waitFor()
       await noHorizontalScroll(second, `${name} blocked`)
       await second.screenshot({ path: path.join(out, `${name}-blocked-error.png`), fullPage: true })
+      // Cancel and retry onboarding each need a second confirmation and write exactly once.
+      const onboarding = fixture('pending')
+      const third = await context.newPage()
+      await routes(third, onboarding)
+      await third.goto(`${base}/plaid/items/ally-item`)
+      const cancel = third.getByRole('button', { name: 'Cancel onboarding' })
+      await insideViewport(third, cancel, `${name} cancel onboarding`)
+      await cancel.click()
+      let sheet = third.getByRole('dialog')
+      await sheet.getByText(/stays unpublished: it is not in scheduled sync and not in analytics/).waitFor()
+      await noHorizontalScroll(third, `${name} cancel dialog`)
+      await third.screenshot({ path: path.join(out, `${name}-cancel-onboarding-dialog.png`) })
+      assert.deepEqual(onboarding.writes, [])
+      await sheet.getByRole('button', { name: 'Confirm cancel onboarding' }).click()
+      await third.getByText(/Onboarding cancelled/).waitFor()
+      const retry = third.getByRole('button', { name: 'Retry onboarding' })
+      await insideViewport(third, retry, `${name} retry onboarding`)
+      assert.equal(await third.getByRole('button', { name: 'Activate', exact: true }).count(), 0)
+      await third.screenshot({ path: path.join(out, `${name}-rejected.png`), fullPage: true })
+      await retry.click()
+      sheet = third.getByRole('dialog')
+      await sheet.getByText('It does not import transactions, normalize, publish or activate anything.').waitFor()
+      await third.screenshot({ path: path.join(out, `${name}-retry-onboarding-dialog.png`) })
+      await sheet.getByRole('button', { name: 'Confirm retry onboarding' }).click()
+      await third.getByText(/Onboarding retried/).waitFor()
+      await third.getByRole('button', { name: 'Activate', exact: true }).waitFor()
+      assert.deepEqual(onboarding.writes, ['/reject', '/retry-onboarding'])
       results.push({ viewport: `${name} ${width}x${height}`, ok: true })
       await context.close()
     }

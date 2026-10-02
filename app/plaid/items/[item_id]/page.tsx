@@ -6,8 +6,8 @@ import { CircleAlert, CircleCheck, CircleDashed } from 'lucide-react'
 import AccountBadge from '@/components/account-badge'
 import InstitutionBadge from '@/components/institution-badge'
 import {
-  ActivationChecks, LifecycleDialog, STATUS_LABELS, STATUS_VARIANTS, availableTransition, checksAllowActivation, money,
-  type ActivationCheck, type LifecycleKind, type LifecycleStatus,
+  ActivationChecks, LifecycleDialog, OnboardingDialog, STATUS_LABELS, STATUS_VARIANTS, availableTransition,
+  checksAllowActivation, money, type ActivationCheck, type LifecycleKind, type LifecycleStatus, type OnboardingKind,
 } from '@/components/institution-lifecycle'
 import {
   Amount, DayGroup, LoadingState, PageHeader, PageNavigation, Pagination, SectionCard, SectionHeader,
@@ -66,6 +66,7 @@ export default function InstitutionItemPage() {
   const [error, setError] = useState('')
   const [reload, setReload] = useState(0)
   const [dialog, setDialog] = useState<LifecycleKind | null>(null)
+  const [onboarding, setOnboarding] = useState<OnboardingKind | null>(null)
   const [notice, setNotice] = useState('')
 
   useEffect(() => {
@@ -101,7 +102,16 @@ export default function InstitutionItemPage() {
     setReload(value => value + 1)
   }, [])
 
+  const onboardingDone = useCallback((kind: OnboardingKind) => {
+    setNotice(kind === 'reject' ? 'Onboarding cancelled. The institution is rejected and its staged data stays unpublished.'
+      : 'Onboarding retried. The institution is pending again; nothing was imported, normalized or published.')
+    setChecks(null)
+    setReload(value => value + 1)
+  }, [])
+
   const transition = item ? availableTransition(item.status) : null
+  const onboardingAction: OnboardingKind | null = item?.status === 'pending' ? 'reject'
+    : item?.status === 'disabled' ? 'retry-onboarding' : null
   const activationBlocked = (transition === 'activate' || transition === 'reactivate') && !checksAllowActivation(checks)
   const enabledAccounts = item?.accounts.filter(account => account.consumer_transactions_enabled).length ?? 0
 
@@ -116,10 +126,16 @@ export default function InstitutionItemPage() {
           <Badge variant={STATUS_VARIANTS[item.status]}>{STATUS_LABELS[item.status]}</Badge>
           <Badge variant="muted">{item.sync_enabled ? 'Sync on' : 'Sync off'}</Badge>
         </div>}
-        actions={transition && <Button variant={transition === 'deactivate' ? 'outline' : 'default'}
-          disabled={activationBlocked} onClick={() => { setNotice(''); setDialog(transition) }}>
-          {transition === 'deactivate' ? 'Deactivate' : transition === 'reactivate' ? 'Reactivate' : 'Activate'}
-        </Button>} />
+        actions={(transition || onboardingAction) && <>
+          {onboardingAction && <Button variant={onboardingAction === 'reject' ? 'ghost' : 'default'}
+            onClick={() => { setNotice(''); setOnboarding(onboardingAction) }}>
+            {onboardingAction === 'reject' ? 'Cancel onboarding' : 'Retry onboarding'}
+          </Button>}
+          {transition && <Button variant={transition === 'deactivate' ? 'outline' : 'default'}
+            disabled={activationBlocked} onClick={() => { setNotice(''); setDialog(transition) }}>
+            {transition === 'deactivate' ? 'Deactivate' : transition === 'reactivate' ? 'Reactivate' : 'Activate'}
+          </Button>}
+        </>} />
 
       {error && <Alert variant="destructive" role="alert" className="mt-4"><CircleAlert aria-hidden="true" />
         <div className="flex flex-wrap items-center gap-3 text-sm">{error}
@@ -130,8 +146,8 @@ export default function InstitutionItemPage() {
         <p className="text-sm">Activation is unavailable until every failed pre-activation check passes.</p></Alert>}
 
       {item?.status === 'disabled' && <Alert variant="warning" className="mt-4"><CircleAlert aria-hidden="true" />
-        <p className="text-sm">Rejected institutions cannot be activated. Return it to pending with the retry-onboarding
-          operation, then repeat onboarding, the checks and a confirmed activation.</p></Alert>}
+        <p className="text-sm">Rejected institutions cannot be activated, and their staged data stays unpublished:
+          not in scheduled sync and not in analytics. Retry onboarding to return it to Pending first.</p></Alert>}
       {!item && !error && <LoadingState label="Loading institution" />}
 
       {item && <div className="mt-6 grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,22rem)]">
@@ -197,6 +213,9 @@ export default function InstitutionItemPage() {
 
       {item && dialog && <LifecycleDialog itemId={item.item_id} institutionName={item.institution_name} kind={dialog}
         open={dialog !== null} onOpenChange={open => { if (!open) setDialog(null) }} onDone={() => done(dialog)} />}
+      {item && onboarding && <OnboardingDialog itemId={item.item_id} institutionName={item.institution_name} kind={onboarding}
+        open={onboarding !== null} onOpenChange={open => { if (!open) setOnboarding(null) }}
+        onDone={() => onboardingDone(onboarding)} />}
     </main>
   </div>
 }

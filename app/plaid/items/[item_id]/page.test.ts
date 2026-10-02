@@ -40,7 +40,8 @@ beforeEach(() => {
     let data: unknown
     if (url.pathname === '/api/pft/plaid/items/ally-item') data = {
       item_id: 'ally-item', institution_name: 'Ally', status,
-      sync_enabled: status !== 'deactivated', published: status !== 'pending',
+      // Mirrors the generated columns: sync_enabled = active; published = active or deactivated.
+      sync_enabled: status === 'active', published: status === 'active' || status === 'deactivated',
       activated_at: null, deactivated_at: null, has_cursor: true, sync_paused: false,
       last_sync_success_at: null, metadata_warning: null, raw_transaction_count: 2, normalized_transaction_count: 2,
       accounts: [{ account_id: 'b-check', name: 'Ally Checking', mask: '0001', type: 'depository', subtype: 'checking',
@@ -57,6 +58,8 @@ beforeEach(() => {
       ...activationPreview, digest: 'r'.repeat(64), summary_by_month: [], new_transactions: [], changed_existing_transactions: [] }
     else if (url.pathname.endsWith('/activate') && method === 'POST') { status = 'active'; data = { status } }
     else if (url.pathname.endsWith('/reactivate') && method === 'POST') { status = 'active'; data = { status } }
+    else if (url.pathname.endsWith('/reject') && method === 'POST') { status = 'disabled'; data = { status } }
+    else if (url.pathname.endsWith('/retry-onboarding') && method === 'POST') { status = 'pending'; data = { status } }
     else if (url.pathname.endsWith('/deactivate') && method === 'POST') { status = 'deactivated'; data = { status } }
     else throw new Error(`Unexpected request: ${method} ${url.pathname}`)
     return { ok: true, json: async () => data } as Response
@@ -137,11 +140,44 @@ test('reactivation uses its own preview and confirmation', async () => {
   ])
 })
 
-test('a rejected institution offers no lifecycle action', async () => {
+const STAGED = 'While Rejected, data already staged for this institution stays unpublished: it is not in scheduled sync and not in analytics.'
+
+test('cancel onboarding rejects only after a second confirmation', async () => {
+  render(createElement(InstitutionItemPage))
+  fireEvent.click(await screen.findByRole('button', { name: 'Cancel onboarding' }))
+  let dialog = await screen.findByRole('dialog')
+  expect(within(dialog).getByText(STAGED)).toBeTruthy()
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Keep current status' }))
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+  expect(writes()).toEqual([])
+
+  fireEvent.click(screen.getByRole('button', { name: 'Cancel onboarding' }))
+  dialog = await screen.findByRole('dialog')
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Confirm cancel onboarding' }))
+  await screen.findByText(/Onboarding cancelled/)
+  expect(writes()).toEqual([{ path: '/api/pft/plaid/items/ally-item/reject', method: 'POST', body: null }])
+  await screen.findByRole('button', { name: 'Retry onboarding' })
+  expect(screen.queryByRole('button', { name: 'Activate' })).toBeNull()
+})
+
+test('a rejected institution offers only retry onboarding, which changes nothing but status', async () => {
   status = 'disabled'
   render(createElement(InstitutionItemPage))
   await screen.findByText(/Rejected institutions cannot be activated/)
-  expect(screen.queryByRole('button', { name: /activate|deactivate/i })).toBeNull()
+  expect(screen.queryByRole('button', { name: /activate|deactivate|cancel onboarding/i })).toBeNull()
   expect(requests.some(request => request.path.endsWith('/activation-checks'))).toBe(false)
   expect(writes()).toEqual([])
+
+  fireEvent.click(screen.getByRole('button', { name: 'Retry onboarding' }))
+  const dialog = await screen.findByRole('dialog')
+  expect(within(dialog).getByText(STAGED)).toBeTruthy()
+  expect(within(dialog).getByText('It does not import transactions, normalize, publish or activate anything.')).toBeTruthy()
+  expect(writes()).toEqual([])
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Confirm retry onboarding' }))
+  await screen.findByText(/Onboarding retried/)
+  // Exactly one write: no import, normalization, preview or activation follows.
+  expect(writes()).toEqual([{ path: '/api/pft/plaid/items/ally-item/retry-onboarding', method: 'POST', body: null }])
+  await screen.findByRole('button', { name: 'Activate' })
+  await screen.findByText('Item can be activated')
+  expect(writes()).toHaveLength(1)
 })

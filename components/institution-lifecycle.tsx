@@ -259,3 +259,74 @@ export function LifecycleDialog({ itemId, institutionName, kind, open, onOpenCha
     </DialogContent>
   </Dialog>
 }
+
+export type OnboardingKind = 'reject' | 'retry-onboarding'
+
+// Both dialogs state the same guarantee about staged data; neither step imports or publishes.
+export const STAGED_DATA_NOTE = 'While Rejected, data already staged for this institution stays unpublished: it is not in scheduled sync and not in analytics.'
+
+const ONBOARDING_COPY: Record<OnboardingKind, { title: string; confirm: string; points: string[] }> = {
+  reject: {
+    title: 'Cancel onboarding',
+    confirm: 'Confirm cancel onboarding',
+    points: [
+      'The institution becomes Rejected and cannot be activated until you retry onboarding.',
+      STAGED_DATA_NOTE,
+      'Nothing is deleted, imported, normalized, published or activated.',
+    ],
+  },
+  'retry-onboarding': {
+    title: 'Retry onboarding',
+    confirm: 'Confirm retry onboarding',
+    points: [
+      'Retry only moves the institution from Rejected back to Pending.',
+      'It does not import transactions, normalize, publish or activate anything.',
+      STAGED_DATA_NOTE,
+      'Activation still needs onboarding preparation, passing checks, an impact preview and your confirmation.',
+    ],
+  },
+}
+
+export function OnboardingDialog({ itemId, institutionName, kind, open, onOpenChange, onDone }: {
+  itemId: string; institutionName: string; kind: OnboardingKind; open: boolean
+  onOpenChange: (open: boolean) => void; onDone: () => void
+}) {
+  const [error, setError] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const copy = ONBOARDING_COPY[kind]
+
+  useEffect(() => { if (open) setError('') }, [open])
+
+  async function confirm() {
+    setSubmitting(true)
+    setError('')
+    try {
+      const response = await fetch(`/api/pft/plaid/items/${encodeURIComponent(itemId)}/${kind}`, { method: 'POST' })
+      if (!response.ok) throw new Error(await errorDetail(response))
+      onOpenChange(false)
+      onDone()
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'The change was not applied.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return <Dialog open={open} onOpenChange={next => { if (!submitting) onOpenChange(next) }}>
+    <DialogContent>
+      <DialogHeader>
+        <DialogTitle>{copy.title}: {institutionName}</DialogTitle>
+        <DialogDescription>Review what this does before confirming.</DialogDescription>
+      </DialogHeader>
+      <ul className="flex list-disc flex-col gap-1.5 pl-5 text-sm">
+        {copy.points.map(point => <li key={point}>{point}</li>)}
+      </ul>
+      {error && <Alert variant="destructive" role="alert"><CircleX aria-hidden="true" /><p className="text-sm">{error}</p></Alert>}
+      <DialogFooter>
+        <Button variant="outline" disabled={submitting} onClick={() => onOpenChange(false)}>Keep current status</Button>
+        <Button variant={kind === 'reject' ? 'destructive' : 'default'} disabled={submitting} onClick={confirm}>
+          {submitting ? 'Applying…' : copy.confirm}</Button>
+      </DialogFooter>
+    </DialogContent>
+  </Dialog>
+}
