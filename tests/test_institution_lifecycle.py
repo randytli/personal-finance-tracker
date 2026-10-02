@@ -14,7 +14,7 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from api import jobs
-from api.migrations import (LifecyclePreflightBlocked, institution_lifecycle_preflight,
+from api.migrations import (LIFECYCLE_COLUMNS, LifecyclePreflightBlocked, institution_lifecycle_preflight,
                             lifecycle_preflight_errors, migrate_institution_lifecycle)
 from api.models import (ONBOARDING_STATUSES, Account, Base, Item, ManualClassificationOverride, LIFECYCLE_STATES,
                         RawTransaction, Transaction)
@@ -162,7 +162,7 @@ class LifecycleDatabaseTests(unittest.IsolatedAsyncioTestCase):
         """Recreate the pre-lifecycle items shape, keeping every row."""
         async with self.engine.begin() as connection:
             await connection.execute(text("DROP INDEX ix_items_user_lifecycle"))
-            for column in ("sync_enabled", "published", "activated_at", "deactivated_at", "activation_digest"):
+            for column in LIFECYCLE_COLUMNS:
                 await connection.execute(text(f"ALTER TABLE items DROP COLUMN {column}"))
             await connection.execute(text("ALTER TABLE items DROP CONSTRAINT ck_items_status"))
             await connection.execute(text("ALTER TABLE items ADD CONSTRAINT ck_items_status "
@@ -641,6 +641,145 @@ class LifecycleDatabaseTests(unittest.IsolatedAsyncioTestCase):
             checks = {check["id"]: check["result"]
                       for check in (await lifecycle.activation_checks(db, USER, "b"))["checks"]}
         self.assertEqual(checks["K6"], "fail")  # onboarding must be repeated before activation
+
+
+    async def stored_ledger_row(self, ident):
+        async with self.sessions() as db:
+            return (await lifecycle.ledger_snapshot(db, USER))["transactions"][ident]
+
+    async def test_activation_preview_matches_actual_row_by_row_for_cross_institution_changes(self):
+        """Scenario 6a: pairing across institutions reclassifies existing rows exactly as previewed."""
+        await self.sync({"a": (CHASE + [plaid_tx("a-xfer-in", "a-check", -200, 10, "ONLINE TRANSFER FROM ALLY",
+                                                 "TRANSFER_IN")], "a-1")})
+        await self.onboard_pending(rows=ALLY + [plaid_tx("b-xfer-out", "b-check", 200, 10, "TRANSFER TO CHASE",
+                                                         "TRANSFER_OUT")])
+        async with self.sessions() as db:
+            before = await lifecycle.ledger_snapshot(db, USER)
+        preview = await self.preview("activate")
+        changed = {row["transaction_id"]: row for row in preview["changed_existing_transactions"]}
+        self.assertEqual(set(changed), {"a-zelle-in", "a-xfer-in"})
+        self.assertEqual((changed["a-zelle-in"]["before"]["transaction_type"],
+                          changed["a-zelle-in"]["after"]["transaction_type"]), ("income", "transfer"))
+        self.assertEqual((changed["a-xfer-in"]["before"]["is_internal_transfer"],
+                          changed["a-xfer-in"]["after"]["is_internal_transfer"]), (None, True))
+        result = await self.apply("activate", preview["digest"])
+        self.assertEqual(result["changed_existing_transactions"], preview["changed_existing_transactions"])
+        self.assertEqual(result["new_transactions"], preview["new_transactions"])
+        self.assertEqual(result["summary_by_month"], preview["summary_by_month"])
+        fields = ("transaction_type", "is_spending", "is_internal_transfer", "category")
+        for row in preview["changed_existing_transactions"]:
+            stored = await self.stored_ledger_row(row["transaction_id"])
+            self.assertEqual({field: before["transactions"][row["transaction_id"]][field] for field in fields},
+                             row["before"], row["transaction_id"])
+            self.assertEqual({field: stored[field] for field in fields}, row["after"], row["transaction_id"])
+        for row in preview["new_transactions"]:
+            self.assertEqual(await self.stored_ledger_row(row["transaction_id"]), row, row["transaction_id"])
+        async with self.sessions() as db:
+            after = await lifecycle.ledger_snapshot(db, USER)
+        # Every transaction absent from the diff is byte-identical before and after.
+        untouched = set(before["transactions"]) - set(changed)
+        self.assertEqual({ident: after["transactions"][ident] for ident in untouched},
+                         {ident: before["transactions"][ident] for ident in untouched})
+
+    async def test_deactivated_transactions_keep_pairing_and_existing_pairs_stay_intact(self):
+        """Scenario 6b: a Deactivated institution still feeds classification."""
+        await self.sync({"a": (CHASE, "a-1")})
+        await self.onboard_pending(rows=ALLY + [plaid_tx("b-xfer-in", "b-check", -120, 12, "TRANSFER FROM CHASE",
+                                                         "TRANSFER_IN")])
+        await self.activate()
+        self.assertEqual(await self.classification("a-zelle-in"), ("transfer", False, True))
+        self.assertEqual(await self.classification("b-zelle-out"), ("transfer", False, True))
+        self.assertEqual(await self.classification("b-xfer-in"), ("transfer", False, None))
+        preview = await self.preview("deactivate")
+        await self.apply("deactivate", preview["digest"])
+        # A later Chase sync reclassifies the whole published ledger, Deactivated rows included.
+        client, _ = await self.sync({"a": ([plaid_tx("a-xfer-out", "a-check", 120, 12, "TRANSFER TO ALLY",
+                                                     "TRANSFER_OUT")], "a-2"), "b": ([], "b-2")})
+        self.assertEqual([item for item, _ in client.requests], ["a"])
+        self.assertEqual(await self.classification("a-xfer-out"), ("transfer", False, True))
+        self.assertEqual(await self.classification("b-xfer-in"), ("transfer", False, True))
+        self.assertEqual(await self.classification("a-zelle-in"), ("transfer", False, True))
+        self.assertEqual(await self.classification("b-zelle-out"), ("transfer", False, True))
+        async with self.sessions() as db:
+            ledger = await lifecycle.ledger_snapshot(db, USER)
+        self.assertIn("b-xfer-in", ledger["transactions"])
+
+    def removal_client(self, failure=None):
+        import plaid as plaid_sdk
+
+        class Removal:
+            def __init__(self):
+                self.removed = []
+
+            def item_remove(self, request):
+                if failure:
+                    raise plaid_sdk.ApiException(status=400, reason=failure)
+                self.removed.append(request.to_dict()["access_token"])
+                return Response({"request_id": "synthetic"})
+
+        return Removal()
+
+    async def deactivate_route(self, disconnect, client=None):
+        from api.routes import plaid
+        preview = await self.preview("deactivate")
+        _, stack = self.plaid_routes(client)
+        with stack:
+            return await plaid.deactivate_item("b", plaid.DeactivationConfirmation(
+                preview_digest=preview["digest"], disconnect=disconnect))
+
+    async def test_deactivation_keeps_the_plaid_connection_by_default(self):
+        await self.seed()
+        await self.activate()
+        result = await self.deactivate_route(disconnect=False)  # any Plaid call would fail the test
+        self.assertEqual(result["status"], "deactivated")
+        item = await self.item("b")
+        self.assertEqual((item.status, item.disconnected_at, item.access_token), ("deactivated", None, "token-b"))
+        async with self.sessions() as db:
+            checks = {c["id"]: c["result"] for c in (await lifecycle.activation_checks(db, USER, "b"))["checks"]}
+        self.assertEqual(checks["K13"], "pass")
+
+    async def test_deactivate_and_disconnect_removes_the_item_and_blocks_reactivation(self):
+        await self.seed()
+        await self.activate()
+        before = await self.fingerprint()
+        client = self.removal_client()
+        result = await self.deactivate_route(disconnect=True, client=client)
+        self.assertEqual(client.removed, ["token-b"])
+        self.assertIsNotNone(result["disconnected_at"])
+        after = await self.fingerprint()
+        self.assertEqual((after["ledger"], after["transactions"], after["classifications"]),
+                         (before["ledger"], before["transactions"], before["classifications"]))
+        async with self.sessions() as db:
+            checks = await lifecycle.activation_checks(db, USER, "b")
+        self.assertFalse(checks["can_activate"])
+        self.assertEqual({c["id"]: c["result"] for c in checks["checks"]}["K13"], "fail")
+        with self.assertRaises(HTTPException) as refused:
+            await self.preview("reactivate")
+        self.assertIn("K13", refused.exception.detail["checks"])
+        plaid, stack = self.plaid_routes()
+        with stack:
+            with self.assertRaises(HTTPException) as again:
+                await plaid.disconnect_item("b")
+            self.assertEqual(again.exception.status_code, 409)
+            for item_id in ("a",):  # Active Items cannot be disconnected
+                with self.assertRaises(HTTPException) as refused:
+                    await plaid.disconnect_item(item_id)
+                self.assertEqual(refused.exception.status_code, 409)
+
+    async def test_failed_disconnect_leaves_a_connected_deactivated_item_to_retry(self):
+        await self.seed()
+        await self.activate()
+        with self.assertRaises(HTTPException) as failed:
+            await self.deactivate_route(disconnect=True, client=self.removal_client(failure="INSTITUTION_DOWN"))
+        self.assertEqual(failed.exception.status_code, 502)
+        item = await self.item("b")
+        self.assertEqual((item.status, item.disconnected_at), ("deactivated", None))
+        client = self.removal_client()
+        plaid, stack = self.plaid_routes(client)
+        with stack:
+            result = await plaid.disconnect_item("b")
+        self.assertEqual(client.removed, ["token-b"])
+        self.assertIsNotNone(result["disconnected_at"])
 
 
 if __name__ == "__main__":

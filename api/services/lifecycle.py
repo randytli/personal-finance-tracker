@@ -283,6 +283,9 @@ async def activation_checks_in_session(db, user_id, item):
     running = await db.scalar(select(SyncRuntimeState.running_sequence).where(
         SyncRuntimeState.user_id == user_id, SyncRuntimeState.running_sequence.is_not(None),
         SyncRuntimeState.running_sequence > SyncRuntimeState.handled_sequence))
+    checks.append(_check("K13", "Plaid connection", "fail" if item.disconnected_at else "pass",
+                         "Disconnected from Plaid; reactivation requires reconnecting through Plaid Link"
+                         if item.disconnected_at else "Connected"))
     checks.append(_check("K12", "No sync in progress", "warn" if running else "pass",
                          "A sync is running; activation waits for its lock" if running else "Idle"))
     return checks
@@ -347,3 +350,21 @@ async def repair_account_metadata(db, user_id, item_id, accounts):
     if refreshed != cursor or _financial_ledger(await ledger_snapshot(db, user_id)) != before:
         raise RuntimeError("Account metadata maintenance changed financial state")
     return {"item_id": item_id, "account_count": result["account_count"], "accounts": result["accounts"]}
+
+
+async def disconnect_item(db, user_id, item_id, remove_item):
+    """Remove a Deactivated Item at Plaid, ending its Transactions subscription.
+
+    The derivation lock is held across the Plaid call so no reactivation can run
+    in between. The ledger is untouched: the Item stays Deactivated and published.
+    `remove_item` receives the stored access token and performs /item/remove.
+    """
+    item = await _locked_item(db, user_id, item_id)
+    if item.status != "deactivated":
+        raise HTTPException(409, f"Only Deactivated Items can be disconnected; this Item is {item.status}")
+    if item.disconnected_at is not None:
+        raise HTTPException(409, "This Item is already disconnected from Plaid")
+    await remove_item(item.access_token)
+    disconnected_at = datetime.now(timezone.utc)
+    await db.execute(update(Item).where(Item.item_id == item_id).values(disconnected_at=disconnected_at))
+    return {"item_id": item_id, "status": item.status, "disconnected_at": disconnected_at}

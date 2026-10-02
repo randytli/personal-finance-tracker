@@ -1,3 +1,4 @@
+import asyncio
 from cryptography.fernet import Fernet, InvalidToken
 from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Query
@@ -11,6 +12,7 @@ from plaid.model.country_code import CountryCode
 from plaid.model.accounts_get_request import AccountsGetRequest
 from plaid.model.item_public_token_exchange_request import ItemPublicTokenExchangeRequest
 from plaid.model.item_get_request import ItemGetRequest
+from plaid.model.item_remove_request import ItemRemoveRequest
 from plaid.model.institutions_get_by_id_request import InstitutionsGetByIdRequest
 from plaid.model.link_token_create_request import LinkTokenCreateRequest
 from plaid.model.link_token_create_request_user import LinkTokenCreateRequestUser
@@ -46,6 +48,11 @@ class PublicTokenExchange(BaseModel):
 
 class LifecycleConfirmation(BaseModel):
     preview_digest: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
+
+
+class DeactivationConfirmation(LifecycleConfirmation):
+    # Off by default: deactivation keeps the Plaid connection so reactivation resumes.
+    disconnect: bool = False
 
 
 def is_production():
@@ -265,6 +272,7 @@ def item_metadata(item):
         "published": item.published,
         "activated_at": item.activated_at,
         "deactivated_at": item.deactivated_at,
+        "disconnected_at": item.disconnected_at,
         "created_at": item.created_at,
         "updated_at": item.updated_at,
     }
@@ -385,9 +393,34 @@ async def preview_item_deactivation(item_id: str):
 
 
 @router.post("/items/{item_id}/deactivate")
-async def deactivate_item(item_id: str, data: LifecycleConfirmation):
+async def deactivate_item(item_id: str, data: DeactivationConfirmation):
     async with SessionLocal.begin() as db:
-        return await lifecycle.apply_transition(db, _user_id(), item_id, "deactivate", data.preview_digest)
+        result = await lifecycle.apply_transition(db, _user_id(), item_id, "deactivate", data.preview_digest)
+    if not data.disconnect:
+        return result
+    # Deactivation is committed first; a failed disconnect leaves a connected Deactivated
+    # Item that can be disconnected again, never a removed Item that still syncs.
+    try:
+        disconnected = await disconnect_item(item_id)
+    except HTTPException as exc:
+        raise HTTPException(502, {"message": "Deactivated, but disconnecting from Plaid failed; retry Disconnect",
+                                  "status": "deactivated", "cause": exc.detail}) from exc
+    return {**result, "disconnected_at": disconnected["disconnected_at"]}
+
+
+@router.post("/items/{item_id}/disconnect")
+async def disconnect_item(item_id: str):
+    """Remove a Deactivated Item at Plaid (/item/remove). Reactivation then needs a reconnect."""
+    async def remove(stored_token):
+        client = get_client()
+        try:
+            await asyncio.to_thread(client.item_remove,
+                                    ItemRemoveRequest(access_token=decrypt_access_token(stored_token)))
+        except plaid.ApiException as exc:
+            raise _plaid_failure() from exc
+
+    async with SessionLocal.begin() as db:
+        return await lifecycle.disconnect_item(db, _user_id(), item_id, remove)
 
 
 @router.get("/items/{item_id}/classification-preview")

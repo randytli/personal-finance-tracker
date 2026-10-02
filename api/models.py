@@ -65,6 +65,8 @@ class Item(Base):
     activated_at = Column(DateTime(timezone=True))
     deactivated_at = Column(DateTime(timezone=True))
     activation_digest = Column(String)
+    # Set once the Plaid Item was removed (/item/remove); reactivation then needs a reconnect.
+    disconnected_at = Column(DateTime(timezone=True))
     access_token = Column(String, nullable=False)
     transactions_cursor = Column(String, nullable=True)
     sync_paused = Column(Boolean, nullable=False, default=False, server_default="false")

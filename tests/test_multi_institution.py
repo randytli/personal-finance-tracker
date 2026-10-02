@@ -55,7 +55,7 @@ class MultiInstitutionTests(unittest.TestCase):
         metadata = item_metadata(SimpleNamespace(
             item_id="item", institution_id="ins_56", institution_name="Chase",
             status="active", sync_enabled=True, published=True, activated_at=None,
-            deactivated_at=None, created_at=None, updated_at=None, access_token="secret", transactions_cursor="cursor",
+            deactivated_at=None, disconnected_at=None, created_at=None, updated_at=None, access_token="secret", transactions_cursor="cursor",
         ))
         self.assertNotIn("access_token", metadata)
         self.assertNotIn("transactions_cursor", metadata)

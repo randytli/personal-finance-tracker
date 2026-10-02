@@ -223,7 +223,8 @@ async def migrate_multi_institution(connection):
 
 
 
-LIFECYCLE_COLUMNS = ("sync_enabled", "published", "activated_at", "deactivated_at", "activation_digest")
+LIFECYCLE_COLUMNS = ("sync_enabled", "published", "activated_at", "deactivated_at", "activation_digest",
+                     "disconnected_at")
 LIFECYCLE_STATUSES = ("pending", "active", "deactivated", "disabled")
 
 
@@ -306,7 +307,7 @@ async def migrate_institution_lifecycle(connection):
         await connection.execute(text(
             f"ALTER TABLE items ADD COLUMN IF NOT EXISTS {name} BOOLEAN NOT NULL "
             f"GENERATED ALWAYS AS ({expression}) STORED"))
-    for name in ("activated_at", "deactivated_at"):
+    for name in ("activated_at", "deactivated_at", "disconnected_at"):
         await connection.execute(text(f"ALTER TABLE items ADD COLUMN IF NOT EXISTS {name} TIMESTAMPTZ"))
     await connection.execute(text("ALTER TABLE items ADD COLUMN IF NOT EXISTS activation_digest VARCHAR"))
     await connection.execute(text(
