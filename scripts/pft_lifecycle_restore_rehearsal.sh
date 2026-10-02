@@ -111,14 +111,28 @@ try:
         raise ValueError('manifest created_at must be a UTC isoformat timestamp')
     if metadata['kind'] not in ('daily', 'weekly', 'monthly', 'extra'):
         raise ValueError('manifest kind is malformed')
-    # The producer also accepts release labels; those cannot identify the old
-    # source for this rehearsal. Require an exact, locally available commit.
-    if not re.fullmatch(r'[0-9a-f]{40}', metadata['application_commit']):
-        raise ValueError('manifest application_commit must be a full Git commit hash')
+    # One exact overlay label has a recorded 34/34 source comparison in the
+    # sync-diff-writes release packet. Never infer a revision from arbitrary labels.
+    revision = metadata['application_commit']
+    verified_label = 'sdw-p2-b646fb9-derivation-over-1d17e2b59fa4be74af41f60125f41084698049424e0b4d77376db1fe41cc74c7'
+    if revision == verified_label:
+        revision = '6ac9612f97479ed96eb69be55864437652f33a00'
+        base = 'a047b0f4b32c2db23203fbab9b25cd5fe7678400'
+        overlay = 'b646fb9e9d52e795f177cf9c4d2f202f5d71f99a'
+        changed = subprocess.run(['git', '-C', sys.argv[4], 'diff', '--name-only', base, revision,
+                                  '--', 'api', 'statement_imports'], capture_output=True, text=True, check=True)
+        blobs = [subprocess.run(['git', '-C', sys.argv[4], 'rev-parse', '--verify',
+                                 commit + ':api/services/derivation.py'],
+                                capture_output=True, text=True, check=True).stdout.strip()
+                 for commit in (overlay, revision)]
+        if changed.stdout.splitlines() != ['api/services/derivation.py'] or blobs[0] != blobs[1]:
+            raise ValueError('recorded overlay provenance differs from local Git history')
+    if not re.fullmatch(r'[0-9a-f]{40}', revision):
+        raise ValueError('manifest application_commit must be a full Git commit hash or the exact verified release label')
     commit = subprocess.run(['git', '-C', sys.argv[4], 'rev-parse', '--verify',
-                             metadata['application_commit'] + '^{commit}'],
+                             revision + '^{commit}'],
                             capture_output=True, text=True)
-    if commit.returncode != 0 or commit.stdout.strip() != metadata['application_commit']:
+    if commit.returncode != 0 or commit.stdout.strip() != revision:
         raise ValueError('manifest application_commit must identify an existing commit in this repo')
     if (metadata['format'] != 'pg_dump-custom'
             or any(not re.fullmatch(r'[0-9a-f]{64}', metadata[key]) for key in ('sha256', 'schema_sha256'))):
@@ -137,7 +151,7 @@ try:
         raise ValueError('backup size mismatch')
     listing = subprocess.run([sys.argv[3], '-l', str(archive)], capture_output=True, check=True, text=True)
     report = {key: metadata[key] for key in fields}
-    report.update(size=metadata.get('size'), actual_size=actual_size, actual_sha256=actual_sha256,
+    report.update(resolved_application_commit=revision, size=metadata.get('size'), actual_size=actual_size, actual_sha256=actual_sha256,
                   table_data_count=sum(' TABLE DATA ' in line for line in listing.stdout.splitlines()))
     print(json.dumps(report, indent=1))
 except (OSError, ValueError, subprocess.SubprocessError) as error:

@@ -23,7 +23,7 @@ export PFT_REHEARSAL_DIR=$HOME/.local/share/pft/rehearsals/lifecycle-20261002
 export PFT_BACKUP_SOURCE_DIR=/mnt/c/Users/tianr/PFTBackups/Production
 # 在 R1 之后由你选定：
 export PFT_REHEARSAL_BACKUP=$PFT_BACKUP_SOURCE_DIR/<chosen>.dump
-export PFT_REHEARSAL_OLD_COMMIT=<R2 输出的 application_commit>
+export PFT_REHEARSAL_OLD_COMMIT=<R2 输出的 resolved_application_commit>
 ```
 
 开始前：`scripts/pft_lifecycle_restore_rehearsal.sh S0`（**[STATE]**，只创建配置的本地私有目录并验证路径、当前用户所有权和 0700 权限；路径必须为绝对、规范、非根且无符号链接的路径，直接父目录必须已存在且为目录，不能创建或修改父目录）。
@@ -34,7 +34,7 @@ export PFT_REHEARSAL_OLD_COMMIT=<R2 输出的 application_commit>
 |---|---|---|---|---|
 | S0 | **STATE** | 在已存在的直接父目录下只创建最终彩排目录（0700），验证路径和所有权；输出安全路径/状态 | 只写最终本地目录 | 父目录不存在或不是目录，路径、所有权或权限不符合要求 → 停 |
 | R1 | READ | 按文件系统修改时间从新到旧列出最多 12 个 manifest（`filename`、`size`、UTC `modified_at`）；不读取内容、不自动选择 | 读备份目录元数据 | 候选不是普通文件或是符号链接 → 停 |
-| R2 | READ | 校验 owner 选定的 `.dump` 和同目录同名 `.json`；输出 manifest 字段（时间、kind、size、sha256、schema_sha256、application_commit、format），`actual_size`、`actual_sha256`、`table_data_count` | 只读所选 manifest 和 dump，执行 `pg_restore -l` | sha256 或已记录的 size 不一致、字段/文件缺失、映射不明确、manifest 格式错误或 archive 不可读 → 非零退出并停 |
+| R2 | READ | 校验 owner 选定的 `.dump` 和同目录同名 `.json`；输出 manifest 字段（时间、kind、size、sha256、schema_sha256、application_commit、format），`resolved_application_commit`、`actual_size`、`actual_sha256`、`table_data_count` | 只读所选 manifest 和 dump，执行 `pg_restore -l` | sha256 或已记录的 size 不一致、字段/文件缺失、映射不明确、manifest 格式错误或 archive 不可读 → 非零退出并停 |
 | S1 | **STATE** | `initdb` 一次性集群（peer 认证、拒绝 host 连接） | 写 `$PFT_REHEARSAL_DIR/data` | 目录已存在 → 拒绝 |
 | S2 | **STATE** | 启动集群（不开 TCP） | 本地进程 | — |
 | R3 | READ | 确认 `listen_addresses=''`，以及 data_directory 和版本 | 读副本 | 不是该目录 → 停 |
@@ -55,7 +55,7 @@ export PFT_REHEARSAL_OLD_COMMIT=<R2 输出的 application_commit>
 
 ## 预期与判定
 
-- **R1/R2 备份合同**：由 owner 选择规范绝对路径 `$PFT_BACKUP_SOURCE_DIR/<stem>.dump`（不接受 `..` 或符号链接路径），manifest 必须为同目录的 `<stem>.json`；二者必须是普通文件且不能是符号链接，不使用 manifest 字段指定备用文件路径。R2 必需字段为 `created_at`、`kind`、`sha256`、`schema_sha256`、`application_commit`、`format`：`created_at` 必须为备份工具输出的 UTC `datetime.isoformat()` 格式（`+00:00`，可含六位微秒）；`kind` 必须为 daily/weekly/monthly/extra；两种 SHA256 必须为 64 位小写十六进制；`application_commit` 必须为运行指南中 `git rev-parse HEAD` 输出的完整 40 位小写 Git hash，且必须经 `git rev-parse --verify <SHA>^{commit}` 解析为本 repo 中的同一 commit；`format` 必须为 `pg_dump-custom`。拒绝重复字段。`size` 如有记录必须为非负整数且与实际字节数一致；未记录时输出 `size: null`，仍验证 SHA256。R2 仅在所有校验及 archive inspection 成功后输出结果；不输出 archive listing 或错误中的原始内容。
+- **R1/R2 备份合同**：由 owner 选择规范绝对路径 `$PFT_BACKUP_SOURCE_DIR/<stem>.dump`（不接受 `..` 或符号链接路径），manifest 必须为同目录的 `<stem>.json`；二者必须是普通文件且不能是符号链接，不使用 manifest 字段指定备用文件路径。R2 必需字段为 `created_at`、`kind`、`sha256`、`schema_sha256`、`application_commit`、`format`：`created_at` 必须为备份工具输出的 UTC `datetime.isoformat()` 格式（`+00:00`，可含六位微秒）；`kind` 必须为 daily/weekly/monthly/extra；两种 SHA256 必须为 64 位小写十六进制；`application_commit` 必须为运行指南中 `git rev-parse HEAD` 输出的完整 40 位小写 Git hash（或下述唯一已验证 release label 映射），解析后的 revision 必须经 `git rev-parse --verify <SHA>^{commit}` 解析为本 repo 中的同一 commit；`format` 必须为 `pg_dump-custom`。拒绝重复字段。`size` 如有记录必须为非负整数且与实际字节数一致；未记录时输出 `size: null`，仍验证 SHA256。R2 仅在所有校验及 archive inspection 成功后输出结果；不输出 archive listing 或错误中的原始内容。
 - **D15 通过**：R7 输出 `all_identical: true`，也就是迁移前后、重新分类前后，表、Item、分类和 analytics 的哈希全部一致。
 - **D12**：S8 输出各项耗时（单位秒），以及每个操作的 `preview_equals_apply`。`*_apply_seconds` 约等于派生锁被持有的时间，这段时间里同步和 review 写入都要等待。是否可以接受由你判定。
 - **R5 或 S6 被拦**：说明当前 Production 有非 active 的 Item，D1 闸门会阻止真实迁移。要先决定如何处理这些 Item，然后才能进入发布窗口。S6b 只用于在副本上继续完成彩排。
@@ -99,3 +99,10 @@ export PFT_REHEARSAL_OLD_COMMIT=<R2 输出的 application_commit>
 - **S9**：停止临时集群并删除 data、socket、旧源码和日志。核验只剩 `results/` 的四个有效 JSON 文件，均为 0600：`before.json`、`before_reclassified.json`、`preflight.json`、`migrate.json`。S6 没有输出 JSON，因此空的 `migrate.json` 被替换为安全的失败阶段/错误/status counts 摘要，不含任何金融行或 ID。收尾 R2 再次通过，源备份 SHA256 和 size 保持不变。
 - **真正阻塞项**：最近的备份缺少可直接解析的 old-code commit provenance；可定位 commit 的旧备份又早于已审阅的 Dining 迁移。本 packet 没有授权绕过或重定义四指纹比较来消化这项前置金融数据迁移。需要一份可证明代码 provenance 且已满足 Dining 前置条件的备份，或独立审阅的副本前置迁移及 baseline 比较方案。
 - 全程未连接 Production、未修改源备份、未调用 Plaid、未改 cloud、未 push/merge/deploy。
+
+### 最新 post-Dining 备份的已验证 provenance（后续调查）
+
+- 后续调查找到可验证的精确 label：`sdw-p2-b646fb9-derivation-over-1d17e2b59fa4be74af41f60125f41084698049424e0b4d77376db1fe41cc74c7`。它不是任意文本或猜测截取的短 SHA。
+- `docs/PFT_SYNC_DIFF_WRITES_PRODUCTION_ACTION_PACKET_2026-10-01.md` 的 Phase 1 执行记录验证 base image `1d17e2b5…` 全部 34 个 Python 文件等于 `a047b0f4b32c2db23203fbab9b25cd5fe7678400`；Phase 2 执行记录验证 derivation overlay 后全部 34 个文件等于 `6ac9612f97479ed96eb69be55864437652f33a00`。本地 Git 再确认 api/statement_imports 的唯一区别为 `api/services/derivation.py`，且该 blob 等于 `b646fb9e9d52e795f177cf9c4d2f202f5d71f99a` 的同一 blob。
+- R2 只允许这个精确 label 映射到 `6ac9612f97479ed96eb69be55864437652f33a00`，运行时重新验证上述 Git source 关系及 commit 存在。其他 label、source 关系变化、缺失 Git object 均失败。输出保留原 `application_commit`，新增 `resolved_application_commit` 供 S4 使用。不修改 manifest。
+- 因此最新候选 `pft-daily-20261002T193523283029Z.dump` 可重新接受完整 R2 校验，再恢复到一次性副本确认 Dining 前置条件。不需要执行 copy-only Dining 数据迁移；旧失败过程已清理。

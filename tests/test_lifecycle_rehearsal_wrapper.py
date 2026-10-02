@@ -175,6 +175,30 @@ class RehearsalWrapperTests(unittest.TestCase):
     def test_r2_rejects_release_label(self):
         self.assert_metadata_refused('application_commit', ('sdw-p1-a047b0f-labels-over-' + 'a' * 64,))
 
+    def test_r2_exact_verified_label_and_source_mismatch(self):
+        self.metadata['application_commit'] = ('sdw-p2-b646fb9-derivation-over-'
+                                              '1d17e2b59fa4be74af41f60125f41084698049424e0b4d77376db1fe41cc74c7')
+        self.write_manifest()
+        # Synthetic Git responses exercise the reviewed mapping without accessing
+        # real backups or depending on production image contents.
+        fake_git = self.pg / 'git'
+        fake_git.write_text('#!' + sys.executable + '\nimport sys\n'
+                            'args=sys.argv[3:]\n'
+                            'if args[0]=="diff": print("api/services/derivation.py")\n'
+                            'elif args[-1].endswith("^{commit}"): print("6ac9612f97479ed96eb69be55864437652f33a00")\n'
+                            'else: print("a"*40)\n')
+        fake_git.chmod(0o700)
+        self.env['PATH'] = str(self.pg) + os.pathsep + os.defpath
+        result = self.run_step('R2')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout)['resolved_application_commit'],
+                         '6ac9612f97479ed96eb69be55864437652f33a00')
+        fake_git.write_text(fake_git.read_text().replace('api/services/derivation.py', 'api/models.py'))
+        self.assertNotEqual(self.run_step('R2').returncode, 0)
+        self.metadata['application_commit'] += '-unknown'
+        self.write_manifest()
+        self.assertNotEqual(self.run_step('R2').returncode, 0)
+
     def test_r2_malformed_kind_or_format(self):
         for field in ('kind', 'format'):
             original = self.metadata[field]
