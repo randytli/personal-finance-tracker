@@ -193,7 +193,11 @@ class RehearsalWrapperTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(json.loads(result.stdout)['resolved_application_commit'],
                          '6ac9612f97479ed96eb69be55864437652f33a00')
-        fake_git.write_text(fake_git.read_text().replace('api/services/derivation.py', 'api/models.py'))
+        original = fake_git.read_text()
+        fake_git.write_text(original.replace('else: print("a"*40)',
+                            'else: print(("b" if args[-1].startswith("b646fb9") else "a")*40)'))
+        self.assertNotEqual(self.run_step('R2').returncode, 0)
+        fake_git.write_text(original.replace('api/services/derivation.py', 'api/models.py'))
         self.assertNotEqual(self.run_step('R2').returncode, 0)
         self.metadata['application_commit'] += '-unknown'
         self.write_manifest()

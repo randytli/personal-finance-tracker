@@ -1,6 +1,6 @@
 # 恢复副本彩排命令清单（D15 + D12）— 2026-10-02
 
-**状态：owner 已授权自主执行。provenance 调查后选定较早的可定位 commit 的备份；R2–R5 通过，S6 被独立的 Dining schema gate 拦住，随后 S9 清理成功。D15/D12 未完成。见下方执行记录。**
+**状态：已用最新 post-Dining 真实备份完成到 S9。D15 四指纹全部相同；D12 停用/重新激活 timing 和 preview/apply parity 通过，备份无 Pending Item，因此未测 Pending 激活。临时集群已清理。见最终执行记录。**
 
 目的：把最近一份 Production 备份恢复到一次性的临时集群，在副本上依次执行旧代码指纹、严格 preflight、迁移、新代码指纹，并测量预览和激活的耗时。全程**不连接 Production**（不连它的数据库，不执行 docker 命令），不调用 Plaid，用完删除集群。
 
@@ -106,3 +106,15 @@ export PFT_REHEARSAL_OLD_COMMIT=<R2 输出的 resolved_application_commit>
 - `docs/PFT_SYNC_DIFF_WRITES_PRODUCTION_ACTION_PACKET_2026-10-01.md` 的 Phase 1 执行记录验证 base image `1d17e2b5…` 全部 34 个 Python 文件等于 `a047b0f4b32c2db23203fbab9b25cd5fe7678400`；Phase 2 执行记录验证 derivation overlay 后全部 34 个文件等于 `6ac9612f97479ed96eb69be55864437652f33a00`。本地 Git 再确认 api/statement_imports 的唯一区别为 `api/services/derivation.py`，且该 blob 等于 `b646fb9e9d52e795f177cf9c4d2f202f5d71f99a` 的同一 blob。
 - R2 只允许这个精确 label 映射到 `6ac9612f97479ed96eb69be55864437652f33a00`，运行时重新验证上述 Git source 关系及 commit 存在。其他 label、source 关系变化、缺失 Git object 均失败。输出保留原 `application_commit`，新增 `resolved_application_commit` 供 S4 使用。不修改 manifest。
 - 因此最新候选 `pft-daily-20261002T193523283029Z.dump` 可重新接受完整 R2 校验，再恢复到一次性副本确认 Dining 前置条件。不需要执行 copy-only Dining 数据迁移；旧失败过程已清理。
+
+### 最终执行记录：最新 post-Dining 真实备份
+
+- 代码修订 `188bbc9`；新增精确 label 映射和 source 关系 regression coverage。22 个 wrapper 测试通过，shell syntax 和 `git diff --check` 通过。
+- **R2**：最新 backup SHA256 `25059442a9fdd066bbfbb1be44e433bd414508218f31c7427c32a95cf07b87b6`，499147 字节，15 个 TABLE DATA；原 label 经上述记录解析到 `6ac9612f97479ed96eb69be55864437652f33a00`。所有完整性校验通过。
+- **S0–S5**：重用已验证私有目录，创建新 peer-auth/socket-only PostgreSQL 16.15 集群，只恢复一次性副本并导出 resolved commit 的旧代码。副本有 6 个 Active Item、14 个 account、2640 个 transactions/raw、2619 个 analytics rows、26 个月；R4 与 S5 的 preservation fingerprints 全部相同。
+- **R5/S6**：严格 preflight 通过；migration 在副本上成功，0.051s。不需要 S6b，也不需要额外 Dining migration。没有对当前 Production 执行 preflight 或 migration。
+- **R6/S7/R7（D15）**：四份结果的七个 preservation key 全部相同，`all_identical: true`。表、Item、分类和 analytics 无差异。旧/新 reclassification 的 `classified_count` 都是 2578，不将此计数解释成实际改写行数。
+- **S8（D12）**：ledger snapshot 0.134s；分类 0.057s；最大 Active Item 停用 preview 0.224s / apply 0.248s，重新激活 preview 0.382s / apply 0.400s。两项 `preview_equals_apply` 均为 true；账本 impact 的 changed/new/removed/month counts 全为 0。
+- **D12 coverage 限制**：此 backup 全部 Item 都是 Active，S8 没有 Pending 激活目标。没有伪造 Pending 状态、创建金融行或绕过 checks，因此不能声称已测真实备份的 Pending activation timing。合成数据的 Pending activation 结果仍见上方预演；真实数据 activation timing 如为 release 必需，仍需一个有效 Pending 副本场景。
+- **S9**：集群成功停止，data、socket、old_src、log 已删除；只剩 8 个有效 JSON，全部 mode 0600：before、before_reclassified、after、after_reclassified、preflight、migrate、compare、timing。此轮结果替换旧失败轮次同名结果，旧失败摘要保留在本文。
+- 收尾再次执行 R2，source backup SHA256/size 未变。未修改 source backup 或 Production/cloud，未调用 Plaid，未 push/merge/deploy。是否接受约 0.400s 的最大 apply lock timing 仍由 owner 判定。
