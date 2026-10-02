@@ -38,6 +38,9 @@ MAX_RUN_SECONDS = 300
 REQUEST_TIMEOUT = (5, 20)
 RETRY_DELAYS = (timedelta(minutes=15), timedelta(hours=1), timedelta(hours=6))
 RETRYABLE_BLOCKERS = {"stale_item", "stale_scope"}
+CANCEL_FINALIZE_SECONDS = 5
+# A manual request survives one interrupted run and is replayed; the next interruption finishes it.
+MAX_REQUEST_INTERRUPTIONS = 2
 
 
 def utcnow():
@@ -294,12 +297,74 @@ async def _publish_item(db, snapshot, buffer):
     return result, normalized["normalized_count"]
 
 
+async def _durable_result(db, run):
+    item_runs = (await db.execute(select(SyncItemRun).where(SyncItemRun.run_id == run.run_id)
+                                  .order_by(SyncItemRun.item_id))).scalars().all()
+    return {"status": run.status, "run_id": run.run_id, "published": run.published_at is not None,
+            "classification_duration_ms": run.classification_duration_ms,
+            "commit_confirmed_after_error": True,
+            "items": {row.item_id: {"status": row.status, "error_category": row.error_category}
+                      for row in item_runs}}
+
+
+async def _mark_interrupted(db, run, now, category):
+    """Close a run whose owner stopped before deciding it.
+
+    The caller holds the sync lock and the run row lock, so the run cannot be live.
+    """
+    if run.trigger_source in {"jobs", "manual"}:
+        await lock_consumer_derivation(db, run.user_id)
+    item_ids = (await db.execute(select(SyncItemRun.item_id).where(
+        SyncItemRun.run_id == run.run_id, SyncItemRun.status == "running")
+        .order_by(SyncItemRun.item_id))).scalars().all()
+    await db.execute(update(SyncItemRun).where(SyncItemRun.run_id == run.run_id,
+                     SyncItemRun.status == "running")
+                     .values(status="interrupted", phase="rollback", finished_at=now,
+                             error_category=category))
+    if run.trigger_source in {"jobs", "manual"}:
+        # Back off so a run that is always killed cannot be rescheduled every tick.
+        for item_id in item_ids:
+            item = await db.get(Item, item_id, with_for_update=True)
+            await db.execute(update(Item).where(Item.item_id == item_id).values(
+                **_schedule_result(item, _outcome("failed", "rollback", category), now)))
+    run.status = "interrupted"
+    run.error_category = category
+    run.finished_at = now
+    if run.request_sequence is not None:
+        await db.flush()
+        interruptions = await db.scalar(select(func.count()).select_from(SyncRun).where(
+            SyncRun.user_id == run.user_id, SyncRun.request_sequence == run.request_sequence,
+            SyncRun.status == "interrupted"))
+        if interruptions >= MAX_REQUEST_INTERRUPTIONS:
+            await acknowledge_request(db, run.user_id, run.request_sequence)
+
+
+async def _finalize_cancelled(session_factory, run_id, lock_connection, backend_pid, check_owner):
+    """Best effort after cooperative cancellation; hard termination never gets here.
+
+    Anything this cannot finish is reconciled by the next sync lock owner.
+    """
+    async def finish():
+        await _assert_lock_owner(lock_connection, backend_pid)
+        await check_owner()
+        async with session_factory.begin() as db:
+            run = await db.get(SyncRun, run_id, with_for_update=True)
+            if run.status == "running":
+                await _mark_interrupted(db, run, utcnow(), "cancelled")
+
+    try:
+        await asyncio.wait_for(finish(), CANCEL_FINALIZE_SECONDS)
+    except Exception:
+        pass
+
+
 async def _finalize_failure(session_factory, run_id, outcomes, category):
+    """Fail a running run; if it already committed, return its durable result instead."""
     # A lost acknowledgement must never turn a committed run into a failure.
     async with session_factory.begin() as db:
         run = await db.get(SyncRun, run_id, with_for_update=True)
         if run.status != "running":
-            return
+            return await _durable_result(db, run)
         if run.trigger_source in {"jobs", "manual"}:
             await lock_consumer_derivation(db, run.user_id)
         now = utcnow()
@@ -383,17 +448,14 @@ async def sync_all(user_id, *, trigger_source="one_shot", client=None, session_f
         try:
             await check_jobs_owner()
             async with session_factory.begin() as db:
-                # Only a new lock owner can reconcile a pre-commit crash.
+                # Only a new lock owner can reconcile a pre-commit crash. Holding the
+                # lock proves every running row lost its owner; age is never the test.
                 interrupted_at = utcnow()
-                interrupted_ids = select(SyncRun.run_id).where(
+                abandoned = (await db.execute(select(SyncRun).where(
                     SyncRun.user_id == user_id, SyncRun.status == "running")
-                await db.execute(update(SyncItemRun).where(
-                    SyncItemRun.run_id.in_(interrupted_ids), SyncItemRun.status == "running"
-                ).values(status="interrupted", phase="rollback", finished_at=interrupted_at,
-                         error_category="interrupted"))
-                await db.execute(update(SyncRun).where(SyncRun.user_id == user_id,
-                    SyncRun.status == "running").values(status="interrupted", finished_at=interrupted_at,
-                                                          error_category="interrupted"))
+                    .order_by(SyncRun.started_at, SyncRun.run_id).with_for_update())).scalars().all()
+                for run in abandoned:
+                    await _mark_interrupted(db, run, interrupted_at, "interrupted")
                 if request_sequence is not None:
                     state = await locked_state(db, user_id)
                     if state.handled_sequence >= request_sequence or state.running_sequence != request_sequence:
@@ -448,6 +510,10 @@ async def sync_all(user_id, *, trigger_source="one_shot", client=None, session_f
                         outcomes[item_id] = _outcome(problem.status, problem.phase, problem.category,
                                                      request_id=problem.request_id,
                                                      retries=problem.retries, pages=problem.pages)
+            except asyncio.CancelledError:
+                await _finalize_cancelled(session_factory, run_id, lock_connection, backend_pid,
+                                          check_jobs_owner)
+                raise
             except Exception:
                 await _assert_lock_owner(lock_connection, backend_pid)
                 await check_jobs_owner()
@@ -535,15 +601,25 @@ async def sync_all(user_id, *, trigger_source="one_shot", client=None, session_f
                         raise TimeoutError("Sync run deadline exceeded")
                     await _assert_lock_owner(lock_connection, backend_pid)
                     await check_jobs_owner()
-            except Exception:
+            except asyncio.CancelledError:
+                await _finalize_cancelled(session_factory, run_id, lock_connection, backend_pid,
+                                          check_jobs_owner)
+                raise
+            except Exception as exc:
                 try:
                     await _assert_lock_owner(lock_connection, backend_pid)
                     await check_jobs_owner()
                 except Exception:
                     # The next owner reconciles this running row under the sync lock.
                     raise
-                await _finalize_failure(session_factory, run_id, outcomes, "publication_failed")
-                raise
+                committed = await _finalize_failure(
+                    session_factory, run_id, outcomes,
+                    "run_deadline" if isinstance(exc, TimeoutError) else "publication_failed")
+                if committed is None:
+                    raise
+                # Commit outcome was uncertain; we still hold the lock, so only our
+                # publication can have finished this run. Report the durable result.
+                return committed
             return {"status": _run_status(outcomes), "run_id": run_id,
                     "published": bool(accepted),
                     "classification_duration_ms": classification_ms,

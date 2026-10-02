@@ -353,26 +353,28 @@ class SyncAllDatabaseTests(unittest.IsolatedAsyncioTestCase):
             self.assertIsNone(await db.get(RawTransaction, "new-a"))
             self.assertIsNone(await db.get(RawTransaction, "new-b"))
 
-    async def test_crash_before_commit_is_reconciled_and_after_commit_state_is_authoritative(self):
-        async def crash(*args):
+    async def test_cancel_before_commit_is_finalized_and_after_commit_state_is_authoritative(self):
+        # Hard termination, where no handler runs, is covered by test_m5_sync_recovery.
+        async def cancel(*args):
             raise asyncio.CancelledError()
 
-        with patch.object(service, "classify_active_transactions", side_effect=crash):
+        with patch.object(service, "classify_active_transactions", side_effect=cancel):
             with self.assertRaises(asyncio.CancelledError):
                 await self.run_sync(Client({"token-a": [page("end-a", added=[tx("lost", "account-a")])]}),
                                     item_ids=["a"])
-        _, runs, _, marker = await self.state()
-        self.assertEqual(runs[0].status, "running")
+        items, runs, _, marker = await self.state()
+        self.assertEqual((runs[0].status, runs[0].error_category), ("interrupted", "cancelled"))
+        self.assertEqual(items["a"].transactions_cursor, "start-a")
         self.assertIsNone(marker)
+        async with self.sessions() as db:
+            abandoned = await db.get(SyncItemRun, (runs[0].run_id, "a"))
+            self.assertEqual((abandoned.status, abandoned.error_category), ("interrupted", "cancelled"))
+            self.assertIsNotNone(abandoned.finished_at)
+            self.assertIsNone(await db.get(RawTransaction, "lost"))
         success = await self.run_sync(Client({"token-a": [page("end-a", added=[tx("kept", "account-a")])]}),
                                       item_ids=["a"])
         self.assertEqual(success["status"], "success")
-        _, runs, _, marker = await self.state()
-        self.assertEqual(runs[0].status, "interrupted")
-        async with self.sessions() as db:
-            abandoned = await db.get(SyncItemRun, (runs[0].run_id, "a"))
-            self.assertEqual(abandoned.status, "interrupted")
-            self.assertIsNotNone(abandoned.finished_at)
+        _, _, _, marker = await self.state()
         self.assertEqual(marker.last_published_run_id, success["run_id"])
         # Simulate a lost acknowledgement after commit; diagnostics cannot overwrite it.
         await service._finalize_failure(self.sessions, success["run_id"], {}, "ack_lost")
@@ -423,9 +425,12 @@ class SyncAllDatabaseTests(unittest.IsolatedAsyncioTestCase):
             return result
 
         with patch.object(AsyncSessionTransaction, "__aexit__", new=lose_ack):
-            with self.assertRaisesRegex(RuntimeError, "acknowledgement lost"):
-                await self.run_sync(Client({"token-a": [page("committed", added=[tx("kept", "account-a")])]}),
-                                    item_ids=["a"])
+            result = await self.run_sync(Client({"token-a": [page("committed", added=[tx("kept", "account-a")])]}),
+                                         item_ids=["a"])
+        # The error surfaced after commit; the durable row decides the outcome.
+        self.assertEqual((result["status"], result["published"]), ("success", True))
+        self.assertTrue(result["commit_confirmed_after_error"])
+        self.assertEqual(result["items"]["a"]["status"], "success")
         items, runs, item_runs, marker = await self.state()
         self.assertEqual(runs[0].status, "success")
         self.assertEqual(item_runs[0].status, "success")
@@ -482,7 +487,7 @@ class SyncAllDatabaseTests(unittest.IsolatedAsyncioTestCase):
                                     item_ids=["a"])
         items, runs, _, marker = await self.state()
         self.assertEqual(items["a"].transactions_cursor, "start-a")
-        self.assertEqual(runs[0].status, "failed")
+        self.assertEqual((runs[0].status, runs[0].error_category), ("failed", "run_deadline"))
         self.assertIsNone(marker)
         async with self.sessions() as db:
             self.assertIsNone(await db.get(RawTransaction, "late"))

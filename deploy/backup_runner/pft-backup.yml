@@ -11,10 +11,10 @@
 name: pft-backup
 
 on:
-  schedule:
-    # Daily (P1-5). 08:23 UTC is off the top of the hour, when GitHub documents
-    # high load and possible dropped scheduled runs.
-    - cron: "23 8 * * *"
+  # Manual only until the first restore is accepted (owner, 2026-10-02).
+  # Daily schedule (P1-5) to add afterwards, as a separately reviewed change:
+  #   schedule:
+  #     - cron: "23 8 * * *"   # off the top of the hour (GitHub load guidance)
   # Manual point before every migration, cutover or schema change (P1-5).
   workflow_dispatch: {}
 

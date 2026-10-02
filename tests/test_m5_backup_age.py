@@ -135,6 +135,9 @@ class RunnerBundleTests(unittest.TestCase):
         for image in images:
             self.assertRegex(image, r"@sha256:[0-9a-f]{64}$", image)
         self.assertIn("contents: write", text)
+        # Manual-only until the first restore is accepted: no active schedule trigger.
+        self.assertIsNone(re.search(r"^\s*schedule:", text, re.MULTILINE))
+        self.assertRegex(text, r"(?m)^  workflow_dispatch:")
         self.assertNotIn("secrets.", text.replace("secrets.PFT_BACKUP_PGPASSWORD", ""))
         self.assertFalse((Path(__file__).resolve().parents[1] / ".github" / "workflows" / "pft-backup.yml").exists())
 
