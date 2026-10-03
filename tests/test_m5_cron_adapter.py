@@ -79,9 +79,9 @@ class FixtureClientTests(unittest.TestCase):
 
 class SettingsAndPackagingTests(unittest.TestCase):
     def env(self, **overrides):
-        return {"M5_CRON_ENABLED": "synthetic-20261002", "DATABASE_URL": POOLER,
+        return {"M5_CRON_ENABLED": "synthetic-20261002", "M5_CRON_DATABASE_URL": POOLER,
                 "M5_TRIGGER_KEYS": "v1=" + "a" * 64, "M5_TRIGGER_AUDIENCE": AUDIENCE,
-                "M5_DATASET_ID": DATASET, **overrides}
+                "M5_CRON_DATASET_ID": DATASET, **overrides}
 
     def test_settings_pin_the_synthetic_pooler_and_forbid_plaid(self):
         config = cron_app.settings(self.env())
@@ -89,9 +89,9 @@ class SettingsAndPackagingTests(unittest.TestCase):
         self.assertTrue(config.require_backend_ssl)
         self.assertNotIn("a" * 64, repr(config))
         rejected = [{"M5_CRON_ENABLED": ""}, {"PLAID_SECRET": "x"}, {"PLAID_ENV": "production"},
-                    {"DATABASE_URL": POOLER.replace("pft_m5_jobs.", "postgres.")},
-                    {"DATABASE_URL": POOLER.replace("aws-0-us-east-1.pooler.supabase.com", "db.example.com")},
-                    {"DATABASE_URL": POOLER + "?sslmode=disable"}, {"M5_DATASET_ID": "prod"}]
+                    {"M5_CRON_DATABASE_URL": POOLER.replace("pft_m5_jobs.", "postgres.")},
+                    {"M5_CRON_DATABASE_URL": POOLER.replace("aws-0-us-east-1.pooler.supabase.com", "db.example.com")},
+                    {"M5_CRON_DATABASE_URL": POOLER + "?sslmode=disable"}, {"M5_CRON_DATASET_ID": "prod"}]
         for override in rejected:
             with self.assertRaises(RuntimeError, msg=str(override)):
                 cron_app.settings(self.env(**override))

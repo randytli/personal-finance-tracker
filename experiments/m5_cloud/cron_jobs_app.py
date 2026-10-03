@@ -85,7 +85,7 @@ def settings(environ=None):
     if env.get("PLAID_ENV", "").lower() == "production" or any(
             env.get(name) for name in ("PLAID_SECRET", "PLAID_CLIENT_ID", "PLAID_TOKEN_ENCRYPTION_KEY")):
         raise RuntimeError("Plaid configuration forbidden")
-    url = env.get("DATABASE_URL", "")
+    url = env.get("M5_CRON_DATABASE_URL", "")
     parsed = make_url(url)
     if (parsed.drivername != "postgresql+asyncpg" or parsed.database != "postgres" or parsed.query
             or parsed.port != 5432 or not parsed.password or parsed.username != f"pft_m5_jobs.{PROJECT_REF}"
@@ -96,7 +96,7 @@ def settings(environ=None):
         kid, _, secret = entry.partition("=")
         if re.fullmatch(r"[a-z0-9_-]{1,32}", kid) and secret:
             keys[kid] = secret.encode()
-    dataset_id = env.get("M5_DATASET_ID", "")
+    dataset_id = env.get("M5_CRON_DATASET_ID", "")
     if not re.fullmatch(r"m5-[0-9a-f]{32}", dataset_id):
         raise RuntimeError("Synthetic dataset pin required")
     return Settings(url=url, keys=keys, audience=env.get("M5_TRIGGER_AUDIENCE", ""), dataset_id=dataset_id,
