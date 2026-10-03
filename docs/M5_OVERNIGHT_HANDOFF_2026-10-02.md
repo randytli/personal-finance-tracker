@@ -172,7 +172,8 @@ owner 说明“密钥稍后再做，其余批准”。据此执行了以下操�
 - **第一步（R10 恢复）**：`4db0a84`，全量 340 通过 / 9 跳过（本机无 age 二进制）。
 - **pooler 锁实验 + 防护**：`e24f883`（同一 backend 已持有时拒绝重入；jobs 角色 idle 超时 330 s）。
 - **cron 链路**：`6395882`、`97c8ba3`；preview `dpl_S8nSP25gk85ZQ2zPdxiUiGNSXqgj`。
-- **已完成场景**（[M]）：冒烟；鉴权反向 8 例（全部按预期）；S3 多页 catch-up（10,000 行，65.7 s，真实 cron）；S4 重试 + S5 部分失败（真实 cron，partial，15 min 退避）；S8 响应丢失（pg_net 5 s 超时，函数照常完成并发布）；**S6 截止时间**（22:00 EDT 起；failed/run_deadline，209.9 s，未发布，余量 89.4 s）。
+- **已完成场景**（[M]）：冒烟；鉴权反向 8 例（全部按预期）；S3 多页 catch-up（10,000 行，65.7 s，真实 cron）；S4 重试 + S5 部分失败（真实 cron，partial，15 min 退避）；S8 响应丢失（pg_net 5 s 超时，函数照常完成并发布）；**S6 截止时间**（22:00 EDT 起；failed/run_deadline，209.9 s，未发布，余量 89.4 s）；**S5b 退避后重试**（03:26 UTC，3 个 Item 全部成功、退避清零）；**S7 平台硬终止**（约 300 s 被平台结束，锁在结束那一秒释放；05:11 UTC 对账 tick 标为 interrupted、未发布、Item 退避 15 min，无 running 残留）。
+- **时间损耗**：两次 MCP 调用分别在批准上等待约 57 min 和约 95 min，期间每秒采样任务一直在跑（03:27–05:10 UTC），05:10:53 已 unschedule 并确认 `cron.job` 为空。因此并发投递场景时间被压缩。
 - **常驻 cron**：owner 21:59 EDT 指示后立即 `cron.unschedule('pft-m5-tick')` 和 `pft-m5-history-prune`，`cron.job` 已确认为空。真实 cron 共触发 2 次（01:50、01:55 UTC）。之后每个场景由 agent 主动 `pft_ops.dispatch_tick` 触发；场景期间用每秒一次的 `pft-m5-sampler`（只写 `pft_ops.m5_samples`，不投递），场景结束立即 unschedule。
 - **约束变化**：owner 指示今晚不读取私有凭据目录，因此停用本地 `cron_observer` / `cron_evidence` / `cron_controller`（都需读 jobs 密码或秘密），改为 MCP SQL 取证；后台观察器已停止，无残留进程。
 

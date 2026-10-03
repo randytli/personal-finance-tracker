@@ -34,6 +34,21 @@ Consequences (commit `e24f883`): lock acquisition refuses a key already held by 
 
 ## 3. Scenario results
 
+Summary (all [M] unless marked):
+
+| # | Scenario | Trigger | Result | Handler | Evidence |
+| --- | --- | --- | --- | --- | --- |
+| S0 | Smoke | pg_net, 01:42:16 | 200 idle; backend `idle_session_timeout` = 330s; engine checkouts ≤ 3 | 0.57 s | deliveries row, net response 1 |
+| S1 | Authentication negatives (8 requests, direct HTTPS) | local controller | missing / wrong-secret / wrong-audience / stale / tampered body → 401; no bypass → Vercel 401 "Protected deployment"; valid → 200; exact replay → 409 | 0.16–0.91 s client | [auth-negatives.json](evidence/m5-2026-10-02/cloud/auth-negatives.json) |
+| S2 | Duplicate / concurrent delivery | — | see S9 below | | |
+| S3 | Multi-page catch-up, 5 Items × 4 pages × 500 rows | **real cron 01:50** | success, 10,000 rows added and published, 12,625 classified (1.4 s) | 65.7 s | [obs-s3-multipage-catchup.json](evidence/m5-2026-10-02/cloud/obs-s3-multipage-catchup.json) |
+| S4 | Pagination mutation once, then retry | **real cron 01:55** | item 0: restart from original cursor, `retry_count = 1`, 300 rows, success | 8.4 s | [obs-s4s5-retry-partial.json](evidence/m5-2026-10-02/cloud/obs-s4s5-retry-partial.json) |
+| S5 | Partial failure (one Item Plaid error) | same delivery as S4 | run `partial`; item 1 `failed/plaid_error`, `sync_retry_count = 1`, next retry +15 min; items 0 and 2 published | (same) | same |
+| S5b | Retry after backoff | pg_net 03:26:50 | items 1, 3, 4 (all past their retry time) succeed; every backoff cleared (`next_sync_retry_at` NULL, count 0) | 3.1 s | MCP transcript in this document |
+| S8 | Lost response | pg_net with 5 s timeout, 01:55:29 | pg_net `timed_out`; the function was **not** cancelled: finished at +14.2 s, run success, published, cursor advanced | 14.1 s | net response 4 + deliveries row |
+
+Cron cadence (real pg_cron, two ticks before the owner asked for no resident schedule): run start 01:50:00.103 and 01:55:00.117; delivery received 0.43 s and 0.31 s after the scheduled minute (warm instance) [M, n = 2: not a jitter distribution].
+
 ### S6 — application deadline (manual trigger, 02:01:59) [M]
 
 Evidence: [s6-deadline.json](evidence/m5-2026-10-02/cloud/s6-deadline.json). Fixture: items 3 and 4, 5 pages × 25 s each (about 250 s of fetch), deadline 210 s.
@@ -43,5 +58,14 @@ Evidence: [s6-deadline.json](evidence/m5-2026-10-02/cloud/s6-deadline.json). Fix
 - Handler 210.6 s, HTTP 500 to pg_net (the service raises after finalizing). **Reserve 89.4 s against D = 300 s**, above the 60 s target.
 - 1 s sampling: ≤ 3 jobs backends, ≤ 1 idle-in-transaction; both advisory locks free one second after the handler ended.
 - The delivery landed on a new instance (previous one idle ~6.5 min); dispatch-to-receipt 2.78 s including cold start [M], against 0.43 s for a warm instance at 01:50.
+
+### S7 — platform termination (hard kill) [M]
+
+Evidence: [s7-hard-termination.json](evidence/m5-2026-10-02/cloud/s7-hard-termination.json). Item 2 publishes one page; the adapter then blocks the event loop for 400 s inside the publication transaction, so only the platform can end the invocation (D = 300 s).
+
+- **The invocation was ended at ~300 s**: pg_net recorded `Timeout of 300000 ms`; the delivery row kept `finished_at` NULL; no handler, `finally` or finalization ran.
+- **Locks were released when the platform ended it**: both advisory locks were held at 03:32:22.112 and free at 03:32:23.126, ~300.8 s after receipt; 3 → 1 jobs backend at the same second. The 330 s idle-in-transaction timeout (due ~03:32:53) was not needed in this trial. One idle pooled backend stayed until 03:34:21. (n = 1; whether a termination can instead freeze the process is not excluded — the 330 s timeouts remain the bound.)
+- **The next tick reconciled it** (manual dispatch, 05:11:08): run `interrupted / interrupted`, unpublished; item run `interrupted`; cursor unchanged; Item 2 backed off 15 min (`sync_retry_count = 1`); 0 generation-3 rows; no `running` row left. The reconciling delivery itself returned `idle` in 0.63 s because Item 2 was now backed off.
+- Observation [M]: during a run **all three jobs sessions are "idle in transaction"**, including both lock connections: SQLAlchemy autobegins on the owner checks after `acquire_session_lock` commits. The 330 s idle-in-transaction timeout therefore also bounds the lock connections, and each keeps a snapshot open for the run. Candidate M6 change: commit (or use autocommit) after each owner check. Not changed tonight.
 
 <!-- Remaining scenario rows are filled in as each scenario completes. -->
