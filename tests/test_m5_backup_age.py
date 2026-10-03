@@ -465,7 +465,12 @@ class FullChainTests(unittest.IsolatedAsyncioTestCase):
     async def test_age_chain_with_emergency_key_only_matches_snapshot(self):
         before = self.source_fingerprint()
         created = self.backup()
-        self.assertEqual((created["tables"], created["recipients"]), (15, 2))
+        from api.models import Base
+        # Explicit migration also creates the consumer-scope version marker.
+        expected_tables = set(Base.metadata.tables) | {"consumer_scope_migrations"}
+        self.assertEqual((created["tables"], created["recipients"]), (len(expected_tables), 2))
+        self.assertEqual({line.split("|")[1].removeprefix("public.") for line in before.splitlines()
+                          if line.startswith("table|")}, expected_tables)
         stored = sorted((self.dir / "store" / created["point"]).iterdir())
         self.assertEqual([p.name for p in stored], ["backup.dump.age", "fingerprint.txt.age", "manifest.json.age"])
         for path in stored:
@@ -480,6 +485,99 @@ class FullChainTests(unittest.IsolatedAsyncioTestCase):
         after = restore_tool.fingerprint(dict(self.pg_env, PGDATABASE=self.target), ["public"], PG_BIN)
         self.assertEqual(restore_tool.compare(before, after),
                          ["index|public.raw_transactions|ix_raw_account_date", "table|public.accounts"])
+
+    async def test_custom_labels_restore_startup_permissions_and_financial_totals(self):
+        from sqlalchemy import text
+        from sqlalchemy.exc import DBAPIError
+        from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+        from api import db as database, main as runtime
+        from api.routes import analytics, review
+        from scripts.pft_m5_backup_fixture import USER
+        base = database.engine.url
+        source_engine = create_async_engine(base.set(database=self.source))
+        restored = create_async_engine(base.set(database=self.target))
+        reader, writer = "labels_reader_" + uuid.uuid4().hex[:10], "labels_writer_" + uuid.uuid4().hex[:10]
+        async def summaries(engine):
+            with patch.object(analytics, "SessionLocal", async_sessionmaker(engine)), patch.dict(os.environ, {"PLAID_PILOT_USER_ID": USER}):
+                return (await analytics.monthly_spending("2026-08"), await analytics.membership_costs("2026-08", "ytd"))
+        try:
+            before = await summaries(source_engine)
+            point = self.backup()["point"]
+            result = restore_tool.restore(self.download(point), self.target_url, identities=[self.emergency],
+                age=AGE, pg_bin=PG_BIN, work_parent=self.dir)
+            self.assertTrue(result["equal"], result["mismatches"])
+            self.assertEqual(before, await summaries(restored))
+            async with restored.begin() as connection:
+                labels = (await connection.execute(text("SELECT label_id, archived_at IS NOT NULL FROM transaction_label_definitions ORDER BY label_id"))).all()
+                self.assertEqual(labels, [("CHINA", False), ("MEMBERSHIP", False), ("fixture-archived", True), ("fixture-tech", False)])
+                counts = dict((await connection.execute(text("SELECT label, count(*) FROM manual_transaction_label_overrides GROUP BY label"))).all())
+                self.assertEqual(counts, {"MEMBERSHIP": 1, "fixture-tech": 2, "fixture-archived": 2})
+                second = await connection.scalar(text("SELECT transaction_id FROM manual_transaction_label_overrides WHERE label='fixture-archived' AND decision='include'"))
+                other = await connection.scalar(text("SELECT transaction_id FROM transactions WHERE transaction_id NOT IN (SELECT transaction_id FROM manual_transaction_label_overrides) LIMIT 1"))
+                await connection.execute(text(f"CREATE ROLE {reader} LOGIN"))
+                await connection.execute(text(f"CREATE ROLE {writer} LOGIN"))
+                for role in (reader, writer):
+                    await connection.execute(text(f"GRANT USAGE ON SCHEMA public TO {role}"))
+                    await connection.execute(text(f"GRANT SELECT ON ALL TABLES IN SCHEMA public TO {role}"))
+                await connection.execute(text(f"GRANT INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO {writer}"))
+            read_engine = create_async_engine(base.set(database=self.target, username=reader, password=None))
+            write_engine = create_async_engine(base.set(database=self.target, username=writer, password=None))
+            try:
+                with patch.object(database, "engine", read_engine), patch.object(runtime, "engine", read_engine), patch.dict(os.environ,
+                    {"PLAID_ENV": "sandbox", "PLAID_CLIENT_ID": "synthetic", "PLAID_SECRET": "synthetic", "EXPECTED_DATABASE_NAME": self.target}):
+                    async with runtime.lifespan(runtime.app):
+                        self.assertEqual(await runtime.ready(), {"ready": True})
+                async with read_engine.begin() as connection:
+                    self.assertEqual(await connection.scalar(text("SELECT count(*) FROM transaction_label_definitions")), 4)
+                with self.assertRaises(DBAPIError):
+                    async with read_engine.begin() as connection:
+                        await connection.execute(text("UPDATE transaction_label_definitions SET name='forbidden' WHERE label_id='fixture-tech'"))
+                insert = "INSERT INTO manual_transaction_label_overrides (transaction_id,label,decision,created_by,updated_by) VALUES (:id,:label,'include','test','test')"
+                async with write_engine.begin() as connection:
+                    await connection.execute(text("INSERT INTO transaction_label_definitions (label_id,user_id,name,normalized_name,is_system,created_by,updated_by) VALUES ('foreign-test','foreign-user','Foreign','foreign',false,'test','test')"))
+                for label in ("foreign-test", "fixture-archived"):
+                    with self.assertRaises(DBAPIError):
+                        async with write_engine.begin() as connection:
+                            await connection.execute(text(insert), {"id": other, "label": label})
+                async with write_engine.begin() as connection:
+                    await connection.execute(text(insert), {"id": other, "label": "fixture-tech"})
+                with patch.object(review, "SessionLocal", async_sessionmaker(write_engine, expire_on_commit=False)), patch.dict(os.environ, {"PLAID_PILOT_USER_ID": USER}):
+                    cleared = await review.mutate_label(second, "fixture-archived", None)
+                    self.assertNotIn("fixture-archived", cleared["effective_labels"])
+                with self.assertRaises(DBAPIError):
+                    async with write_engine.begin() as connection:
+                        await connection.execute(text("UPDATE manual_transaction_label_overrides SET decision='include',cleared_at=NULL WHERE transaction_id=:id AND label='fixture-archived'"), {"id": second})
+            finally:
+                await read_engine.dispose(); await write_engine.dispose()
+        finally:
+            async with source_engine.begin() as connection:
+                for role in (reader, writer):
+                    exists = await connection.scalar(text("SELECT EXISTS(SELECT 1 FROM pg_roles WHERE rolname=:role)"), {"role": role})
+                    if exists:
+                        # Privileges live in the restored database, not the source.
+                        async with restored.begin() as target_connection:
+                            await target_connection.execute(text(f"DROP OWNED BY {role}"))
+                        await connection.execute(text(f"DROP ROLE {role}"))
+            await source_engine.dispose(); await restored.dispose()
+
+    async def test_fingerprint_detects_function_and_trigger_loss_modification_and_disable(self):
+        before = self.source_fingerprint()
+        cases = [
+            ("ALTER FUNCTION pft_label_association_guard() SET search_path TO pg_catalog", "function|public.pft_label_association_guard|"),
+            ("CREATE OR REPLACE FUNCTION pft_label_association_guard() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RETURN NEW; END $$", "function|public.pft_label_association_guard|"),
+            ("ALTER TABLE manual_transaction_label_overrides DISABLE TRIGGER pft_label_association_guard", "trigger|public.manual_transaction_label_overrides|pft_label_association_guard"),
+            ("DROP TRIGGER pft_label_association_guard ON manual_transaction_label_overrides", "trigger|public.manual_transaction_label_overrides|pft_label_association_guard"),
+            ("DROP TRIGGER pft_label_association_guard ON manual_transaction_label_overrides; CREATE TRIGGER pft_label_association_guard BEFORE UPDATE ON manual_transaction_label_overrides FOR EACH ROW EXECUTE FUNCTION pft_label_association_guard()", "trigger|public.manual_transaction_label_overrides|pft_label_association_guard"),
+            ("DROP FUNCTION pft_label_association_guard() CASCADE", "function|public.pft_label_association_guard|"),
+        ]
+        from api.label_schema import LABEL_SCHEMA_SQL
+        for sql, expected_key in cases:
+            with self.subTest(sql=sql):
+                self.psql(self.source, sql)
+                changed = self.source_fingerprint()
+                self.assertIn(expected_key, restore_tool.compare(before, changed))
+                self.psql(self.source, ";".join(LABEL_SCHEMA_SQL))
+                self.assertEqual(self.source_fingerprint(), before)
 
     async def test_write_committed_during_dump_is_in_neither_dump_nor_fingerprint(self):
         before = self.source_fingerprint()
