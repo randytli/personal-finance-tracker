@@ -113,3 +113,5 @@ existing Item/raw/transaction provenance before associations.
 M5 fingerprint/fixture changes are coordinated separately; completion is not
 claimed by this feature branch. See `restore-results.json` for this feature's own
 independent restore verification.
+
+合并前追加核对见 [跳过测试、M5 集成与部署/回滚说明](CUSTOM_LABELS_MERGE_REVIEW.md)。
