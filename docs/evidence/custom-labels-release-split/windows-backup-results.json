@@ -1,0 +1,18 @@
+{
+  "code_input": "e63c58e22da9526e7ab8eb53b59e80a85062a095",
+  "minimal_feature_commit": "7180352",
+  "backup_implementation": "unchanged Windows runtime api.backup + api.backup_crypto",
+  "environment": "PostgreSQL16 local synthetic 127.0.0.1:55449; not Windows host release",
+  "m5_code_imported": false,
+  "pftenc2_recovery_without_original_dump": true,
+  "tables_preserved": 16,
+  "guard_functions_preserved": 3,
+  "guard_triggers_and_enabled_states_preserved": 4,
+  "custom_active_archived_and_cleared_associations_preserved": true,
+  "schema_payload_and_manifest_cover_new_table_and_guards": true,
+  "monthly_and_membership_totals_unchanged": true,
+  "runtime_schema_passed": true,
+  "restored_cross_user_archive_and_owner_guards_passed": true,
+  "source_unchanged": true,
+  "production_plaid_cloud_operations": false
+}

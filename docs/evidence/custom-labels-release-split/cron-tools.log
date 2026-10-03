@@ -1,0 +1,8 @@
+test_all_cases_without_http (test_m5_cron_tools.CronControllerTests.test_all_cases_without_http) ... ok
+test_export_only_declared_selects_and_closes (test_m5_cron_tools.CronReadToolsTests.test_export_only_declared_selects_and_closes) ... ok
+test_observer_readonly_progress_and_identity (test_m5_cron_tools.CronReadToolsTests.test_observer_readonly_progress_and_identity) ... ok
+
+----------------------------------------------------------------------
+Ran 3 tests in 0.008s
+
+OK
