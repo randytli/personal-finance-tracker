@@ -6,6 +6,10 @@
 
 所有步骤都由 `scripts/pft_lifecycle_restore_rehearsal.sh STEP` 执行，每一步就是下表中的一条命令。脚本内容就是审阅对象。
 
+## 本次重新执行授权
+
+owner 已接受 D12 timing，并授权本次彩排按清单顺序自主执行，无需逐条批准：R1 后按 mtime 从新到旧选择首个 R2 验证成功的 Production 备份，结果 JSON 记录文件名及选择依据。开始前脚本和本文必须已提交，每一步前确认 tracked/untracked 工作树及 staged diff 均为空；执行期间冻结脚本。如需修订脚本，停止并记为待决事项。R5 被拦或 R7 `all_identical` 不为 true 时立即停止后续步骤；无论成功失败均执行 S9，仅保留结果 JSON。此授权不允许绕过任何 safety gate，也不涉及 Production release。
+
 ## 隔离措施
 
 - **临时集群**：PostgreSQL 16，`listen_addresses=''`，**不开 TCP**，只用私有 Unix socket 目录（mode 0700）。认证方式为 `peer`，拒绝所有 host 连接。端口号 55441 只用于 socket 文件名。
