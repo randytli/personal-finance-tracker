@@ -1,0 +1,15 @@
+{
+  "kind": "m5_auth_jwks",
+  "jwks_url": "https://acyghoemtdrilsdszolq.supabase.co/auth/v1/.well-known/jwks.json",
+  "keys": [
+    {
+      "kid": "bf9d20d1-e042-412f-8fa4-459d837d972e",
+      "kty": "EC",
+      "crv": "P-256",
+      "alg": "ES256",
+      "use": "sig"
+    }
+  ],
+  "all_es256_p256": true,
+  "symmetric_keys_published": false
+}
