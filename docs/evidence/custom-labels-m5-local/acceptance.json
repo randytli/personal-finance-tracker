@@ -96,5 +96,13 @@
     "scripts/pft_m5_backup_fixture.py": "b9148316a2f0abd5919950d36a5e453190d98616b9c958fddf4c7711e82d2c7b",
     "tests/test_m5_backup_age.py": "dd5746e256a209a1f8c2a907a148aee3059c8975abf88dd607acae14dfb0261a",
     "tests/test_m5_cron_adapter.py": "8958b72ead891c8cbcf3279b89d89b4944964cdceaff1297d50366634a0bdaa8"
+  },
+  "m5_concurrent_advancement": {
+    "observed_after_validation": "e72fc64",
+    "input_remains": "97c8ba33fb9e790dabcd16226879907e249069cb",
+    "new_files_scope": "Auth prototype / owner pending docs / Cron observers and evidence tools",
+    "changes_to_six_adaptation_files": false,
+    "included_in_candidate": false,
+    "covered_by_acceptance": false
   }
 }
