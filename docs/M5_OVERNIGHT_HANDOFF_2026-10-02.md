@@ -165,6 +165,17 @@ owner 说明“密钥稍后再做，其余批准”。据此执行了以下操�
   - 这批规则禁止 agent 修改 settings 文件，以后要改只能由你手动修改。
 - **AGENTS.md**：新增“Working directories”一节：主目录只放 `main`，每个 agent 用自己的 worktree，不在别人的 worktree 里切分支、commit 或 stash，开工前先确认目录。**这条改动目前只在本分支上**，要合入 `main` 后其他 agent 才看得到。如果想更早生效，可以单独把这一节提交到 `main`（需要你决定，并在你自己的 worktree 或主目录里操作）。
 
+## 2026-10-02 晚至 10-03 凌晨：M5 收尾进度（无人值守，截止 02:00 EDT）
+
+分支 `m5-remaining-20261002`，均未 push。详细数字见 [Cron 验收记录](PFT_M5_CRON_ACCEPTANCE_2026-10-02.md)。
+
+- **第一步（R10 恢复）**：`4db0a84`，全量 340 通过 / 9 跳过（本机无 age 二进制）。
+- **pooler 锁实验 + 防护**：`e24f883`（同一 backend 已持有时拒绝重入；jobs 角色 idle 超时 330 s）。
+- **cron 链路**：`6395882`、`97c8ba3`；preview `dpl_S8nSP25gk85ZQ2zPdxiUiGNSXqgj`。
+- **已完成场景**（[M]）：冒烟；鉴权反向 8 例（全部按预期）；S3 多页 catch-up（10,000 行，65.7 s，真实 cron）；S4 重试 + S5 部分失败（真实 cron，partial，15 min 退避）；S8 响应丢失（pg_net 5 s 超时，函数照常完成并发布）；**S6 截止时间**（22:00 EDT 起；failed/run_deadline，209.9 s，未发布，余量 89.4 s）。
+- **常驻 cron**：owner 21:59 EDT 指示后立即 `cron.unschedule('pft-m5-tick')` 和 `pft-m5-history-prune`，`cron.job` 已确认为空。真实 cron 共触发 2 次（01:50、01:55 UTC）。之后每个场景由 agent 主动 `pft_ops.dispatch_tick` 触发；场景期间用每秒一次的 `pft-m5-sampler`（只写 `pft_ops.m5_samples`，不投递），场景结束立即 unschedule。
+- **约束变化**：owner 指示今晚不读取私有凭据目录，因此停用本地 `cron_observer` / `cron_evidence` / `cron_controller`（都需读 jobs 密码或秘密），改为 MCP SQL 取证；后台观察器已停止，无残留进程。
+
 ## 待决（需要 owner 拍板或批准）
 
 ### 2026-10-02 晚：M5 收尾（R10 恢复 + 合成云端验收）新增的待决
