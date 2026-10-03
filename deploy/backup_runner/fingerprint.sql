@@ -15,6 +15,8 @@
 --                                        on restore)
 --   index|<schema.table>|<name>|<definition>
 --   column|<schema.table>|<column>|<type>|<nullable>|<default>
+--   function|<schema.name>|<identity arguments>|<sha256 of definition/config>
+--   trigger|<schema.table>|<name>|<enabled state>|<sha256 of definition>
 -- Row hashes are memory-bounded: one 64-character hash per row is aggregated,
 -- not the rows themselves.
 --
@@ -63,5 +65,18 @@ SELECT line FROM (
     SELECT 'column|' || table_schema || '.' || table_name || '|' || column_name || '|' || data_type
            || '|' || is_nullable || '|' || coalesce(column_default, '')
     FROM information_schema.columns WHERE table_schema = ANY (:'schemas'::text[])
+    UNION ALL
+    SELECT 'function|' || n.nspname || '.' || p.proname || '|'
+           || pg_get_function_identity_arguments(p.oid) || '|'
+           || encode(sha256(convert_to(pg_get_functiondef(p.oid), 'UTF8')), 'hex')
+    FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = ANY (:'schemas'::text[]) AND p.prokind <> 'a'
+    UNION ALL
+    SELECT 'trigger|' || n.nspname || '.' || c.relname || '|' || t.tgname || '|'
+           || t.tgenabled::text || '|'
+           || encode(sha256(convert_to(pg_get_triggerdef(t.oid), 'UTF8')), 'hex')
+    FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname = ANY (:'schemas'::text[]) AND NOT t.tgisinternal
 ) catalog
 ORDER BY line COLLATE "C";

@@ -48,6 +48,14 @@ def migration_sql(dataset_id, *, schema=SCHEMA, source=SOURCE, jobs_role=JOBS_RO
     statements.append(f"UPDATE {schema}.items SET user_id = '{USER_ID}', last_sync_success_at = now(), "
                       "last_sync_attempt_at = NULL, next_sync_retry_at = NULL, sync_retry_count = 0, "
                       "sync_paused = false")
+    # CreateTable/CreateIndex do not run metadata.after_create. Install the same
+    # seeds and ownership guards explicitly in the private fixture schema.
+    from api.label_schema import LABEL_SCHEMA_SQL
+    statements.append(f"SET search_path TO {schema}, pg_catalog")
+    statements.extend(LABEL_SCHEMA_SQL)
+    statements.append(f"REVOKE ALL ON ALL FUNCTIONS IN SCHEMA {schema} FROM PUBLIC")
+    statements.append(f"GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA {schema} TO {jobs_role}")
+    statements.append("RESET search_path")
     statements += [
         f"""CREATE TABLE {schema}.fixture_manifest (
     singleton boolean PRIMARY KEY DEFAULT true CHECK (singleton),

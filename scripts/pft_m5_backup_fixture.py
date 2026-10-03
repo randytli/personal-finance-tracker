@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from api.models import (Account, Item, LegacyConsumerRow, ManualBenefitCategoryOverride,
                         ManualCategoryOverride, ManualClassificationOverride,
                         ManualTransactionLabelOverride, RawTransaction, StatementImportBatch,
-                        StatementImportRow, SyncItemRun, SyncRun, SyncRuntimeState, Transaction)
+                        StatementImportRow, SyncItemRun, SyncRun, SyncRuntimeState, Transaction, TransactionLabelDefinition)
 
 USER = "synthetic-backup-user"
 
@@ -81,6 +81,15 @@ async def seed(engine, rows=2610, seed_value=20261002):
                                 statement_kind="Purchase", transaction_type="expense", is_spending=True))
         await session.flush()
         first, second = normalized[1]["transaction_id"], normalized[2]["transaction_id"]
+        archived = TransactionLabelDefinition(label_id="fixture-archived", user_id=USER,
+            name="Old gear", normalized_name="old gear", is_system=False,
+            created_by="drill", updated_by="drill")
+        session.add_all([
+            TransactionLabelDefinition(label_id="fixture-tech", user_id=USER,
+                name="Tech", normalized_name="tech", color="success", is_system=False,
+                created_by="drill", updated_by="drill"), archived,
+        ])
+        await session.flush()
         session.add_all([
             ManualCategoryOverride(transaction_id=first, category="GENERAL_MERCHANDISE",
                                    created_by="drill", updated_by="drill"),
@@ -90,11 +99,21 @@ async def seed(engine, rows=2610, seed_value=20261002):
                                            created_by="drill", updated_by="drill"),
             ManualBenefitCategoryOverride(transaction_id=second, benefit_category="DINING_CREDIT",
                                           created_by="drill", updated_by="drill"),
+            ManualTransactionLabelOverride(transaction_id=first, label="fixture-tech", decision="include",
+                                           created_by="drill", updated_by="drill"),
+            ManualTransactionLabelOverride(transaction_id=second, label="fixture-tech", decision="include",
+                                           created_by="drill", updated_by="drill"),
+            ManualTransactionLabelOverride(transaction_id=second, label="fixture-archived", decision="include",
+                                           created_by="drill", updated_by="drill"),
+            ManualTransactionLabelOverride(transaction_id=first, label="fixture-archived", decision=None,
+                                           cleared_at=now.replace(tzinfo=None), created_by="drill", updated_by="drill"),
             LegacyConsumerRow(transaction_id="legacy-1", item_id="item-0", account_id="account-0-0"),
             SyncRun(run_id="run-1", user_id=USER, trigger_source="jobs", started_at=now,
                     finished_at=now, status="success", published_at=now),
         ])
         await session.flush()
+        # Establish history while active, then archive without deleting links.
+        archived.archived_at = now.replace(tzinfo=None)
         session.add_all([SyncItemRun(run_id="run-1", item_id=f"item-{i}", started_at=now, finished_at=now,
                                      status="success", phase="published") for i in range(5)])
         session.add(SyncRuntimeState(user_id=USER, last_published_run_id="run-1", published_at=now,

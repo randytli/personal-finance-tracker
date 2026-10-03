@@ -141,7 +141,7 @@ async def asgi_post(app, path, headers, body):
 class CronAdapterDatabaseTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         from api.db import engine as default_engine
-        self.assertEqual(default_engine.url.port, 55439)
+        self.assertEqual(default_engine.url.port, int(os.environ.get("PFT_M5_TRIGGER_TEST_PORT", "55439")))
         self.assertIn(default_engine.url.host, {"127.0.0.1", "localhost"})
         self.assertNotEqual(os.environ.get("PLAID_ENV"), "production")
         suffix = uuid.uuid4().hex
@@ -229,6 +229,86 @@ class CronAdapterDatabaseTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(privileges, {"SELECT": True, "INSERT": False, "UPDATE": False})
         public = await self.sql("SELECT has_schema_privilege('public', :s, 'USAGE')", s=self.schema)
         self.assertEqual(public, [(False,)])
+
+    async def test_label_schema_jobs_role_startup_and_synthetic_tick(self):
+        from api import db as database
+        from sqlalchemy.exc import DBAPIError
+        from sqlalchemy.engine import make_url
+        # Restore the private fixture (including ACLs) before exercising its role.
+        # The public age restore test separately checks explicit re-grants when
+        # pft_backup_restore intentionally uses --no-privileges.
+        import subprocess
+        from scripts import pft_backup_restore
+        pg_bin = os.environ.get("PFT_PG_BIN_DIR", "/usr/lib/postgresql/16/bin")
+        base = make_url(self.config.url)
+        target = "pft_restore_cron_" + uuid.uuid4().hex[:12]
+        env = {**os.environ, "PGHOST": base.host, "PGPORT": str(base.port),
+               "PGUSER": base.username, "PGDATABASE": base.database}
+        def pg(tool, *args):
+            return subprocess.run([str(Path(pg_bin) / tool), *args], env=env,
+                                  capture_output=True, check=True, timeout=60)
+        await self.sql("GRANT USAGE ON SCHEMA pft_m5_probe TO pft_m5_jobs")
+        await self.sql("GRANT SELECT ON pft_m5_probe.identity TO pft_m5_jobs")
+        await self.sql("INSERT INTO S.raw_transactions (transaction_id,item_id,account_id,transaction_date,payload,source,is_removed) VALUES ('cron-history','item-0','account-0-0','2026-10-01',CAST(:payload AS jsonb),'plaid',false)",
+            payload=json.dumps({"transaction_id":"cron-history", "account_id":"account-0-0",
+                "date":"2026-10-01", "amount":10, "name":"Synthetic equipment",
+                "personal_finance_category":{"primary":"GENERAL_MERCHANDISE"}}))
+        await self.sql("INSERT INTO S.transactions (transaction_id,account_id,transaction_date,amount,description,transaction_type,is_spending) VALUES ('cron-history','account-0-0','2026-10-01',-10,'Synthetic equipment','expense',true)")
+        await self.sql("INSERT INTO S.transaction_label_definitions (label_id,user_id,name,normalized_name,is_system,created_by,updated_by) VALUES ('cron-history-active','synthetic-cron','Equipment','equipment',false,'test','test'),('cron-history-archived','synthetic-cron','Old','old',false,'test','test')")
+        await self.sql("INSERT INTO S.manual_transaction_label_overrides (transaction_id,label,decision,created_by,updated_by) VALUES ('cron-history','cron-history-active','include','test','test'),('cron-history','cron-history-archived','include','test','test')")
+        await self.sql("UPDATE S.transaction_label_definitions SET archived_at=now() WHERE label_id='cron-history-archived'")
+        schemas = [self.schema, "pft_m5_probe"]
+        before = pft_backup_restore.fingerprint(env, schemas, pg_bin)
+        with tempfile.TemporaryDirectory() as directory:
+            archive = str(Path(directory) / "cron.dump")
+            pg("pg_dump", "-n", self.schema, "-n", "pft_m5_probe", "-Fc", "-f", archive)
+            pg("createdb", target)
+            self.addCleanup(lambda: pg("dropdb", "--if-exists", target))
+            pg("pg_restore", "--exit-on-error", "-d", target, archive)
+        self.assertEqual(pft_backup_restore.fingerprint(dict(env, PGDATABASE=target), schemas, pg_bin), before)
+        login_role = "labels_cron_jobs_" + uuid.uuid4().hex[:12]
+        await self.sql(f"CREATE ROLE {login_role} LOGIN")
+        await self.sql(f"GRANT pft_m5_jobs TO {login_role}")
+        role_engine = create_async_engine(base.set(database=target, username=login_role, password=None),
+            connect_args={"server_settings": {"search_path": self.schema}})
+        try:
+            with patch.object(database, "engine", role_engine):
+                await database.verify_runtime_schema()
+            async with role_engine.begin() as connection:
+                self.assertEqual(await connection.scalar(text("SELECT count(*) FROM transaction_label_definitions")), 4)
+                config = (await connection.execute(text("SELECT proconfig FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname=:schema AND p.proname='pft_label_association_guard'"), {"schema": self.schema})).scalar_one()
+                self.assertIn(f"search_path={self.schema}, pg_catalog", config)
+                # Only the jobs role has schema access; fixture controls stay read-only.
+                self.assertFalse(await connection.scalar(text("SELECT has_table_privilege(current_user,'fixture_plan','UPDATE')")))
+            with self.assertRaises(DBAPIError):
+                async with role_engine.begin() as connection:
+                    await connection.execute(text("UPDATE fixture_plan SET generation=99"))
+            # Execute a real tick using the restricted role, not the schema owner.
+            restored_admin = create_async_engine(base.set(database=target))
+            try:
+                async with restored_admin.begin() as connection:
+                    await connection.execute(text(f"UPDATE {self.schema}.fixture_plan SET mode='pages',pages=1,rows_per_page=2,generation=1 WHERE item_id='item-0'"))
+                    await connection.execute(text(f"UPDATE {self.schema}.items SET last_sync_success_at=now()-interval '2 days' WHERE item_id='item-0'"))
+            finally:
+                await restored_admin.dispose()
+            config = cron_app.Settings(url=self.config.url, keys={"v1": KEY}, audience=AUDIENCE,
+                dataset_id=DATASET, database_role=login_role, require_backend_ssl=False)
+            with patch.object(cron_app, "USER_ID", cron_fixture.USER_ID):
+                result = await cron_app.run_delivery(role_engine, config,
+                    received_at=datetime.now(timezone.utc), source="local-labels-integration")
+            self.assertEqual((result["status"],result["synthetic_added_rows"]), ("success",2))
+            async with role_engine.begin() as connection:
+                self.assertEqual(await connection.scalar(text("SELECT count(*) FROM manual_transaction_label_overrides WHERE transaction_id='cron-history' AND decision='include'")), 2)
+                self.assertTrue(await connection.scalar(text("SELECT archived_at IS NOT NULL FROM transaction_label_definitions WHERE label_id='cron-history-archived'")))
+                tid = await connection.scalar(text("SELECT transaction_id FROM transactions LIMIT 1"))
+                await connection.execute(text("INSERT INTO transaction_label_definitions (label_id,user_id,name,normalized_name,is_system,created_by,updated_by) VALUES ('cron-tech','synthetic-cron','Tech','tech',false,'test','test')"))
+                await connection.execute(text("INSERT INTO manual_transaction_label_overrides (transaction_id,label,decision,created_by,updated_by) VALUES (:id,'cron-tech','include','test','test')"), {"id":tid})
+            with self.assertRaises(DBAPIError):
+                async with role_engine.begin() as connection:
+                    await connection.execute(text("UPDATE transaction_label_definitions SET user_id='foreign-user' WHERE label_id='cron-tech'"))
+        finally:
+            await role_engine.dispose()
+            await self.sql(f"DROP ROLE {login_role}")
 
     async def test_forged_and_replayed_deliveries_never_run(self):
         status, body = await self.deliver(self.headers(secret=b"x" * 40))
