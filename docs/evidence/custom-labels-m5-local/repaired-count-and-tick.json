@@ -1,0 +1,16 @@
+{
+  "inputs": {
+    "custom_labels": "e63c58e22da9526e7ab8eb53b59e80a85062a095",
+    "m5": "97c8ba33fb9e790dabcd16226879907e249069cb"
+  },
+  "database": "127.0.0.1:55449 (synthetic only)",
+  "external_calls": false,
+  "run": 2,
+  "passed": [
+    "test_m5_backup_age.FullChainTests.test_age_chain_with_emergency_key_only_matches_snapshot",
+    "test_m5_cron_adapter.CronAdapterDatabaseTests.test_label_schema_jobs_role_startup_and_synthetic_tick"
+  ],
+  "skips": [],
+  "failures": [],
+  "errors": []
+}

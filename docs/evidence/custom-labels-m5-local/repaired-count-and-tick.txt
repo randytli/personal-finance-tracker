@@ -1,0 +1,7 @@
+test_age_chain_with_emergency_key_only_matches_snapshot (test_m5_backup_age.FullChainTests.test_age_chain_with_emergency_key_only_matches_snapshot) ... ok
+test_label_schema_jobs_role_startup_and_synthetic_tick (test_m5_cron_adapter.CronAdapterDatabaseTests.test_label_schema_jobs_role_startup_and_synthetic_tick) ... ok
+
+----------------------------------------------------------------------
+Ran 2 tests in 1.406s
+
+OK

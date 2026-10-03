@@ -1,0 +1,20 @@
+{
+  "inputs": {
+    "custom_labels": "e63c58e22da9526e7ab8eb53b59e80a85062a095",
+    "m5": "97c8ba33fb9e790dabcd16226879907e249069cb"
+  },
+  "database": "127.0.0.1:55449 (synthetic only)",
+  "external_calls": false,
+  "run": 2,
+  "passed": [
+    "test_m5_backup_age.FullChainTests.test_runbook_commands_without_pft_code"
+  ],
+  "skips": [],
+  "failures": [
+    [
+      "test_m5_cron_adapter.CronAdapterDatabaseTests.test_label_schema_jobs_role_startup_and_synthetic_tick",
+      "Traceback (most recent call last):\n  File \"/usr/lib/python3.12/unittest/async_case.py\", line 90, in _callTestMethod\n    if self._callMaybeAsync(method) is not None:\n       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/lib/python3.12/unittest/async_case.py\", line 112, in _callMaybeAsync\n    return self._asyncioRunner.run(\n           ^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/lib/python3.12/asyncio/runners.py\", line 118, in run\n    return self._loop.run_until_complete(task)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/lib/python3.12/asyncio/base_events.py\", line 687, in run_until_complete\n    return future.result()\n           ^^^^^^^^^^^^^^^\n  File \"/home/randyli/code/pft-labels-m5-candidate/tests/test_m5_cron_adapter.py\", line 295, in test_label_schema_jobs_role_startup_and_synthetic_tick\n    self.assertEqual((result[\"status\"],result[\"synthetic_added_rows\"]), (\"success\",2))\nAssertionError: Tuples differ: ('blocked', 2) != ('success', 2)\n\nFirst differing element 0:\n'blocked'\n'success'\n\n- ('blocked', 2)\n+ ('success', 2)\n"
+    ]
+  ],
+  "errors": []
+}

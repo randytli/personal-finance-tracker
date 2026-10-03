@@ -1,0 +1,6 @@
+test_label_schema_jobs_role_startup_and_synthetic_tick (test_m5_cron_adapter.CronAdapterDatabaseTests.test_label_schema_jobs_role_startup_and_synthetic_tick) ... ok
+
+----------------------------------------------------------------------
+Ran 1 test in 0.957s
+
+OK

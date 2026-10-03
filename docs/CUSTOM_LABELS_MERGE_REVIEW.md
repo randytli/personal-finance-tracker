@@ -136,3 +136,7 @@ I1 已用 feature 模型 + M5 `6395882` cron 生成器在隔离 schema 验证，
   恢复旧点会丢失其后标签和其他财务写入，须先处理这段增量，不能默默覆盖。
 - 无标签永久删除路径；archive/restore 不等于 undo migration。本轮没有执行
   任何上述部署或回滚动作。
+
+## 后续本地适配
+
+本报告是适配前的历史核对；固定 SHA 的后续适配结果见 [本地集成验收](CUSTOM_LABELS_M5_LOCAL_INTEGRATION.md)。

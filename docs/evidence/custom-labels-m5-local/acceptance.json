@@ -1,0 +1,100 @@
+{
+  "inputs": {
+    "custom_labels": "e63c58e22da9526e7ab8eb53b59e80a85062a095",
+    "m5": "97c8ba33fb9e790dabcd16226879907e249069cb"
+  },
+  "merge_commit": "cdde6fe403782eecb1aea1e5cfff07c9fd132052",
+  "adaptation_commit": "c53d27c",
+  "scope": "local candidate only; no cloud, Production, real Plaid or main merge",
+  "distinct_relevant_tests_with_success": 10,
+  "passed_tests": [
+    "test_m5_backup_age.FullChainTests.test_age_chain_with_emergency_key_only_matches_snapshot",
+    "test_m5_backup_age.FullChainTests.test_custom_labels_restore_startup_permissions_and_financial_totals",
+    "test_m5_backup_age.FullChainTests.test_fingerprint_detects_function_and_trigger_loss_modification_and_disable",
+    "test_m5_backup_age.FullChainTests.test_runbook_commands_without_pft_code",
+    "test_m5_backup_age.FullChainTests.test_write_committed_during_dump_is_in_neither_dump_nor_fingerprint",
+    "test_m5_backup_age.RunnerBundleTests.test_sha256sums_match_runner_files",
+    "test_m5_backup_age.RunnerBundleTests.test_stage_backup_repo_layout_and_fail_closed_recipients",
+    "test_m5_cron_adapter.CronAdapterDatabaseTests.test_label_schema_jobs_role_startup_and_synthetic_tick",
+    "test_m5_cron_adapter.CronAdapterDatabaseTests.test_migration_copies_fixture_and_grants_only_jobs",
+    "test_m5_cron_adapter.SettingsAndPackagingTests.test_bundle_has_one_entrypoint_and_no_financial_app"
+  ],
+  "initial_execution": {
+    "run": 9,
+    "passed": [
+      "test_m5_backup_age.RunnerBundleTests.test_sha256sums_match_runner_files",
+      "test_m5_backup_age.RunnerBundleTests.test_stage_backup_repo_layout_and_fail_closed_recipients",
+      "test_m5_backup_age.FullChainTests.test_custom_labels_restore_startup_permissions_and_financial_totals",
+      "test_m5_backup_age.FullChainTests.test_fingerprint_detects_function_and_trigger_loss_modification_and_disable",
+      "test_m5_backup_age.FullChainTests.test_write_committed_during_dump_is_in_neither_dump_nor_fingerprint",
+      "test_m5_cron_adapter.SettingsAndPackagingTests.test_bundle_has_one_entrypoint_and_no_financial_app",
+      "test_m5_cron_adapter.CronAdapterDatabaseTests.test_migration_copies_fixture_and_grants_only_jobs"
+    ],
+    "failures": [
+      "backup count expected 15 but explicit migration creates consumer_scope_migrations, actual 16"
+    ],
+    "errors": [
+      "NOLOGIN jobs permission role cannot directly authenticate"
+    ],
+    "evidence_source": "recorded functions.write_stdin session 1505 output; initial log overwritten by targeted retry"
+  },
+  "subsequent_executions": [
+    {
+      "artifact": "repaired-count-and-tick.json",
+      "run": 2,
+      "passed": [
+        "test_m5_backup_age.FullChainTests.test_age_chain_with_emergency_key_only_matches_snapshot",
+        "test_m5_cron_adapter.CronAdapterDatabaseTests.test_label_schema_jobs_role_startup_and_synthetic_tick"
+      ]
+    },
+    {
+      "artifact": "restored-tick-attempt.json",
+      "run": 2,
+      "passed": [
+        "test_m5_backup_age.FullChainTests.test_runbook_commands_without_pft_code"
+      ],
+      "failure": "New historical fixture had empty raw payload; corrected to valid synthetic source fields."
+    },
+    {
+      "artifact": "results.json",
+      "run": 1,
+      "passed": [
+        "test_m5_cron_adapter.CronAdapterDatabaseTests.test_label_schema_jobs_role_startup_and_synthetic_tick"
+      ]
+    }
+  ],
+  "final_cron_tick": {
+    "restored_private_schema": true,
+    "role": "ephemeral LOGIN member of restricted pft_m5_jobs",
+    "status": "success",
+    "synthetic_added_rows": 2,
+    "historical_custom_associations_preserved": 2,
+    "archived_definition_preserved": true
+  },
+  "fingerprint_negative_cases": [
+    "function search_path modified",
+    "function body replaced",
+    "trigger disabled",
+    "trigger missing",
+    "trigger definition changed",
+    "function missing (CASCADE)"
+  ],
+  "table_counts": {
+    "model_tables": 15,
+    "explicit_init_db_public_tables": 16,
+    "additional_public_table": "consumer_scope_migrations"
+  },
+  "age_tool": {
+    "version": "v1.3.2",
+    "archive_sha256": "cbe24006683f8eb669266162894b9a522a1af52f2665fbc63a4bb032ed26ac10",
+    "verified_against": "official GitHub release asset digest; binary only under /tmp"
+  },
+  "source_sha256": {
+    "deploy/backup_runner/fingerprint.sql": "166ad8bdac099bf69e8a4c4b3c96f73eb2b9631d538540ca5ddf44aaa5824d71",
+    "deploy/backup_runner/SHA256SUMS": "15a76c0c5b15ae2bafd745a7a692d03f9ab9e2eacdbc3ca917d6aa545a8069e8",
+    "experiments/m5_cloud/cron_fixture.py": "e9e2016dd555b68b5c5d453f2a36cbb915b714d4166519774097c4bf37ba856b",
+    "scripts/pft_m5_backup_fixture.py": "b9148316a2f0abd5919950d36a5e453190d98616b9c958fddf4c7711e82d2c7b",
+    "tests/test_m5_backup_age.py": "dd5746e256a209a1f8c2a907a148aee3059c8975abf88dd607acae14dfb0261a",
+    "tests/test_m5_cron_adapter.py": "8958b72ead891c8cbcf3279b89d89b4944964cdceaff1297d50366634a0bdaa8"
+  }
+}
