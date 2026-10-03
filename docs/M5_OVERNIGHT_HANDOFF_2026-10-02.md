@@ -167,6 +167,18 @@ owner 说明“密钥稍后再做，其余批准”。据此执行了以下操�
 
 ## 待决（需要 owner 拍板或批准）
 
+### 2026-10-02 晚：M5 收尾（R10 恢复 + 合成云端验收）新增的待决
+
+按 owner 指示（“遇到超出范围的操作、设计决定或需要本人处理的凭据操作，不等待，记在这里，继续下一项”），以下事项 agent 没有执行：
+
+1. **合成项目 Auth 控制台设置（owner，控制台）**：项目 `acyghoemtdrilsdszolq` 当前 `disable_signup=false`（注册开放，2026-10-03 01:47 UTC 只读 `/auth/v1/settings` 实测）。匿名登录已关、无社交登录、邮件确认已开。需要：关闭 “Allow new users to sign up”；在 Authentication → Users 手工建一个合成 owner 用户（勾选 auto-confirm）；确认 MFA 里 TOTP 为启用。MCP 没有 Auth 配置接口，也不应绕过 CLI 调管理 API。
+2. **Auth 流程实测（owner，本人终端，不经 agent）**：用独立 venv 运行 `experiments/m5_cloud/auth_owner_flow.py`（脚本拒绝在非 TTY 下运行，TOTP 秘密只写 `/dev/tty`，证据只含状态码）。顺序：`negatives`（注册关闭后才会测注册/匿名）→ `flow`（登录、aal1 被拒、TOTP 注册与验证、aal2 通过、刷新、登出）→ `recover`（需要在该终端设 `PFT_M5_SECRET_KEY`，删 TOTP 因子、重设密码）→ 再 `flow` 一次重新绑定 TOTP。命令：
+   `cd ~/code/pft-m5-remaining && /home/randyli/.claude/jobs/fd07ef9c/tmp/authvenv/bin/python -m experiments.m5_cloud.auth_owner_flow <negatives|flow|recover> --out docs/evidence/m5-2026-10-02/cloud/auth-<cmd>.json`
+   （该 venv 在 job 删除时会被清理；没有它时：`python3 -m venv /tmp/x && /tmp/x/bin/pip install 'PyJWT[crypto]' cryptography==41.0.7`。）
+3. **Vercel 清理（owner）**：`vercel env rm`、`vercel rm` 被权限规则禁止，agent 不做。需要删除：jobs 项目 preview 环境变量 `M5_CRON_ENABLED`、`M5_TRIGGER_AUDIENCE`、`M5_CRON_DATASET_ID`、`M5_CRON_DATABASE_URL`、`M5_TRIGGER_KEYS`；本次部署的 preview（清单见验收文档）；jobs 项目上的两条 automation bypass（本次一条、2026-10-01 一条），在 Project Settings → Deployment Protection 撤销。旧实验的 `DATABASE_URL` 内的 `pft_m5_jobs` 密码已在本次轮换，旧值不再可用。
+4. **P2-3 偏离（设计决定）**：本次合成验收用 preview + Vault 中的 bypass 头（owner 当场选择），不是 P2-3 批准的“production 目标 + 仅 HMAC”。production 目标路径（以及“确认 production 目标不暴露其他路由”）仍需在 M7 验证。
+5. **本机工具**：为让 ask/deny 规则对 `vercel` 生效，全局安装了 Vercel CLI 62.1.0（nvm 全局），可用 `npm uninstall -g vercel` 撤销。
+
 ### 任务 1：备份
 
 - **P1-1 存储选择 — 已拍板（2026-10-02，owner 同意采用 GitHub 私有仓库）**。原建议：主存储用一个专用的 GitHub 私有仓库，每份备份是一个 release asset。理由：
