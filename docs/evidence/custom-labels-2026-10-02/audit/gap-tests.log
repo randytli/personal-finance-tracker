@@ -1,0 +1,17 @@
+test_migration_api_normalization_and_reclassification (test_category_overrides.CategoryDatabaseTests.test_migration_api_normalization_and_reclassification) ... ok
+test_legacy_migration_preserves_rows_and_decisions (test_consumer_scope.ConsumerDatabaseTests.test_legacy_migration_preserves_rows_and_decisions) ... ok
+test_ownership_and_disabled_transfer_counterpart (test_consumer_scope.ConsumerDatabaseTests.test_ownership_and_disabled_transfer_counterpart) ... ok
+test_diff_writes_match_full_rewrite_across_sync_scenarios (test_derivation_writes.DerivationWriteTests.test_diff_writes_match_full_rewrite_across_sync_scenarios) ... ok
+test_dormant_decision_and_financial_totals_preserved (test_dining_migration.DiningMigrationDatabaseTests.test_dormant_decision_and_financial_totals_preserved) ... ok
+test_validation_failure_restores_ddl_and_rows (test_dining_migration.DiningMigrationDatabaseTests.test_validation_failure_restores_ddl_and_rows) ... ok
+test_populated_encrypted_backup_recovers_without_source_files (test_m3_recovery.RecoveryDatabaseTests.test_populated_encrypted_backup_recovers_without_source_files) ... ok
+test_schema_check_rejects_missing_override_table_and_m2_column (test_m3_recovery.RecoveryDatabaseTests.test_schema_check_rejects_missing_override_table_and_m2_column) ... ok
+test_m4_upgrade_preserves_m2_state_and_is_idempotent (test_m4_jobs.JobsDatabaseTests.test_m4_upgrade_preserves_m2_state_and_is_idempotent) ... ok
+test_migration_with_existing_import_and_overrides (test_statement_persistence.StatementDatabaseTests.test_migration_with_existing_import_and_overrides) ... ok
+test_apply_rerun_override_rollback_and_analytics (test_statement_persistence.StatementDatabaseTests.test_apply_rerun_override_rollback_and_analytics) ... ok
+test_migration_preserves_existing_cursor_and_is_idempotent (test_sync_all.SyncAllDatabaseTests.test_migration_preserves_existing_cursor_and_is_idempotent) ... ok
+
+----------------------------------------------------------------------
+Ran 12 tests in 5.421s
+
+OK

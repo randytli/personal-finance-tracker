@@ -1,6 +1,6 @@
 'use client'
 
-import { Amount, ChartLegend, ChartMonthlyTotals, ChipRow, ControlField, DayGroup, LoadingState, MoreTags, PageHeader, PageNavigation, Pagination, SectionCard, SectionHeader, SelectAllBar, Sparkline, SummaryCard, TransactionRow, chartAxisTick, chartTooltipStyle, fieldClassName, groupByDay, pageClassName, quietLinkClassName, signedDisplay, trackingCallout, trackingCaption, trackingColor, trackingGradient, trackingText, trendTracking, useNarrowViewport } from '@/components/page-presentation'
+import { Amount, ChartLegend, ChartMonthlyTotals, ChipRow, ControlField, DayGroup, LoadingState, MoreTags, PageHeader, PageNavigation, Pagination, SectionCard, SectionHeader, SelectAllBar, Sparkline, SummaryCard, TransactionRow, chartAxisTick, chartTooltipStyle, fieldClassName, groupByDay, pageClassName, quietLinkClassName, signedDisplay, trackingCallout, trackingCaption, trackingColor, trackingGradient, trackingText, trendTracking, useNarrowViewport, useTransactionPageSize } from '@/components/page-presentation'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowDownRight, ArrowUpRight, ChevronRight, CircleAlert, CircleCheck } from 'lucide-react'
 import {
@@ -18,6 +18,7 @@ import { BenefitCategoryBadge, CategoryBadge } from '@/components/category-displ
 import InstitutionBadge from '@/components/institution-badge'
 import LabelEditor, { mergeLabelDetail, type LabelDetail, useLabelOptions } from '@/components/label-editor'
 import PlaidLinkButton from '@/components/plaid-link-button'
+import LabelManager from '@/components/label-manager'
 import { SyncHealth, consistentJson, useSyncRefresh } from '@/components/sync-health'
 import BenefitCategoryEditor, { type BenefitCategoryOption, type BenefitCategoryDetail } from '@/components/benefit-category-editor'
 import { Alert } from '@/components/ui/alert'
@@ -125,7 +126,7 @@ export default function HomePage() {
   const [categoryMode, setCategoryMode] = useState<SpendingComponent>('net')
   const [detailFilter, setDetailFilter] = useState<{
     category?: string; benefitCategory?: string; transactionType?: string; secondary?: BreakdownGroup
-    canonicalCategory?: string; spendingComponent?: SpendingComponent
+    canonicalCategory?: string; spendingComponent?: SpendingComponent; label?: string
   } | null>(null)
   const [details, setDetails] = useState<Detail[]>([])
   const [detailTotal, setDetailTotal] = useState(0)
@@ -147,6 +148,7 @@ export default function HomePage() {
   const [detailRevision, setDetailRevision] = useState(0)
   const detailSection = useRef<HTMLDivElement>(null)
   const narrowViewport = useNarrowViewport()
+  const detailPageSize = useTransactionPageSize() === 10 ? 10 : 100
   const labelOptions = useLabelOptions()
   const sync = useSyncRefresh()
 
@@ -227,7 +229,8 @@ export default function HomePage() {
     setDetails([])
     setDetailTotal(0)
     setDetailLoading(true)
-    const parameters = new URLSearchParams({ month, limit: '100', offset: String(detailOffset) })
+    const parameters = new URLSearchParams({ month, limit: String(detailPageSize), offset: String(detailOffset) })
+    if (detailFilter.label) parameters.set('label', detailFilter.label)
     if (detailFilter.category) parameters.set('category', detailFilter.category)
     if (detailFilter.canonicalCategory) parameters.set('canonical_category', detailFilter.canonicalCategory)
     if (detailFilter.spendingComponent) parameters.set('spending_component', detailFilter.spendingComponent)
@@ -249,9 +252,9 @@ export default function HomePage() {
       .catch(() => { if (active) setError('Transaction details could not be loaded.') })
       .finally(() => { if (active) setDetailLoading(false) })
     return () => { active = false }
-  }, [detailFilter, detailOffset, month, categoryRevision, detailRevision, sync.revision, sync.check])
+  }, [detailFilter, detailOffset, detailPageSize, month, categoryRevision, detailRevision, sync.revision, sync.check])
 
-  useEffect(() => { setSelectedDetails(new Set()); setDetailOffset(0) }, [detailFilter])
+  useEffect(() => { setSelectedDetails(new Set()); setDetailOffset(0) }, [detailFilter, detailPageSize])
 
   useEffect(() => {
     if (detailFilter) detailSection.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' })
@@ -376,6 +379,20 @@ export default function HomePage() {
         <CircleCheck aria-hidden="true" />Category saved.
         <Button type="button" variant="link" size="inline" disabled={categoryBusy} onClick={() => saveCategory(categoryUndo.detail, categoryUndo.previous, true)}>Undo category change</Button>
       </Alert>}
+      <section aria-label="Transaction label controls" className="mt-4 flex flex-wrap items-end gap-3">
+        <ControlField label="Transaction label">
+          <select aria-label="Transaction label filter" className={fieldClassName} value={detailFilter?.label || ''}
+            disabled={bulkBusy || labelOptions.loading} onChange={event => {
+              const label = event.target.value
+              setDetailFilter(label ? { label } : null)
+            }}>
+            <option value="">Choose a label</option>
+            {labelOptions.options.map(option => <option key={option.value} value={option.value}>{option.label}{option.archived ? ' (archived)' : ''}</option>)}
+          </select>
+        </ControlField>
+        <LabelManager options={labelOptions.options} loading={labelOptions.loading} optionsError={labelOptions.error} onRetry={labelOptions.retry} />
+        {labelOptions.error && <p role="alert" className="text-sm text-destructive">{labelOptions.error}</p>}
+      </section>
       {loading && <LoadingState label="Loading analytics…" rows={3} />}
 
       {monthly && !loading && (
@@ -510,6 +527,7 @@ export default function HomePage() {
                   <h2 className="text-base font-semibold leading-6">Transaction Details</h2>
                   <div aria-label="Active detail filters" className="mt-2 flex flex-wrap items-center gap-1.5 text-sm">
                     <Badge variant="secondary" className="tabular-nums">{month}</Badge>
+                    {detailFilter.label && <Badge variant="secondary">{labelOptions.options.find(option => option.value === detailFilter.label)?.label || detailFilter.label}</Badge>}
                     {detailFilter.transactionType && <Badge variant="secondary" className={filterChip}>{detailFilter.transactionType.replace(/_/g, ' ')}</Badge>}
                     {detailFilter.spendingComponent && <Badge variant="secondary" className={filterChip}>{detailFilter.spendingComponent.replace(/_/g, ' ')}</Badge>}
                     {detailFilter.canonicalCategory
@@ -531,6 +549,7 @@ export default function HomePage() {
                     <p className="text-sm text-muted-foreground">{detailTotal} matching transactions</p>
                     {detailFilter.transactionType === 'reimbursement' &&
                       <p className="money text-sm font-semibold">Total reimbursements: {money(detailReimbursements)}</p>}
+                    {detailFilter.label && <p className="money text-sm font-semibold">Net spending: {money(detailComponentTotals.net_spending || '0.00')}</p>}
                     {detailFilter.spendingComponent && <p className="money text-sm font-semibold">
                       {detailFilter.spendingComponent === 'net' ? 'Net contribution' : netColumns.find(column => column.key === detailFilter.spendingComponent)?.label}: {' '}
                       {money(detailComponentTotals[detailFilter.spendingComponent === 'gross' ? 'gross_spending' : detailFilter.spendingComponent === 'net' ? 'net_spending' : detailFilter.spendingComponent] || '0.00')}
@@ -600,7 +619,7 @@ export default function HomePage() {
                   onClear={() => setSelectedDetails(new Set())}
                 />
               </div>}
-              {detailTotal > 100 && <Pagination className="border-t px-4 py-3 sm:px-5" offset={detailOffset} pageSize={100} total={detailTotal} onPage={setDetailOffset} />}
+              {detailTotal > detailPageSize && <Pagination className="border-t px-4 py-3 sm:px-5" offset={detailOffset} pageSize={detailPageSize} total={detailTotal} onPage={setDetailOffset} />}
             </SectionCard>
             </div>
           )}

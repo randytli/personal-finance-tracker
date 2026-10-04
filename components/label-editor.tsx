@@ -3,11 +3,12 @@
 import { ChevronDown, Pencil, Sparkles } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
-import { cn } from '@/lib/utils'
+import { Badge } from '@/components/ui/badge'
+import LabelManager from '@/components/label-manager'
 
 export type LabelDecision = 'include' | 'exclude'
 export type LabelChoice = LabelDecision | 'auto'
-export type LabelOption = { value: string; label: string }
+export type LabelOption = { value: string; label: string; color?: 'info' | 'success' | 'warning' | 'muted' | null; is_system?: boolean; archived?: boolean }
 export type LabelDetail = {
   transaction_id: string
   automatic_labels: string[]
@@ -44,6 +45,12 @@ export function useLabelOptions() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [revision, setRevision] = useState(0)
+
+  useEffect(() => {
+    const refresh = () => setRevision(value => value + 1)
+    window.addEventListener('pft-label-options-changed', refresh)
+    return () => window.removeEventListener('pft-label-options-changed', refresh)
+  }, [])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -144,13 +151,14 @@ export default function LabelEditor({
       {detail.effective_labels.map(label => {
         const manual = detail.manual_label_decisions[label] === 'include'
         const source = manual ? 'manually included' : 'automatic'
-        return <span key={label} title={`${optionMap.get(label) || fallbackLabel(label)} · ${source}`}
-          className={cn('inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium leading-4',
-            manual ? 'border-info/30 bg-info-soft text-info' : 'border-transparent bg-muted text-foreground')}>
+        const option = options.find(candidate => candidate.value === label)
+        return <Badge key={label} variant={option?.color || (manual ? 'info' : 'secondary')}
+          title={`${optionMap.get(label) || fallbackLabel(label)} · ${source}${option?.archived ? ' · archived' : ''}`}>
           {manual ? <Pencil aria-hidden="true" className="h-3 w-3" /> : <Sparkles aria-hidden="true" className="h-3 w-3" />}
-          <span>{optionMap.get(label) || fallbackLabel(label)}</span>
+          <span className="min-w-0 break-all">{optionMap.get(label) || fallbackLabel(label)}</span>
+          {option?.archived && <span className="text-xs">· archived</span>}
           <span className="sr-only">({source})</span>
-        </span>
+        </Badge>
       })}
       {excludedCount > 0 && <span className="text-xs text-muted-foreground">{excludedCount} excluded</span>}
       <button type="button" aria-expanded={open} aria-controls={panelId}
@@ -176,17 +184,18 @@ export default function LabelEditor({
       <div className="mt-2 divide-y">
         {sortedOptions.map(option => {
           const automatic = detail.automatic_labels.includes(option.value)
+          const system = option.is_system ?? ['CHINA', 'MEMBERSHIP'].includes(option.value)
           return <label key={option.value} className="flex flex-wrap items-center justify-between gap-3 py-2">
             <span>
-              <span className="font-medium">{option.label}</span>
-              <span className="ml-2 text-xs text-muted-foreground">Automatic: {automatic ? 'included' : 'not included'}</span>
+              <span className="break-all font-medium">{option.label}</span>
+              <span className="ml-2 text-xs text-muted-foreground">{system ? `Automatic: ${automatic ? 'included' : 'not included'}` : option.archived ? 'Archived · no new marking' : 'Custom label'}</span>
             </span>
             <select aria-label={`${option.label} label decision`} value={labelChoice(detail, option.value)}
               disabled={busy || disabled} className="rounded-lg border border-input bg-muted/60 px-2 py-1 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               onChange={event => void update(option.value, event.target.value as LabelChoice)}>
-              <option value="auto">Auto</option>
-              <option value="include">Include</option>
-              <option value="exclude">Exclude</option>
+              <option value="auto">{system ? 'Auto' : 'Clear decision'}</option>
+              <option value="include" disabled={option.archived}>{system ? 'Include' : 'Add'}</option>
+              <option value="exclude">{system ? 'Exclude' : 'Remove'}</option>
             </select>
           </label>
         })}
@@ -195,7 +204,8 @@ export default function LabelEditor({
           <span className="text-xs text-muted-foreground">Unavailable · read only</span>
         </div>)}
       </div>
-      <div className="mt-2 flex items-center justify-between gap-3">
+      <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
+        <LabelManager options={options} loading={optionsLoading} optionsError={optionsError} onRetry={onRetryOptions} />
         <span aria-live="polite" className="text-xs text-muted-foreground">{status}</span>
         <Button type="button" variant="outline" size="sm" disabled={busy || disabled}
           onClick={() => setOpen(false)}>Done</Button>

@@ -55,5 +55,24 @@ async def verify_runtime_schema():
             ), {"name": table.name})).scalars())
             missing.extend(f"{table.name}.{column.name}" for column in table.columns
                            if column.name not in columns)
+        for table, trigger in (
+            ("transaction_label_definitions", "pft_label_definition_guard"),
+            ("manual_transaction_label_overrides", "pft_label_association_guard"),
+            ("items", "pft_label_item_owner_guard"),
+            ("raw_transactions", "pft_label_raw_owner_guard"),
+        ):
+            present = await connection.scalar(text(
+                "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_trigger "
+                "WHERE tgrelid=to_regclass(:table) AND tgname=:trigger "
+                "AND NOT tgisinternal AND tgenabled IN ('O','A'))"),
+                {"table": table, "trigger": trigger})
+            if not present:
+                missing.append(f"{table}.{trigger}")
+        label_fk = await connection.scalar(text(
+            "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_constraint "
+            "WHERE conrelid=to_regclass('manual_transaction_label_overrides') "
+            "AND conname='fk_manual_transaction_label' AND contype='f' AND convalidated)"))
+        if not label_fk:
+            missing.append("manual_transaction_label_overrides.fk_manual_transaction_label")
     if missing:
         raise RuntimeError("Runtime schema is incomplete; run explicit migration: " + ", ".join(missing))
