@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend:
+    name: frontend
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      NEXT_TELEMETRY_DISABLED: '1'
+      PFT_API_URL: http://127.0.0.1:8000
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm test -- --ci --runInBand --json --outputFile=/tmp/pft-jest.json
+      - name: Report tests and reject skips
+        if: always()
+        run: node scripts/ci_frontend_summary.cjs /tmp/pft-jest.json
+      - name: TypeScript
+        run: npx --no-install tsc --noEmit
+      - name: Production build
+        run: npm run build
+
+  backend:
+    name: backend
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: pft_ci
+          POSTGRES_PASSWORD: synthetic
+          POSTGRES_DB: pft_ci_synthetic
+        ports:
+          - 127.0.0.1:55439:5432
+        options: >-
+          --health-cmd "pg_isready -U pft_ci -d pft_ci_synthetic"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: api/requirements.txt
+      - name: PostgreSQL 16 client tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y postgresql-client-16
+          /usr/lib/postgresql/16/bin/pg_dump --version
+      - run: python -m pip install -r api/requirements.txt
+      - name: Unit and synthetic database integration tests
+        run: python scripts/ci_backend_tests.py
