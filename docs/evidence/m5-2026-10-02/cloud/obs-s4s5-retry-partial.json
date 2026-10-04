@@ -1,0 +1,79 @@
+{
+  "kind": "m5_cron_observation",
+  "label": "s4s5-retry-partial",
+  "since": "2026-10-03T01:52:59.206093+00:00",
+  "condition_reached_after_s": 129.83,
+  "limit_s": 420,
+  "peaks": {
+    "jobs_backends": 3,
+    "jobs_busy": 3,
+    "client_backends": 4,
+    "running_runs": 1
+  },
+  "series": [
+    {
+      "t": 0.22,
+      "jobs_backends": 0,
+      "jobs_busy": 0,
+      "client_backends": 1,
+      "jobs_lock": [],
+      "sync_lock": [],
+      "started": 0,
+      "finished": 0,
+      "running_runs": 0
+    },
+    {
+      "t": 121.37,
+      "jobs_backends": 1,
+      "jobs_busy": 0,
+      "client_backends": 2,
+      "jobs_lock": [],
+      "sync_lock": [],
+      "started": 1,
+      "finished": 0,
+      "running_runs": 0
+    },
+    {
+      "t": 121.93,
+      "jobs_backends": 3,
+      "jobs_busy": 2,
+      "client_backends": 4,
+      "jobs_lock": [
+        139233
+      ],
+      "sync_lock": [
+        139234
+      ],
+      "started": 1,
+      "finished": 0,
+      "running_runs": 1
+    },
+    {
+      "t": 128.71,
+      "jobs_backends": 3,
+      "jobs_busy": 3,
+      "client_backends": 4,
+      "jobs_lock": [
+        139233
+      ],
+      "sync_lock": [
+        139234
+      ],
+      "started": 1,
+      "finished": 0,
+      "running_runs": 1
+    },
+    {
+      "t": 129.83,
+      "jobs_backends": 3,
+      "jobs_busy": 0,
+      "client_backends": 4,
+      "jobs_lock": [],
+      "sync_lock": [],
+      "started": 1,
+      "finished": 1,
+      "running_runs": 0
+    }
+  ],
+  "observer_connections": 1
+}
