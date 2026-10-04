@@ -130,9 +130,11 @@ class DatabaseTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn(base.host, {"127.0.0.1", "localhost"})
         self.assertGreaterEqual(base.port, 55000)
         self.bin = Path(os.environ.get("PFT_PG_BIN_DIR", "/usr/lib/postgresql/16/bin"))
-        self.args = ["-h", base.host, "-p", str(base.port), "-U", base.username]
+        self.args = ["--no-password", "-h", base.host, "-p", str(base.port), "-U", base.username]
+        self.pg_env = {**os.environ, "PGPASSWORD": base.password or "", "PGCONNECT_TIMEOUT": "5"}
         self.name = "pft_m5_trigger_" + uuid.uuid4().hex[:12]
-        subprocess.run([str(self.bin / "createdb"), *self.args, self.name], check=True)
+        subprocess.run([str(self.bin / "createdb"), *self.args, self.name], env=self.pg_env,
+                       check=True, timeout=15)
         self.engine = create_async_engine(base.set(database=self.name))
         template = (Path(__file__).resolve().parents[1] / "experiments" / "m5_cloud"
                     / "trigger_cron.sql.template").read_text().replace("{crypto}", "public")
@@ -145,7 +147,8 @@ class DatabaseTests(unittest.IsolatedAsyncioTestCase):
 
     async def asyncTearDown(self):
         await self.engine.dispose()
-        subprocess.run([str(self.bin / "dropdb"), *self.args, "--if-exists", self.name], check=True)
+        subprocess.run([str(self.bin / "dropdb"), *self.args, "--if-exists", self.name],
+                       env=self.pg_env, check=True, timeout=15)
 
     async def test_sql_signer_matches_python_verifier(self):
         from sqlalchemy import text
