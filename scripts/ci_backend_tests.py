@@ -11,7 +11,7 @@ import unittest
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
-OPT_INS = {
+REQUIRED_OPT_INS = {
     "PFT_CATEGORY_SYNTHETIC_TEST",
     "PFT_CONSUMER_SYNTHETIC_TEST",
     "PFT_LABEL_SYNTHETIC_TEST",
@@ -19,6 +19,11 @@ OPT_INS = {
     "PFT_SYNC_SYNTHETIC_TEST",
     "PFT_M3_SYNTHETIC_TEST",
     "PFT_M4_SYNTHETIC_TEST",
+}
+# M5 tests are present on integration branches before they reach main.
+OPT_INS = REQUIRED_OPT_INS | {
+    "PFT_M5_BACKUP_SYNTHETIC_TEST",
+    "PFT_M5_TRIGGER_SYNTHETIC_TEST",
 }
 REQUIRED_CLASSES = {
     "test_category_overrides.CategoryDatabaseTests",
@@ -52,6 +57,16 @@ def cases(suite):
             yield test
 
 
+def discover_opt_ins(root):
+    found = set()
+    for path in (root / "tests").glob("test_*.py"):
+        found.update(re.findall(r"PFT_[A-Z0-9_]*SYNTHETIC_TEST", path.read_text()))
+    mismatch = (found - OPT_INS) | (REQUIRED_OPT_INS - found)
+    if mismatch:
+        raise RuntimeError(f"Update CI opt-in inventory: {mismatch}")
+    return found
+
+
 class Result(unittest.TextTestResult):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -79,13 +94,8 @@ def main():
         "PLAID_SECRET": "synthetic-secret",
         "PLAID_PILOT_LINK_ENABLED": "false",
         "PFT_PG_BIN_DIR": "/usr/lib/postgresql/16/bin",
-        **{name: "1" for name in OPT_INS},
+        **{name: "1" for name in discover_opt_ins(ROOT)},
     })
-    found = set()
-    for path in (ROOT / "tests").glob("test_*.py"):
-        found.update(re.findall(r"PFT_[A-Z0-9_]*SYNTHETIC_TEST", path.read_text()))
-    if found != OPT_INS:
-        raise RuntimeError(f"Update CI opt-in inventory: {found ^ OPT_INS}")
 
     connect = socket.socket.connect
     connect_ex = socket.socket.connect_ex
