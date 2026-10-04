@@ -508,7 +508,7 @@ class FullChainTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(result["equal"], result["mismatches"])
             self.assertEqual(before, await summaries(restored))
             async with restored.begin() as connection:
-                labels = (await connection.execute(text("SELECT label_id, archived_at IS NOT NULL FROM transaction_label_definitions ORDER BY label_id"))).all()
+                labels = (await connection.execute(text("SELECT label_id, archived_at IS NOT NULL FROM transaction_label_definitions ORDER BY label_id COLLATE \"C\""))).all()
                 self.assertEqual(labels, [("CHINA", False), ("MEMBERSHIP", False), ("fixture-archived", True), ("fixture-tech", False)])
                 counts = dict((await connection.execute(text("SELECT label, count(*) FROM manual_transaction_label_overrides GROUP BY label"))).all())
                 self.assertEqual(counts, {"MEMBERSHIP": 1, "fixture-tech": 2, "fixture-archived": 2})
