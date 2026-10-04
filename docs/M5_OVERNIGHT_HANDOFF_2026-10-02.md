@@ -173,6 +173,19 @@ owner 说明“密钥稍后再做，其余批准”。据此执行了以下操�
 - **pooler 锁实验 + 防护**：`e24f883`（同一 backend 已持有时拒绝重入；jobs 角色 idle 超时 330 s）。
 - **cron 链路**：`6395882`、`97c8ba3`；preview `dpl_S8nSP25gk85ZQ2zPdxiUiGNSXqgj`。
 - **已完成场景**（[M]）：冒烟；鉴权反向 8 例（全部按预期）；S3 多页 catch-up（10,000 行，65.7 s，真实 cron）；S4 重试 + S5 部分失败（真实 cron，partial，15 min 退避）；S8 响应丢失（pg_net 5 s 超时，函数照常完成并发布）；**S6 截止时间**（22:00 EDT 起；failed/run_deadline，209.9 s，未发布，余量 89.4 s）；**S5b 退避后重试**（03:26 UTC，3 个 Item 全部成功、退避清零）；**S7 平台硬终止**（约 300 s 被平台结束，锁在结束那一秒释放；05:11 UTC 对账 tick 标为 interrupted、未发布、Item 退避 15 min，无 running 残留）。
+- **S2/S9 并发投递第一波**（05:54 UTC 发出）：4 个投递在 142 ms 内到达 4 个不同的新实例；只有 1 个执行（success，27.9 s），3 个因 jobs 锁返回 busy（约 0.2 s）；jobs 后端峰值 5，任何时刻每把锁至多 1 个持有者。
+- **停止原因**：最后一次 MCP 读回在批准上等了约 23 h（读回时已是 10-04 04:58 UTC），远超 02:00 EDT 截止，按指示立即收尾。
+
+### 收尾状态（10-04 00:58 EDT 核对）
+
+- **完成**：第一步；锁实验 + 防护；S0 冒烟、S1 鉴权反向、S3 多页 catch-up、S4 重试、S5 部分失败、S5b 退避后重试、S6 截止时间、S7 硬终止（含对账）、S8 响应丢失、S9 并发第一波。数字见 [Cron 验收记录](PFT_M5_CRON_ACCEPTANCE_2026-10-02.md)（含 [M]/[E] 标注和月度容量估算）。
+- **没做**：S9 第二波（无到期 Item 的并发）；真实 cron 节拍与抖动的更多样本、暂停后追赶（owner 要求不保留常驻定时任务，只有 2 次真实 tick）；**G1–G8 统一验收草稿（任务 5）未起草**；Auth 流程（按指示不执行，待 owner）。
+- **云端当前状态**：
+  - Supabase `acyghoemtdrilsdszolq`：`cron.job` **为空**（`pft-m5-tick`、`pft-m5-history-prune`、`pft-m5-sampler` 均已移除）；pg_cron/pg_net 扩展保留；schema `pft_m5_cron`（fixture，现约 12,9xx raw 行）、`pft_ops`（签名函数、`dispatch_tick`、`trigger_target`、`m5_samples` 采样表与 `m5_sample` 函数）保留；Vault 两个秘密 `m5_trigger_key_v1`、`m5_vercel_bypass` 保留；jobs 角色的 330 s idle 超时保留；无 `running` 的 run；临时 loader 角色已删除。`cron.job_run_details` 中有采样期间产生的大量记录（每秒一条，03:27–05:10 及 05:54–05:58 UTC），可用 `DELETE FROM cron.job_run_details WHERE end_time < now()` 清理（未执行，留给 owner 决定）。
+  - Vercel `pft-m5-jobs-20261001`：preview `dpl_S8nSP25gk85ZQ2zPdxiUiGNSXqgj` 在线（受部署保护；无常驻触发，不会自行运行）；5 个 `M5_CRON_*`/`M5_TRIGGER_*` preview 变量和 2 条 bypass 保留，按指示留给 owner 清理。
+  - 本机：无残留后台进程；全局 Vercel CLI 62.1.0 仍安装；私有目录在本 job 目录下。
+- **边界**：Production 写入 0，Plaid 调用 0，未 push、未合并、未改 main；今晚未读取私有凭据目录（21:59 EDT 指示之后）。
+
 - **时间损耗**：两次 MCP 调用分别在批准上等待约 57 min 和约 95 min，期间每秒采样任务一直在跑（03:27–05:10 UTC），05:10:53 已 unschedule 并确认 `cron.job` 为空。因此并发投递场景时间被压缩。
 - **常驻 cron**：owner 21:59 EDT 指示后立即 `cron.unschedule('pft-m5-tick')` 和 `pft-m5-history-prune`，`cron.job` 已确认为空。真实 cron 共触发 2 次（01:50、01:55 UTC）。之后每个场景由 agent 主动 `pft_ops.dispatch_tick` 触发；场景期间用每秒一次的 `pft-m5-sampler`（只写 `pft_ops.m5_samples`，不投递），场景结束立即 unschedule。
 - **约束变化**：owner 指示今晚不读取私有凭据目录，因此停用本地 `cron_observer` / `cron_evidence` / `cron_controller`（都需读 jobs 密码或秘密），改为 MCP SQL 取证；后台观察器已停止，无残留进程。

@@ -68,4 +68,33 @@ Evidence: [s7-hard-termination.json](evidence/m5-2026-10-02/cloud/s7-hard-termin
 - **The next tick reconciled it** (manual dispatch, 05:11:08): run `interrupted / interrupted`, unpublished; item run `interrupted`; cursor unchanged; Item 2 backed off 15 min (`sync_retry_count = 1`); 0 generation-3 rows; no `running` row left. The reconciling delivery itself returned `idle` in 0.63 s because Item 2 was now backed off.
 - Observation [M]: during a run **all three jobs sessions are "idle in transaction"**, including both lock connections: SQLAlchemy autobegins on the owner checks after `acquire_session_lock` commits. The 330 s idle-in-transaction timeout therefore also bounds the lock connections, and each keeps a snapshot open for the run. Candidate M6 change: commit (or use autocommit) after each owner check. Not changed tonight.
 
-<!-- Remaining scenario rows are filled in as each scenario completes. -->
+### S2 / S9 — concurrent deliveries and multi-instance connections (wave 1) [M]
+
+Evidence: [s9-concurrent-deliveries.json](evidence/m5-2026-10-02/cloud/s9-concurrent-deliveries.json). Four signed deliveries dispatched in one statement while five Items were due.
+
+- All four arrived within 142 ms and each landed on a **different, new instance** (instance ordinal 1, in-flight 1): Fluid scaled out rather than multiplexing these into one instance.
+- Exactly **one** ran (success, 5 Items, 27.9 s handler); the other three returned `busy` from the jobs advisory lock in 205–243 ms with an engine checkout peak of 1. No duplicate run, no second `running` row.
+- 1 s sampling: jobs-role backends peak **5**, client backends (all roles, including pg_cron, pg_net and the observer path) peak **11**; never more than one holder of either lock.
+- Connection budget [E]: per invocation ≤ 3 jobs connections while running, 1 while refused; jobs role limit 12; 4 simultaneous deliveries used ≤ 5 at the sampled resolution. Busy deliveries last ~0.2 s, so 1 s sampling can miss their instantaneous peak; the true peak for this wave is ≤ 3 + 3 × 1 = 6 by construction [E].
+
+## 4. Not run / open
+
+- **S9 wave 2** (concurrent deliveries with nothing due) — not run (time).
+- **Real cron cadence and jitter** beyond two ticks, and an **overdue-interval catch-up after a paused schedule** — not run: the owner asked for no resident schedule; only two real cron ticks exist.
+- **Run-level p95** — not available (single samples per scenario).
+- **Frozen-but-not-terminated instance** — not observed; the 330 s idle timeouts are the bound (local SIGSTOP trial only).
+- **Dashboard usage/billing** — not read (owner console).
+
+## 5. Capacity estimate (monthly, 5-minute tick) [E unless marked]
+
+Limits [D, checked 2026-10-02]: Vercel Hobby — 1,000,000 function invocations, 4 Active-CPU hours, 360 GB-hours provisioned memory, 10 GB Fast Origin Transfer, 300 s max duration; exceeding a Hobby limit pauses the feature until 30 days pass. Supabase Free — 500 MB database, 5 GB egress, pause after 1 week of inactivity, no backups.
+
+| Resource | Basis | Estimate per 30 days | Share of limit |
+| --- | --- | --- | --- |
+| Invocations | 8,640 ticks (5 min) + ~30 manual | ~8,700 | < 1 % |
+| Provisioned memory | idle tick ~0.6 s handler [M]; ~30 due syncs at ~10–70 s [M range]; memory size assumed 2 GB [E, not read from the project] | ≈ 8,640 × 0.6 s × 2 GB + 30 × 70 s × 2 GB ≈ 4.0 GB-h | ~1 % |
+| Active CPU | idle tick CPU not measured; assume ≤ 0.3 s; due sync CPU ≤ 8.5 s (2026-10-01 pre-fix measurement [M]) | ≈ 0.72 h + 0.07 h ≈ 0.8 h | ~20 % |
+| Supabase DB size | fixture DB 58 MB after +10,900 synthetic rows [M] | real data ≪ 500 MB | — |
+| Supabase egress | ~5 MB per whole-history sync (diff-writes packet [E]) × 30 + idle ticks (KB each) | ~0.2 GB | ~4 % |
+
+The console showed $0 (owner report); Vercel usage/billing APIs returned no data on 2026-10-01, so this is not billing evidence (G8 stays open).
