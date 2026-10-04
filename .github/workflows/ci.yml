@@ -66,12 +66,27 @@ jobs:
         with:
           python-version: '3.12'
           cache: pip
-          cache-dependency-path: api/requirements.txt
+          cache-dependency-path: |
+            api/requirements.txt
+            scripts/ci_requirements.txt
       - name: PostgreSQL 16 client tools
         run: |
           sudo apt-get update
           sudo apt-get install --no-install-recommends -y postgresql-client-16
           /usr/lib/postgresql/16/bin/pg_dump --version
-      - run: python -m pip install -r api/requirements.txt
+      - name: age backup test tools (pinned and checksum verified)
+        env:
+          AGE_VERSION: v1.3.2
+          AGE_SHA256: cbe24006683f8eb669266162894b9a522a1af52f2665fbc63a4bb032ed26ac10
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          curl -fsSL --retry 3 -o age.tgz \
+            "https://github.com/FiloSottile/age/releases/download/${AGE_VERSION}/age-${AGE_VERSION}-linux-amd64.tar.gz"
+          echo "${AGE_SHA256}  age.tgz" | sha256sum -c -
+          tar xzf age.tgz
+          "$RUNNER_TEMP/age/age" --version
+          echo "$RUNNER_TEMP/age" >> "$GITHUB_PATH"
+      - run: python -m pip install -r api/requirements.txt -r scripts/ci_requirements.txt
       - name: Unit and synthetic database integration tests
         run: python scripts/ci_backend_tests.py
