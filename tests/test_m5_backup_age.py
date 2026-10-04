@@ -423,7 +423,8 @@ class FullChainTests(unittest.IsolatedAsyncioTestCase):
         self.source = "pft_m5_backup_" + uuid.uuid4().hex[:12]
         self.target = "pft_restore_" + uuid.uuid4().hex[:16]
         self.pg_env = {"PATH": "/usr/bin:/bin", "PGHOST": base.host, "PGPORT": str(base.port),
-                       "PGUSER": base.username, "PGDATABASE": self.source}
+                       "PGUSER": base.username, "PGDATABASE": self.source,
+                       "PGPASSWORD": base.password or "", "PGCONNECT_TIMEOUT": "5"}
         subprocess.run([f"{PG_BIN}/createdb", self.source], env=self.pg_env, check=True)
         self.addCleanup(self.drop)
         engine = create_async_engine(base.set(database=self.source))
@@ -437,7 +438,7 @@ class FullChainTests(unittest.IsolatedAsyncioTestCase):
         self.emergency, emergency_pub = keypair(self.dir, "emergency")
         self.recipients = self.dir / "recipients.txt"
         self.recipients.write_text(f"{daily_pub}\n{emergency_pub}\n")
-        self.target_url = f"postgresql://{base.username}@{base.host}:{base.port}/{self.target}"
+        self.target_url = base.set(drivername="postgresql", database=self.target).render_as_string(hide_password=False)
 
     def drop(self):
         for name in (self.target, self.source):
@@ -514,14 +515,14 @@ class FullChainTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(counts, {"MEMBERSHIP": 1, "fixture-tech": 2, "fixture-archived": 2})
                 second = await connection.scalar(text("SELECT transaction_id FROM manual_transaction_label_overrides WHERE label='fixture-archived' AND decision='include'"))
                 other = await connection.scalar(text("SELECT transaction_id FROM transactions WHERE transaction_id NOT IN (SELECT transaction_id FROM manual_transaction_label_overrides) LIMIT 1"))
-                await connection.execute(text(f"CREATE ROLE {reader} LOGIN"))
-                await connection.execute(text(f"CREATE ROLE {writer} LOGIN"))
+                await connection.execute(text(f"CREATE ROLE {reader} LOGIN PASSWORD 'synthetic'"))
+                await connection.execute(text(f"CREATE ROLE {writer} LOGIN PASSWORD 'synthetic'"))
                 for role in (reader, writer):
                     await connection.execute(text(f"GRANT USAGE ON SCHEMA public TO {role}"))
                     await connection.execute(text(f"GRANT SELECT ON ALL TABLES IN SCHEMA public TO {role}"))
                 await connection.execute(text(f"GRANT INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO {writer}"))
-            read_engine = create_async_engine(base.set(database=self.target, username=reader, password=None))
-            write_engine = create_async_engine(base.set(database=self.target, username=writer, password=None))
+            read_engine = create_async_engine(base.set(database=self.target, username=reader, password="synthetic"))
+            write_engine = create_async_engine(base.set(database=self.target, username=writer, password="synthetic"))
             try:
                 with patch.object(database, "engine", read_engine), patch.object(runtime, "engine", read_engine), patch.dict(os.environ,
                     {"PLAID_ENV": "sandbox", "PLAID_CLIENT_ID": "synthetic", "PLAID_SECRET": "synthetic", "EXPECTED_DATABASE_NAME": self.target}):

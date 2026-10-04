@@ -243,7 +243,8 @@ class CronAdapterDatabaseTests(unittest.IsolatedAsyncioTestCase):
         base = make_url(self.config.url)
         target = "pft_restore_cron_" + uuid.uuid4().hex[:12]
         env = {**os.environ, "PGHOST": base.host, "PGPORT": str(base.port),
-               "PGUSER": base.username, "PGDATABASE": base.database}
+               "PGUSER": base.username, "PGDATABASE": base.database,
+               "PGPASSWORD": base.password or "", "PGCONNECT_TIMEOUT": "5"}
         def pg(tool, *args):
             return subprocess.run([str(Path(pg_bin) / tool), *args], env=env,
                                   capture_output=True, check=True, timeout=60)
@@ -267,9 +268,9 @@ class CronAdapterDatabaseTests(unittest.IsolatedAsyncioTestCase):
             pg("pg_restore", "--exit-on-error", "-d", target, archive)
         self.assertEqual(pft_backup_restore.fingerprint(dict(env, PGDATABASE=target), schemas, pg_bin), before)
         login_role = "labels_cron_jobs_" + uuid.uuid4().hex[:12]
-        await self.sql(f"CREATE ROLE {login_role} LOGIN")
+        await self.sql(f"CREATE ROLE {login_role} LOGIN PASSWORD 'synthetic'")
         await self.sql(f"GRANT pft_m5_jobs TO {login_role}")
-        role_engine = create_async_engine(base.set(database=target, username=login_role, password=None),
+        role_engine = create_async_engine(base.set(database=target, username=login_role, password="synthetic"),
             connect_args={"server_settings": {"search_path": self.schema}})
         try:
             with patch.object(database, "engine", role_engine):
