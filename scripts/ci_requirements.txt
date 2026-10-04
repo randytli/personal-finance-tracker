@@ -1,0 +1,2 @@
+# CI-only dependency for the unmounted M5 owner-auth prototype tests.
+PyJWT[crypto]==2.10.1

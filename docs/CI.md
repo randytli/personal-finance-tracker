@@ -36,17 +36,29 @@ docker run --name pft-ci-postgres --rm -d \
 # Wait for pg_isready to succeed before running tests.
 docker exec pft-ci-postgres pg_isready -U pft_ci -d pft_ci_synthetic
 python3.12 -m venv /tmp/pft-ci-venv
-/tmp/pft-ci-venv/bin/python -m pip install -r api/requirements.txt
+/tmp/pft-ci-venv/bin/python -m pip install -r api/requirements.txt -r scripts/ci_requirements.txt
+# Install the workflow's checksum-pinned age v1.3.2 bundle, then add its
+# directory (age, age-keygen and age-plugin-batchpass) to PATH.
 /tmp/pft-ci-venv/bin/python scripts/ci_backend_tests.py
 docker stop pft-ci-postgres
 ```
 
 The backend entry point fixes synthetic database/Plaid/owner settings and enables
-all seven `PFT_*_SYNTHETIC_TEST` switches. It discovers every `tests/test_*.py`,
+the seven required `PFT_*_SYNTHETIC_TEST` switches plus the two registered M5
+switches when their tests are present. It discovers every `tests/test_*.py`,
 including existing mocked cloud experiment tests; it never runs a cloud probe
 or a scheduler. Plaid SDK HTTP requests fail if a test misses its mock. Python
-socket connections are restricted to the disposable database. Recovery tests
+socket connections are restricted to the disposable database and live loopback
+HTTP fixtures created during the test run. Unregistered local ports, external
+addresses, wildcard HTTP binds and closed fixtures are rejected. Recovery tests
 generate synthetic archives in temporary directories and use matching PG16 tools.
+
+The workflow installs checksum-pinned age v1.3.2 and a CI-only pinned PyJWT
+dependency for the M5 backup/auth prototype tests. `PFT_AGE_BIN` is derived from
+the installed `age` on PATH after inherited application settings are cleared.
+These dependencies do not change the application runtime requirements or mount
+the Auth prototype. PostgreSQL subprocesses and temporary roles use the explicit
+synthetic password, so the tests also run against SCRAM-authenticated CI databases.
 
 Both entry points print executed, failure/error, and skipped counts, also written
 to the Actions job summary. Any skip/todo fails CI. Backend discovery also fails
@@ -54,6 +66,16 @@ if an opt-in is added without updating the inventory, a required integration
 class/critical test disappears, or a discovered test does not run. Keep the
 inventory and required test names current when deliberately renaming tests;
 never remove assertions or disable tests to make CI green.
+
+### PR #2 local reproduction, 2026-10-04
+
+The complete entry point passed with Python 3.12, a new loopback PostgreSQL 16
+cluster using SCRAM password authentication, pinned age v1.3.2 and the CI-only
+requirements: **386 executed, 0 failures, 0 errors, 0 skips**. This includes the
+live HTTP fixture boundary tests, all age/PFTENC2 recovery tests, Auth prototype
+tests with injected JWKS, and the Cron/label integration tests. The combined
+schema count includes the custom label table, migration marker and optional
+nonce schema. Only isolated synthetic data was used.
 
 ## Main merge protection
 

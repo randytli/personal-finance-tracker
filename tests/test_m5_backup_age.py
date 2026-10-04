@@ -643,7 +643,9 @@ class FullChainTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(runner.RunnerError, "unselected"):
             self.backup()
         self.assertEqual(self.store.list(), [])
-        self.assertEqual(self.backup(schemas=("public", "pft_ops"))["tables"], 16)
+        from api.models import Base
+        expected_public = set(Base.metadata.tables) | {"consumer_scope_migrations"}
+        self.assertEqual(self.backup(schemas=("public", "pft_ops"))["tables"], len(expected_public) + 1)
         stranger, _ = keypair(self.dir, "stranger")
         with self.assertRaisesRegex(restore_tool.RestoreError, "age failed"):
             restore_tool.restore(self.download(self.store.list()[-1]), self.target_url, identities=[stranger],
@@ -666,7 +668,7 @@ class FullChainTests(unittest.IsolatedAsyncioTestCase):
                                      "PFT_APP_COMMIT": "test", "PLAID_ENV": "sandbox"}), \
              patch.object(backup, "connection", lambda: (self.source, ["-h", self.pg_env["PGHOST"], "-p",
                                                                        self.pg_env["PGPORT"], "-U", self.pg_env["PGUSER"]],
-                                                         dict(os.environ))):
+                                                         {**os.environ, **self.pg_env})):
             # The local guard insists on pft_m3_tests_* names; only that check is bypassed here.
             backup.backup("daily")
         dump = next(backups.glob("pft-daily-*.dump"))
