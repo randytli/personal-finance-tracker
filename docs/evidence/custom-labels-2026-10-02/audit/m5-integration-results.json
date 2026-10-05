@@ -1,0 +1,14 @@
+{
+  "run": "I1: isolated composition probe; expected integration rejection",
+  "feature_commit": "7180352",
+  "m5_head": "6395882",
+  "m5_fingerprint_origin_commit": "e648e4e",
+  "feature_application_table_count": 15,
+  "cron_fixture_system_definitions": 0,
+  "cron_fixture_label_guards": 0,
+  "cron_runtime_schema_rejected": "Runtime schema is incomplete; run explicit migration: transaction_label_definitions.pft_label_definition_guard, manual_transaction_label_overrides.pft_label_association_guard, items.pft_label_item_owner_guard, raw_transactions.pft_label_raw_owner_guard",
+  "fingerprint_includes_definition_table": true,
+  "fingerprint_includes_guard_functions_and_triggers": false,
+  "production_or_external_access": false,
+  "main_or_m5_files_modified": false
+}

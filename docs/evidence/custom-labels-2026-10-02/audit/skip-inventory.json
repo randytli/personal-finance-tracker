@@ -1,0 +1,375 @@
+{
+  "discovery_only": true,
+  "feature_commit": "7180352",
+  "total_discovered": 313,
+  "skipped_count": 82,
+  "groups": {
+    "test_category_overrides": 1,
+    "test_consumer_scope": 10,
+    "test_derivation_writes": 7,
+    "test_dining_migration": 6,
+    "test_m3_recovery": 2,
+    "test_m4_jobs": 20,
+    "test_statement_persistence": 13,
+    "test_sync_all": 23
+  },
+  "skipped_tests": [
+    {
+      "id": "test_category_overrides.CategoryDatabaseTests.test_migration_api_normalization_and_reclassification",
+      "reason": "isolated PostgreSQL opt-in"
+    },
+    {
+      "id": "test_consumer_scope.ConsumerDatabaseTests.test_activation_rolls_back_if_classification_fails",
+      "reason": "isolated PostgreSQL opt-in"
+    },
+    {
+      "id": "test_consumer_scope.ConsumerDatabaseTests.test_caller_transaction_owns_normalization_and_classification",
+      "reason": "isolated PostgreSQL opt-in"
+    },
+    {
+      "id": "test_consumer_scope.ConsumerDatabaseTests.test_composed_services_use_current_rows_with_loaded_orm_objects",
+      "reason": "isolated PostgreSQL opt-in"
+    },
+    {
+      "id": "test_consumer_scope.ConsumerDatabaseTests.test_derivation_guard_locks_entire_owned_scope_before_composition",
+      "reason": "isolated PostgreSQL opt-in"
+    },
+    {
+      "id": "test_consumer_scope.ConsumerDatabaseTests.test_discovery_ingestion_and_all_consumer_paths",
+      "reason": "isolated PostgreSQL opt-in"
+    },
+    {
+      "id": "test_consumer_scope.ConsumerDatabaseTests.test_legacy_migration_preserves_rows_and_decisions",
+      "reason": "isolated PostgreSQL opt-in"
+    },
+    {
+      "id": "test_consumer_scope.ConsumerDatabaseTests.test_manual_review_waits_for_derivation_lock",
+      "reason": "isolated PostgreSQL opt-in"
+    },
+    {
+      "id": "test_consumer_scope.ConsumerDatabaseTests.test_official_classification_ignores_pending_item",
+      "reason": "isolated PostgreSQL opt-in"
+    },
+    {
+      "id": "test_consumer_scope.ConsumerDatabaseTests.test_ownership_and_disabled_transfer_counterpart",
+      "reason": "isolated PostgreSQL opt-in"
+    },
+    {
+      "id": "test_consumer_scope.ConsumerDatabaseTests.test_pending_preview_is_read_only_and_activation_reclassifies_atomically",
+      "reason": "isolated PostgreSQL opt-in"
+    },
+    {
+      "id": "test_derivation_writes.DerivationWriteTests.test_changed_classifications_are_written_in_one_statement",
+      "reason": "isolated PostgreSQL opt-in"
+    },
+    {
+      "id": "test_derivation_writes.DerivationWriteTests.test_diff_writes_match_full_rewrite_across_sync_scenarios",
+      "reason": "isolated PostgreSQL opt-in"
+    },
+    {
+      "id": "test_derivation_writes.DerivationWriteTests.test_invalid_historical_row_still_blocks_its_item_on_noop",
+      "reason": "isolated PostgreSQL opt-in"
+    },
+    {
+      "id": "test_derivation_writes.DerivationWriteTests.test_noop_classification_issues_no_row_updates",
+      "reason": "isolated PostgreSQL opt-in"
+    },
+    {
+      "id": "test_derivation_writes.DerivationWriteTests.test_noop_normalization_writes_no_rows_and_counts_every_eligible_row",
+      "reason": "isolated PostgreSQL opt-in"
+    },
+    {
+      "id": "test_derivation_writes.DerivationWriteTests.test_noop_sync_restores_a_missing_normalized_row",
+      "reason": "isolated PostgreSQL opt-in"
+    },
+    {
+      "id": "test_derivation_writes.DerivationWriteTests.test_noop_sync_statement_count_does_not_grow_with_history",
+      "reason": "isolated PostgreSQL opt-in"
+    },
+    {
+      "id": "test_dining_migration.DiningMigrationDatabaseTests.test_changed_row_rollback_refused",
+      "reason": "isolated PostgreSQL opt-in"
+    },
+    {
+      "id": "test_dining_migration.DiningMigrationDatabaseTests.test_cleared_row_refused",
+      "reason": "isolated PostgreSQL opt-in"
+    },
+    {
+      "id": "test_dining_migration.DiningMigrationDatabaseTests.test_dormant_decision_and_financial_totals_preserved",
+      "reason": "isolated PostgreSQL opt-in"
+    },
+    {
+      "id": "test_dining_migration.DiningMigrationDatabaseTests.test_forward_reverse_and_rerun_guard",
+      "reason": "isolated PostgreSQL opt-in"
+    },
+    {
+      "id": "test_dining_migration.DiningMigrationDatabaseTests.test_generic_migration_refuses_legacy_rows",
+      "reason": "isolated PostgreSQL opt-in"
+    },
+    {
+      "id": "test_dining_migration.DiningMigrationDatabaseTests.test_validation_failure_restores_ddl_and_rows",
+      "reason": "isolated PostgreSQL opt-in"
+    },
+    {
+      "id": "test_m3_recovery.RecoveryDatabaseTests.test_populated_encrypted_backup_recovers_without_source_files",
+      "reason": "isolated PostgreSQL opt-in"
+    },
+    {
+      "id": "test_m3_recovery.RecoveryDatabaseTests.test_schema_check_rejects_missing_override_table_and_m2_column",
+      "reason": "isolated PostgreSQL opt-in"
+    },
+    {
+      "id": "test_m4_jobs.JobsDatabaseTests.test_backup_failure_does_not_block_sync_or_claim_success",
+      "reason": "isolated PostgreSQL opt-in"
+    },
+    {
+      "id": "test_m4_jobs.JobsDatabaseTests.test_busy_sync_lock_leaves_clicks_coalesced",
+      "reason": "isolated PostgreSQL opt-in"
+    },
+    {
+      "id": "test_m4_jobs.JobsDatabaseTests.test_cancelled_lock_acquisition_does_not_leak_pooled_lock",
+      "reason": "isolated PostgreSQL opt-in"
+    },
+    {
+      "id": "test_m4_jobs.JobsDatabaseTests.test_concurrent_initial_requests_coalesce_without_creation_race",
+      "reason": "isolated PostgreSQL opt-in"
+    },
+    {
+      "id": "test_m4_jobs.JobsDatabaseTests.test_crash_after_commit_does_not_replay_and_preserves_midrun_request",
+      "reason": "isolated PostgreSQL opt-in"
+    },
+    {
+      "id": "test_m4_jobs.JobsDatabaseTests.test_dedup_midrun_and_restart",
+      "reason": "isolated PostgreSQL opt-in"
+    },
+    {
+      "id": "test_m4_jobs.JobsDatabaseTests.test_exception_records_backoff_and_finishes_manual_request",
+      "reason": "isolated PostgreSQL opt-in"
+    },
+    {
+      "id": "test_m4_jobs.JobsDatabaseTests.test_global_rollback_records_retry_without_publication",
+      "reason": "isolated PostgreSQL opt-in"
+    },
+    {
+      "id": "test_m4_jobs.JobsDatabaseTests.test_idle_restart_reconciles_interrupted_run",
+      "reason": "isolated PostgreSQL opt-in"
+    },
+    {
+      "id": "test_m4_jobs.JobsDatabaseTests.test_lost_jobs_lock_keeps_request_for_restart",
+      "reason": "isolated PostgreSQL opt-in"
+    },
+    {
+      "id": "test_m4_jobs.JobsDatabaseTests.test_lost_jobs_owner_cannot_publish_with_live_sync_lock",
+      "reason": "isolated PostgreSQL opt-in"
+    },
+    {
+      "id": "test_m4_jobs.JobsDatabaseTests.test_lost_owner_during_backup_stops_old_worker_before_sync",
+      "reason": "isolated PostgreSQL opt-in"
+    },
+    {
+      "id": "test_m4_jobs.JobsDatabaseTests.test_m4_upgrade_preserves_m2_state_and_is_idempotent",
+      "reason": "isolated PostgreSQL opt-in"
+    },
+    {
+      "id": "test_m4_jobs.JobsDatabaseTests.test_m5_status_exposes_publication_item_errors_jobs_and_backup",
+      "reason": "isolated PostgreSQL opt-in"
+    },
+    {
+      "id": "test_m4_jobs.JobsDatabaseTests.test_optional_metadata_failure_is_visible_without_changing_sync_success",
+      "reason": "isolated PostgreSQL opt-in"
+    },
+    {
+      "id": "test_m4_jobs.JobsDatabaseTests.test_recent_success_does_not_delay_due_retry",
+      "reason": "isolated PostgreSQL opt-in"
+    },
+    {
+      "id": "test_m4_jobs.JobsDatabaseTests.test_required_metadata_reauthorization_pauses_item",
+      "reason": "isolated PostgreSQL opt-in"
+    },
+    {
+      "id": "test_m4_jobs.JobsDatabaseTests.test_retry_backoff_and_manual_bypass_of_due_time",
+      "reason": "isolated PostgreSQL opt-in"
+    },
+    {
+      "id": "test_m4_jobs.JobsDatabaseTests.test_scheduled_scope_rechecked_after_backup_or_other_sync",
+      "reason": "isolated PostgreSQL opt-in"
+    },
+    {
+      "id": "test_m4_jobs.JobsDatabaseTests.test_startup_daily_sleep_resume_and_backup_independence",
+      "reason": "isolated PostgreSQL opt-in"
+    },
+    {
+      "id": "test_statement_persistence.StatementDatabaseTests.test_active_analytics_scoping_category_and_review",
+      "reason": "isolated PostgreSQL opt-in"
+    },
+    {
+      "id": "test_statement_persistence.StatementDatabaseTests.test_apply_rerun_override_rollback_and_analytics",
+      "reason": "isolated PostgreSQL opt-in"
+    },
+    {
+      "id": "test_statement_persistence.StatementDatabaseTests.test_apply_revalidates_cached_account_scope",
+      "reason": "isolated PostgreSQL opt-in"
+    },
+    {
+      "id": "test_statement_persistence.StatementDatabaseTests.test_apply_revalidates_cached_batch_after_concurrent_rollback",
+      "reason": "isolated PostgreSQL opt-in"
+    },
+    {
+      "id": "test_statement_persistence.StatementDatabaseTests.test_cli_database_dispatch_review_apply_and_rollback",
+      "reason": "isolated PostgreSQL opt-in"
+    },
+    {
+      "id": "test_statement_persistence.StatementDatabaseTests.test_concurrent_retries_and_atomic_failure",
+      "reason": "isolated PostgreSQL opt-in"
+    },
+    {
+      "id": "test_statement_persistence.StatementDatabaseTests.test_conflicts_and_stale_preview",
+      "reason": "isolated PostgreSQL opt-in"
+    },
+    {
+      "id": "test_statement_persistence.StatementDatabaseTests.test_counterpart_review_preserves_existing_rows_and_rollback_gate",
+      "reason": "isolated PostgreSQL opt-in"
+    },
+    {
+      "id": "test_statement_persistence.StatementDatabaseTests.test_migration_preserves_legacy_data_and_is_idempotent",
+      "reason": "isolated PostgreSQL opt-in"
+    },
+    {
+      "id": "test_statement_persistence.StatementDatabaseTests.test_migration_with_existing_import_and_overrides",
+      "reason": "isolated PostgreSQL opt-in"
+    },
+    {
+      "id": "test_statement_persistence.StatementDatabaseTests.test_overlap_blocks_cursor_and_source_collision",
+      "reason": "isolated PostgreSQL opt-in"
+    },
+    {
+      "id": "test_statement_persistence.StatementDatabaseTests.test_settings_edit_currency_and_target_drift_block",
+      "reason": "isolated PostgreSQL opt-in"
+    },
+    {
+      "id": "test_statement_persistence.StatementDatabaseTests.test_target_parse_errors_and_reexports",
+      "reason": "isolated PostgreSQL opt-in"
+    },
+    {
+      "id": "test_sync_all.SyncAllDatabaseTests.test_actual_post_commit_acknowledgement_exception_preserves_publication",
+      "reason": "isolated PostgreSQL opt-in"
+    },
+    {
+      "id": "test_sync_all.SyncAllDatabaseTests.test_concurrent_scope_change_rejects_buffer",
+      "reason": "isolated PostgreSQL opt-in"
+    },
+    {
+      "id": "test_sync_all.SyncAllDatabaseTests.test_crash_before_commit_is_reconciled_and_after_commit_state_is_authoritative",
+      "reason": "isolated PostgreSQL opt-in"
+    },
+    {
+      "id": "test_sync_all.SyncAllDatabaseTests.test_dedicated_sync_lock_prevents_parallel_run_and_idle_creates_no_marker",
+      "reason": "isolated PostgreSQL opt-in"
+    },
+    {
+      "id": "test_sync_all.SyncAllDatabaseTests.test_existing_history_without_cursor_blocks_before_plaid",
+      "reason": "isolated PostgreSQL opt-in"
+    },
+    {
+      "id": "test_sync_all.SyncAllDatabaseTests.test_failed_repair_leaves_metadata_and_cursor_unchanged",
+      "reason": "isolated PostgreSQL opt-in"
+    },
+    {
+      "id": "test_sync_all.SyncAllDatabaseTests.test_full_active_classification_cost_on_synthetic_history",
+      "reason": "isolated PostgreSQL opt-in"
+    },
+    {
+      "id": "test_sync_all.SyncAllDatabaseTests.test_global_failure_rolls_back_every_item_and_marker",
+      "reason": "isolated PostgreSQL opt-in"
+    },
+    {
+      "id": "test_sync_all.SyncAllDatabaseTests.test_input_failure_rolls_back_writes_and_cursor_inside_item_savepoint",
+      "reason": "isolated PostgreSQL opt-in"
+    },
+    {
+      "id": "test_sync_all.SyncAllDatabaseTests.test_jobs_retry_backoff_and_action_blocker_are_persisted",
+      "reason": "isolated PostgreSQL opt-in"
+    },
+    {
+      "id": "test_sync_all.SyncAllDatabaseTests.test_lost_lock_connection_aborts_publication",
+      "reason": "isolated PostgreSQL opt-in"
+    },
+    {
+      "id": "test_sync_all.SyncAllDatabaseTests.test_metadata_type_drift_rolls_back_repair_and_preserves_scope",
+      "reason": "isolated PostgreSQL opt-in"
+    },
+    {
+      "id": "test_sync_all.SyncAllDatabaseTests.test_migration_preserves_existing_cursor_and_is_idempotent",
+      "reason": "isolated PostgreSQL opt-in"
+    },
+    {
+      "id": "test_sync_all.SyncAllDatabaseTests.test_multi_page_noop_repeat_removal_and_active_only_publication",
+      "reason": "isolated PostgreSQL opt-in"
+    },
+    {
+      "id": "test_sync_all.SyncAllDatabaseTests.test_network_failure_isolated_and_retry_count_bounded",
+      "reason": "isolated PostgreSQL opt-in"
+    },
+    {
+      "id": "test_sync_all.SyncAllDatabaseTests.test_not_ready_and_stale_cursor_never_publish",
+      "reason": "isolated PostgreSQL opt-in"
+    },
+    {
+      "id": "test_sync_all.SyncAllDatabaseTests.test_pagination_mutation_discards_pages_and_retries_from_original_cursor",
+      "reason": "isolated PostgreSQL opt-in"
+    },
+    {
+      "id": "test_sync_all.SyncAllDatabaseTests.test_publication_deadline_cancels_classification_and_rolls_back",
+      "reason": "isolated PostgreSQL opt-in"
+    },
+    {
+      "id": "test_sync_all.SyncAllDatabaseTests.test_replayed_added_batch_does_not_claim_a_new_data_change",
+      "reason": "isolated PostgreSQL opt-in"
+    },
+    {
+      "id": "test_sync_all.SyncAllDatabaseTests.test_statement_conflict_rolls_back_only_its_item_and_other_item_publishes",
+      "reason": "isolated PostgreSQL opt-in"
+    },
+    {
+      "id": "test_sync_all.SyncAllDatabaseTests.test_unexpected_normalization_error_aborts_all_items",
+      "reason": "isolated PostgreSQL opt-in"
+    },
+    {
+      "id": "test_sync_all.SyncAllDatabaseTests.test_unknown_account_after_repair_does_not_trigger_second_repair",
+      "reason": "isolated PostgreSQL opt-in"
+    },
+    {
+      "id": "test_sync_all.SyncAllDatabaseTests.test_unknown_account_repairs_once_and_refetches_original_cursor",
+      "reason": "isolated PostgreSQL opt-in"
+    }
+  ],
+  "enabled_label_tests": [
+    "test_transaction_labels.LabelDatabaseTests.test_amex_benefit_context_agrees_across_summary_details_and_label_edits",
+    "test_transaction_labels.LabelDatabaseTests.test_api_review_analytics_filter_and_financial_invariance",
+    "test_transaction_labels.LabelDatabaseTests.test_atomic_bulk_label_and_category_validation",
+    "test_transaction_labels.LabelDatabaseTests.test_bulk_benefit_manual_type_restore_and_unavailable_selection",
+    "test_transaction_labels.LabelDatabaseTests.test_bulk_restore_dormant_decisions_and_mid_batch_rollback",
+    "test_transaction_labels.LabelDatabaseTests.test_bulk_scope_and_derivation_lock",
+    "test_transaction_labels.LabelDatabaseTests.test_custom_archive_waits_for_inflight_include_and_blocks_following_include",
+    "test_transaction_labels.LabelDatabaseTests.test_custom_db_case_insensitive_name_uniqueness",
+    "test_transaction_labels.LabelDatabaseTests.test_custom_db_rejects_cross_owner_identity_changes_reparent_and_archived_include",
+    "test_transaction_labels.LabelDatabaseTests.test_custom_multilabel_atomic_bulk_and_financial_invariance",
+    "test_transaction_labels.LabelDatabaseTests.test_custom_names_colors_scope_and_concurrent_duplicates",
+    "test_transaction_labels.LabelDatabaseTests.test_custom_provenance_may_move_within_same_owner",
+    "test_transaction_labels.LabelDatabaseTests.test_custom_rename_archive_remove_restore_preserve_audit_and_history",
+    "test_transaction_labels.LabelDatabaseTests.test_custom_runtime_requires_enabled_ownership_guards",
+    "test_transaction_labels.LabelDatabaseTests.test_custom_upgrade_preserves_legacy_decisions_and_totals",
+    "test_transaction_labels.LabelDatabaseTests.test_m5_membership_and_detail_labels_share_transaction_snapshot",
+    "test_transaction_labels.LabelDatabaseTests.test_membership_summary_and_range_respect_active_consumer_scope",
+    "test_transaction_labels.LabelDatabaseTests.test_migration_idempotency_and_existing_row_preservation",
+    "test_transaction_labels.LabelDatabaseTests.test_pending_manual_audit_noops_clear_and_classifier_survival",
+    "test_transaction_labels.LabelDatabaseTests.test_scope_and_validation",
+    "test_transaction_labels.LabelRuleTests.test_amex_membership_benefits_require_credit_card_evidence",
+    "test_transaction_labels.LabelRuleTests.test_annual_card_fees_are_not_automatic_memberships",
+    "test_transaction_labels.LabelRuleTests.test_china_vocabulary_and_conservative_rules",
+    "test_transaction_labels.LabelRuleTests.test_effective_set_manual_include_exclude_and_clear_semantics",
+    "test_transaction_labels.LabelRuleTests.test_manual_membership_decision_overrides_automatic_and_clear_restores",
+    "test_transaction_labels.LabelRuleTests.test_reviewed_generic_expense_amount_rules_are_exact",
+    "test_transaction_labels.LabelRuleTests.test_reviewed_membership_descriptions_are_exact_and_description_only"
+  ]
+}
