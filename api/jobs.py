@@ -1,7 +1,10 @@
 """Single-owner jobs loop for daily backups and active-Item synchronization."""
 
 import asyncio
+import errno
 import logging
+import os
+import subprocess
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select, text
@@ -16,6 +19,22 @@ POLL_SECONDS = 60
 
 def utcnow():
     return datetime.now(timezone.utc)
+
+
+def _backup_failure(exc):
+    """Name the failed step by errno and basenames; messages may embed the database URL."""
+    parts = [type(exc).__name__]
+    if isinstance(exc, OSError):
+        if exc.errno in errno.errorcode:
+            parts.append("errno=" + errno.errorcode[exc.errno])
+        for key, name in (("file", exc.filename), ("file2", exc.filename2)):
+            if isinstance(name, (str, os.PathLike)):
+                parts.append(key + "=" + os.path.basename(name))
+    elif isinstance(exc, (subprocess.CalledProcessError, subprocess.TimeoutExpired)):
+        parts.append("command=" + os.path.basename(exc.cmd[0]))
+        if isinstance(exc, subprocess.CalledProcessError):
+            parts.append(f"returncode={exc.returncode}")
+    return " ".join(parts)
 
 
 async def _assert_owner(connection, backend_pid):
@@ -106,7 +125,7 @@ async def tick(user_id, *, now=None, engine=None, session_factory=None, sync=Non
                 try:
                     await asyncio.to_thread(backup_fn, "daily")
                 except Exception as exc:
-                    logger.error("Daily backup failed: %s", type(exc).__name__)
+                    logger.error("Daily backup failed: %s", _backup_failure(exc))
                     await _assert_owner(owner, backend_pid)
                     async with session_factory.begin() as db:
                         state = await _state(db, user_id)

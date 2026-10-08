@@ -1,7 +1,9 @@
 """M4 scheduling tests use only disposable PostgreSQL schemas and mock syncs."""
 
 import asyncio
+import errno
 import os
+import subprocess
 import threading
 import unittest
 import uuid
@@ -206,6 +208,42 @@ class JobsDatabaseTests(unittest.IsolatedAsyncioTestCase):
             state = await db.get(SyncRuntimeState, "synthetic-user")
             self.assertEqual(state.last_backup_at, self.clock)
             self.assertIsNone(state.last_backup_error)
+
+    async def test_backup_failure_log_names_the_step_without_paths_or_credentials(self):
+        async def sync(user_id, **kwargs):
+            return {"status": "success"}
+
+        pg_dump = ["/usr/lib/postgresql/16/bin/pg_dump", "-h", "db", "-p", "5432",
+                   "-U", "synthetic_user", "-Fc", "-d", "pft_synthetic"]
+        cases = [
+            # tempfile.mkstemp in a backup directory the jobs user cannot write
+            (PermissionError(errno.EACCES, "Permission denied", "/backups/.pft-incomplete-k3j2h1"),
+             "PermissionError errno=EACCES file=.pft-incomplete-k3j2h1"),
+            # Path.replace of the finished archive
+            (PermissionError(errno.EACCES, "Permission denied", "/backups/.pft-incomplete-k3j2h1",
+                             None, "/backups/pft-daily-20261008T203220525958Z.dump"),
+             "PermissionError errno=EACCES file=.pft-incomplete-k3j2h1 "
+             "file2=pft-daily-20261008T203220525958Z.dump"),
+            # Calls on a descriptor report its number instead of a path.
+            (OSError(errno.EBADF, "Bad file descriptor", 3), "OSError errno=EBADF"),
+            (subprocess.CalledProcessError(1, pg_dump, stderr=b'FATAL:  password authentication '
+                                           b'failed for user "synthetic_user"'),
+             "CalledProcessError command=pg_dump returncode=1"),
+            (subprocess.TimeoutExpired(["/usr/lib/postgresql/16/bin/pg_restore", "-l",
+                                        "/backups/.pft-incomplete-k3j2h1"], 1800),
+             "TimeoutExpired command=pg_restore"),
+            # Messages can embed the database URL, so other errors log the type only.
+            (RuntimeError("postgresql://synthetic_user:synthetic-secret@db/pft_synthetic"),
+             "RuntimeError"),
+        ]
+        for exc, expected in cases:
+            def failed_backup(kind, exc=exc):
+                raise exc
+
+            with self.subTest(expected=expected):
+                with self.assertLogs("api.jobs", "ERROR") as logs:
+                    await self.poll(sync, backup_fn=failed_backup)
+                self.assertEqual(logs.output, ["ERROR:api.jobs:Daily backup failed: " + expected])
 
     async def test_dedup_midrun_and_restart(self):
         first = await self.request(["a"])
