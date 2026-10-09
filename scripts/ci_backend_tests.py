@@ -2,16 +2,20 @@
 
 Never source an env file. PostgreSQL must be a NEW disposable cluster on 55439.
 """
+from contextlib import contextmanager
+from http.server import HTTPServer
 import os
 from pathlib import Path
 import re
+import shutil
 import socket
 import sys
 import unittest
 from unittest.mock import patch
+from weakref import WeakSet
 
 ROOT = Path(__file__).resolve().parents[1]
-OPT_INS = {
+REQUIRED_OPT_INS = {
     "PFT_CATEGORY_SYNTHETIC_TEST",
     "PFT_CONSUMER_SYNTHETIC_TEST",
     "PFT_LABEL_SYNTHETIC_TEST",
@@ -19,6 +23,11 @@ OPT_INS = {
     "PFT_SYNC_SYNTHETIC_TEST",
     "PFT_M3_SYNTHETIC_TEST",
     "PFT_M4_SYNTHETIC_TEST",
+}
+# M5 tests are present on integration branches before they reach main.
+OPT_INS = REQUIRED_OPT_INS | {
+    "PFT_M5_BACKUP_SYNTHETIC_TEST",
+    "PFT_M5_TRIGGER_SYNTHETIC_TEST",
 }
 REQUIRED_CLASSES = {
     "test_category_overrides.CategoryDatabaseTests",
@@ -52,6 +61,16 @@ def cases(suite):
             yield test
 
 
+def discover_opt_ins(root):
+    found = set()
+    for path in (root / "tests").glob("test_*.py"):
+        found.update(re.findall(r"PFT_[A-Z0-9_]*SYNTHETIC_TEST", path.read_text()))
+    mismatch = (found - OPT_INS) | (REQUIRED_OPT_INS - found)
+    if mismatch:
+        raise RuntimeError(f"Update CI opt-in inventory: {mismatch}")
+    return found
+
+
 class Result(unittest.TextTestResult):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -60,6 +79,37 @@ class Result(unittest.TextTestResult):
     def startTest(self, test):
         self.started.add(test.id())
         super().startTest(test)
+
+
+@contextmanager
+def isolated_network():
+    """Allow the disposable DB and live HTTP fixtures created inside this scope."""
+    servers = WeakSet()
+    server_bind = HTTPServer.server_bind
+    connect, connect_ex = socket.socket.connect, socket.socket.connect_ex
+    loopback = {"127.0.0.1", "localhost", "::1"}
+
+    def bind(server):
+        if server.server_address[0] not in loopback:
+            raise AssertionError("Test HTTP servers must bind to loopback")
+        server_bind(server)
+        servers.add(server)
+
+    def guarded(original):
+        def call(sock, address):
+            if sock.family in (socket.AF_INET, socket.AF_INET6):
+                database = address[0] in loopback and address[1] == 55439
+                fixture = any(server.socket.fileno() != -1 and
+                              address[:2] == server.server_address[:2] for server in servers)
+                if not (database or fixture):
+                    raise AssertionError(f"Unmocked network connection forbidden: {address}")
+            return original(sock, address)
+        return call
+
+    with patch.object(HTTPServer, "server_bind", bind), \
+         patch("socket.socket.connect", guarded(connect)), \
+         patch("socket.socket.connect_ex", guarded(connect_ex)):
+        yield
 
 
 def main():
@@ -79,28 +129,12 @@ def main():
         "PLAID_SECRET": "synthetic-secret",
         "PLAID_PILOT_LINK_ENABLED": "false",
         "PFT_PG_BIN_DIR": "/usr/lib/postgresql/16/bin",
-        **{name: "1" for name in OPT_INS},
+        "PFT_AGE_BIN": shutil.which("age") or "",
+        **{name: "1" for name in discover_opt_ins(ROOT)},
     })
-    found = set()
-    for path in (ROOT / "tests").glob("test_*.py"):
-        found.update(re.findall(r"PFT_[A-Z0-9_]*SYNTHETIC_TEST", path.read_text()))
-    if found != OPT_INS:
-        raise RuntimeError(f"Update CI opt-in inventory: {found ^ OPT_INS}")
-
-    connect = socket.socket.connect
-    connect_ex = socket.socket.connect_ex
-
-    def guarded(original):
-        def call(sock, address):
-            if sock.family in (socket.AF_INET, socket.AF_INET6):
-                if address[0] not in {"127.0.0.1", "localhost", "::1"} or address[1] != 55439:
-                    raise AssertionError(f"Unmocked network connection forbidden: {address}")
-            return original(sock, address)
-        return call
 
     # Tests provide their own fake Plaid clients. Fail any missed SDK mock.
-    with patch("socket.socket.connect", guarded(connect)), \
-         patch("socket.socket.connect_ex", guarded(connect_ex)), \
+    with isolated_network(), \
          patch("plaid.rest.RESTClientObject.request", side_effect=AssertionError("Unmocked Plaid call forbidden")):
         suite = unittest.defaultTestLoader.discover(str(ROOT / "tests"), pattern="test_*.py")
         planned = {test.id() for test in cases(suite)}

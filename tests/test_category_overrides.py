@@ -5,6 +5,7 @@ import uuid
 from datetime import date, datetime
 from decimal import Decimal
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from fastapi import HTTPException
 from pydantic import ValidationError
@@ -184,6 +185,14 @@ class CategoryTests(unittest.TestCase):
 
 @unittest.skipUnless(os.environ.get('PFT_CATEGORY_SYNTHETIC_TEST') == '1', 'isolated PostgreSQL opt-in')
 class CategoryDatabaseTests(unittest.IsolatedAsyncioTestCase):
+    USER_ID = 'category-test-user'
+
+    def setUp(self):
+        # Review routes scope by PLAID_PILOT_USER_ID; never inherit the shell's value.
+        patcher = patch.dict(os.environ, {'PLAID_PILOT_USER_ID': self.USER_ID})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     async def test_migration_api_normalization_and_reclassification(self):
         from api.db import engine, init_db, SessionLocal
         from api.routes.plaid import normalize_transactions, classify_transactions
@@ -197,7 +206,7 @@ class CategoryDatabaseTests(unittest.IsolatedAsyncioTestCase):
         institution_id = 'ins-category-' + uuid.uuid4().hex
         async with SessionLocal() as db:
             async with db.begin():
-                db.add(Item(item_id=item_id, user_id='local-sandbox-user', institution_id=institution_id,
+                db.add(Item(item_id=item_id, user_id=self.USER_ID, institution_id=institution_id,
                     institution_name='Synthetic', status='active', access_token='synthetic-only'))
             async with db.begin():
                 db.add(Account(account_id=account_id, item_id=item_id, name='Test', type='credit',

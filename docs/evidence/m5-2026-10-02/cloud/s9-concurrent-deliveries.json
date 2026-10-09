@@ -1,0 +1,18 @@
+{
+  "kind": "m5_cron_s9_concurrent_deliveries_wave1",
+  "source": "MCP SQL (postgres) on acyghoemtdrilsdszolq; dispatched 2026-10-03 05:54:49 UTC, read back 2026-10-04 04:58 UTC (the read waited for approval)",
+  "setup": {"items 0,1,3,4": "slow, 2 pages x 3 s, generation 4, due", "item-2": "retry due from S7 backoff",
+            "trigger": "four pft_ops.dispatch_tick(300000, 'concurrent-w1') calls in one statement (net requests 9-12)",
+            "sampler": "1 s, self-unscheduling after 4 minutes"},
+  "deliveries": [
+    {"received": "05:54:52.214", "finished": "05:55:20.308", "outcome": "success", "handler_ms": 27938, "engine_checkout_peak": 3, "instance": "629c5745", "instance_ordinal": 1, "inflight_at_start": 1},
+    {"received": "05:54:52.235", "finished": "05:54:52.642", "outcome": "busy", "handler_ms": 243, "engine_checkout_peak": 1, "instance": "56414b21", "instance_ordinal": 1, "inflight_at_start": 1},
+    {"received": "05:54:52.328", "finished": "05:54:52.682", "outcome": "busy", "handler_ms": 205, "engine_checkout_peak": 1, "instance": "1362aea8", "instance_ordinal": 1, "inflight_at_start": 1},
+    {"received": "05:54:52.356", "finished": "05:54:52.749", "outcome": "busy", "handler_ms": 218, "engine_checkout_peak": 1, "instance": "b2be3b7c", "instance_ordinal": 1, "inflight_at_start": 1}],
+  "net_responses": "4 x HTTP 200, none timed out",
+  "runs": [{"status": "success", "duration_ms": 27277, "item_runs": 5}],
+  "sampling_1s": {"samples": 236, "jobs_backends_peak": 5, "jobs_active_peak": 1, "client_backends_peak_all_roles": 11,
+                  "max_sync_lock_holders": 1, "max_jobs_lock_holders": 1},
+  "after": {"running_runs": 0, "cron_jobs": []},
+  "not_run": "wave 2 (four concurrent deliveries with nothing due) was not run: out of time"
+}

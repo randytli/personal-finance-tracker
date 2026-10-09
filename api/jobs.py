@@ -40,6 +40,9 @@ def _backup_failure(exc):
 async def _assert_owner(connection, backend_pid):
     try:
         current_pid = await connection.scalar(text("SELECT pg_backend_pid()"))
+        # End the autobegun transaction: the session lock survives a commit, and an
+        # open snapshot would sit "idle in transaction" for the whole run (M5 S7).
+        await connection.commit()
     except Exception as exc:
         await connection.invalidate()
         raise RuntimeError("Jobs lock connection was lost") from exc

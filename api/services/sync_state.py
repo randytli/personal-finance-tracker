@@ -8,8 +8,20 @@ from sqlalchemy.dialects.postgresql import insert
 from api.models import Item, SyncRuntimeState
 
 
+_HELD_BY_THIS_BACKEND = text(
+    "SELECT EXISTS (SELECT 1 FROM pg_locks WHERE locktype = 'advisory' AND granted "
+    "AND pid = pg_backend_pid() AND objsubid = 1 "
+    "AND database = (SELECT oid FROM pg_database WHERE datname = current_database()) "
+    "AND classid::bigint = ((hashtextextended(:key, 0) >> 32) & 4294967295) "
+    "AND objid::bigint = (hashtextextended(:key, 0) & 4294967295))")
+
+
 async def acquire_session_lock(connection, key):
     try:
+        # A pooler can hand a dead client's backend to the next client. Re-entering
+        # a lock that survived would succeed and leave a count behind after unlock.
+        if await connection.scalar(_HELD_BY_THIS_BACKEND, {"key": key}):
+            raise RuntimeError("Session lock already held by this backend")
         acquired = await connection.scalar(text(
             "SELECT pg_try_advisory_lock(hashtextextended(:key, 0))"), {"key": key})
         backend_pid = await connection.scalar(text("SELECT pg_backend_pid()"))

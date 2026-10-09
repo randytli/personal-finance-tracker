@@ -1,0 +1,57 @@
+{
+  "kind": "m5_cron_auth_negatives",
+  "url": "https://pft-m5-jobs-20261001-qf6jrrkj3-pft2.vercel.app/trigger",
+  "results": [
+    {
+      "case": "no_signature",
+      "status": 401,
+      "label": "signature required",
+      "client_s": 0.252
+    },
+    {
+      "case": "wrong_secret",
+      "status": 401,
+      "label": "bad signature",
+      "client_s": 0.215
+    },
+    {
+      "case": "wrong_audience",
+      "status": 401,
+      "label": "bad signature",
+      "client_s": 0.195
+    },
+    {
+      "case": "stale_timestamp",
+      "status": 401,
+      "label": "stale or future timestamp",
+      "client_s": 0.17
+    },
+    {
+      "case": "no_bypass_valid_signature",
+      "status": 401,
+      "label": {
+        "message": "Protected deployment",
+        "code": "401"
+      },
+      "client_s": 0.161
+    },
+    {
+      "case": "valid",
+      "status": 200,
+      "label": "idle",
+      "client_s": 0.909
+    },
+    {
+      "case": "replay_of_valid",
+      "status": 409,
+      "label": "replayed request",
+      "client_s": 0.262
+    },
+    {
+      "case": "tampered_body",
+      "status": 401,
+      "label": "bad signature",
+      "client_s": 0.169
+    }
+  ]
+}

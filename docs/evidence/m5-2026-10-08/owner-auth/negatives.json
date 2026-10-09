@@ -1,0 +1,25 @@
+{
+  "kind": "m5_owner_auth_negatives",
+  "project_ref": "acyghoemtdrilsdszolq",
+  "started_unix": 1791496476,
+  "settings": {
+    "disable_signup": true,
+    "anonymous_users": false
+  },
+  "wrong_password": [
+    400,
+    "invalid_credentials"
+  ],
+  "admin_api_with_publishable_key": [
+    401,
+    "no_authorization"
+  ],
+  "signup_attempt": [
+    422,
+    "signup_disabled"
+  ],
+  "anonymous_sign_in_attempt": [
+    422,
+    "anonymous_provider_disabled"
+  ]
+}

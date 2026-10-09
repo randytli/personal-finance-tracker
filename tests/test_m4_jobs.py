@@ -476,6 +476,30 @@ class JobsDatabaseTests(unittest.IsolatedAsyncioTestCase):
                 "SELECT pg_try_advisory_lock(hashtextextended(:key,0))"), {"key": key}))
             await other.scalar(text("SELECT pg_advisory_unlock(hashtextextended(:key,0))"), {"key": key})
 
+    async def test_lock_inherited_by_reused_backend_is_refused_and_cleared(self):
+        # Supavisor hands a dead client's backend to the next client (measured in M5). If its
+        # lock survived, re-entering would succeed and unlocking would leave a count behind.
+        key = "pft-jobs:synthetic-user"
+        async with self.engine.connect() as leaked:
+            self.assertTrue(await leaked.scalar(text(
+                "SELECT pg_try_advisory_lock(hashtextextended(:key,0))"), {"key": key}))
+            leaked_pid = await leaked.scalar(text("SELECT pg_backend_pid()"))
+            await leaked.commit()
+        sync = Mock(side_effect=AssertionError("sync must not run"))
+        with self.assertRaisesRegex(RuntimeError, "already held"):
+            await self.poll(sync)
+        async with self.admin.connect() as other:
+            self.assertFalse(await other.scalar(text(
+                "SELECT count(*) > 0 FROM pg_stat_activity WHERE pid = :pid"), {"pid": leaked_pid}))
+            self.assertTrue(await other.scalar(text(
+                "SELECT pg_try_advisory_lock(hashtextextended(:key,0))"), {"key": key}))
+            await other.scalar(text("SELECT pg_advisory_unlock(hashtextextended(:key,0))"), {"key": key})
+            await other.commit()
+
+        async def idle(*args, **kwargs):
+            return {"status": "idle", "run_id": None, "items": {}}
+        self.assertEqual((await self.poll(idle))["status"], "idle")
+
     async def test_global_rollback_records_retry_without_publication(self):
         await self.request(["a"])
         with patch.object(service, "classify_active_transactions", side_effect=RuntimeError("synthetic")):
@@ -517,3 +541,45 @@ class JobsDatabaseTests(unittest.IsolatedAsyncioTestCase):
             self.assertIsNone(state.running_sequence)
             item = await db.get(Item, "a")
             self.assertEqual((item.transactions_cursor, item.sync_retry_count), ("start", 0))
+
+
+@unittest.skipUnless(os.environ.get("PFT_M4_SYNTHETIC_TEST") == "1", "isolated PostgreSQL opt-in")
+class LockConnectionIdleTests(unittest.IsolatedAsyncioTestCase):
+    """M5 S7: owner checks must not leave the lock connection idle in transaction."""
+
+    async def asyncSetUp(self):
+        from api.db import engine as default_engine
+        self.assertEqual(default_engine.url.port, 55439)
+        self.engine = create_async_engine(default_engine.url)
+
+    async def asyncTearDown(self):
+        await self.engine.dispose()
+
+    async def state_of(self, backend_pid):
+        async with self.engine.connect() as observer:
+            return await observer.scalar(text(
+                "SELECT state FROM pg_stat_activity WHERE pid = :pid"), {"pid": backend_pid})
+
+    async def test_jobs_and_sync_owner_checks_leave_the_lock_connection_idle(self):
+        from api.jobs import _assert_owner
+        from api.services.sync_all import _assert_lock_owner
+
+        for check in (_assert_owner, _assert_lock_owner):
+            key = "idle-test:" + uuid.uuid4().hex
+            async with self.engine.connect() as owner:
+                acquired, backend_pid = await acquire_session_lock(owner, key)
+                self.assertTrue(acquired)
+                try:
+                    await check(owner, backend_pid)
+                    with self.subTest(check=check.__name__):
+                        self.assertEqual(await self.state_of(backend_pid), "idle")
+                        self.assertFalse(owner.in_transaction())
+                        # The session lock survives the commit.
+                        async with self.engine.connect() as other:
+                            self.assertFalse(await other.scalar(text(
+                                "SELECT pg_try_advisory_lock(hashtextextended(:key, 0))"), {"key": key}))
+                            await other.rollback()
+                finally:
+                    await owner.scalar(text("SELECT pg_advisory_unlock(hashtextextended(:key, 0))"),
+                                       {"key": key})
+                    await owner.commit()

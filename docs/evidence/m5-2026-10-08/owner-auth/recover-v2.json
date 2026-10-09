@@ -1,0 +1,163 @@
+{
+  "kind": "m5_owner_auth_recover-v2",
+  "project_ref": "acyghoemtdrilsdszolq",
+  "started_unix": 1791519927,
+  "attacker_sign_in_status": [
+    200,
+    200
+  ],
+  "a2_verify_status": 200,
+  "a1_token_check": {
+    "accepted": false,
+    "status": 403,
+    "reason": "aal2 required"
+  },
+  "a2_token_check": {
+    "accepted": true,
+    "aal": "aal2",
+    "lifetime_s": 3600,
+    "claim_names": [
+      "aal",
+      "amr",
+      "app_metadata",
+      "aud",
+      "email",
+      "exp",
+      "iat",
+      "is_anonymous",
+      "iss",
+      "phone",
+      "role",
+      "session_id",
+      "sub",
+      "user_metadata"
+    ]
+  },
+  "before": {
+    "t_s": 30.3,
+    "a1": {
+      "user": [
+        403,
+        "session_not_found"
+      ],
+      "refresh": [
+        400,
+        "refresh_token_not_found"
+      ]
+    },
+    "a2": {
+      "user": [
+        200,
+        null
+      ],
+      "refresh": [
+        200,
+        null
+      ]
+    }
+  },
+  "after_admin_password_change": {
+    "t_s": 50.5,
+    "admin_status": 200,
+    "old_password_sign_in": 400,
+    "a1": {
+      "user": [
+        403,
+        "session_not_found"
+      ],
+      "refresh": [
+        400,
+        "refresh_token_not_found"
+      ]
+    },
+    "a2": {
+      "user": [
+        403,
+        "session_not_found"
+      ],
+      "refresh": [
+        400,
+        "refresh_token_not_found"
+      ]
+    }
+  },
+  "after_owner_global_sign_out": {
+    "t_s": 51.7,
+    "owner_sign_in": 200,
+    "logout_status": 204,
+    "a1": {
+      "user": [
+        403,
+        "session_not_found"
+      ],
+      "refresh": [
+        400,
+        "refresh_token_not_found"
+      ]
+    },
+    "a2": {
+      "user": [
+        403,
+        "session_not_found"
+      ],
+      "refresh": [
+        400,
+        "refresh_token_not_found"
+      ]
+    },
+    "owner": {
+      "user": [
+        403,
+        "session_not_found"
+      ],
+      "refresh": [
+        400,
+        "refresh_token_not_found"
+      ]
+    }
+  },
+  "after_admin_delete_all_factors": {
+    "t_s": 52.5,
+    "list_status": 200,
+    "deleted": [
+      [
+        "totp",
+        "verified",
+        200
+      ]
+    ],
+    "a1": {
+      "user": [
+        403,
+        "session_not_found"
+      ],
+      "refresh": [
+        400,
+        "refresh_token_not_found"
+      ]
+    },
+    "a2": {
+      "user": [
+        403,
+        "session_not_found"
+      ],
+      "refresh": [
+        400,
+        "refresh_token_not_found"
+      ]
+    }
+  },
+  "a1_enrol_after_recovery": [
+    403,
+    "session_not_found"
+  ],
+  "a2_access_token_stateless_after_recovery": {
+    "accepted": true,
+    "aal": "aal2",
+    "seconds_until_exp": 3578
+  },
+  "factors_after": [
+    200,
+    0
+  ]
+}
