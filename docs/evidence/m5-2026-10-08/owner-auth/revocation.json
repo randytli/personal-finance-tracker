@@ -1,0 +1,10 @@
+{
+  "kind": "m5_owner_auth_revocation",
+  "project_ref": "acyghoemtdrilsdszolq",
+  "started_unix": 1791520288,
+  "u2_sign_in_status": [
+    400,
+    400
+  ],
+  "error": "invalid_credentials"
+}

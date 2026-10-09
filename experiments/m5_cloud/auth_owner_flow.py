@@ -12,8 +12,19 @@ Subcommands (python -m experiments.m5_cloud.auth_owner_flow <cmd> --out FILE):
              Signs in, deletes the TOTP factor with the admin API, checks the session is gone,
              sets a new password, checks old password refused and new one accepted.
              Afterwards run `flow` again to re-enrol TOTP.
+  recover-v2 hardened recovery order (acceptance F1): needs PFT_M5_SECRET_KEY and a verified
+             factor. Keeps two simulated attacker sessions (A1 aal1, A2 aal2) and probes both
+             after each step: admin password change -> owner signs in with the new password
+             and signs out globally -> admin deletes ALL factors. Then checks that A1 can no
+             longer enrol a factor. Afterwards run `flow` again to re-enrol TOTP.
+  revocation follow-up to recover-v2 (needs PFT_M5_SECRET_KEY, run while no factor exists):
+             U2 does a global sign-out from one session end another? U1 does the admin
+             password change end a password-only (aal1) session? U3 can that session still
+             enrol a factor afterwards? Afterwards run `flow` to enrol TOTP.
   negatives  wrong password, admin API with the publishable key, and (only if sign-ups are
              disabled) sign-up and anonymous sign-in attempts.
+
+The evidence file must not exist yet, so a rerun never overwrites an earlier attempt.
 """
 import argparse
 import getpass
@@ -171,6 +182,170 @@ def recover(record):
         call("POST", "/logout?scope=global", bearer=payload["access_token"], body={})
 
 
+def probe(session):
+    """Is this session still usable? /user with its access token, then a refresh.
+
+    A successful refresh replaces the session's tokens so later probes use the newest ones."""
+    status, payload = call("GET", "/user", bearer=session["access_token"])
+    result = {"user": [status, None if status == 200 else error_label(payload)]}
+    status, payload = call("POST", "/token?grant_type=refresh_token",
+                           body={"refresh_token": session["refresh_token"]})
+    result["refresh"] = [status, None if status == 200 else error_label(payload)]
+    if status == 200:
+        session.update(access_token=payload["access_token"], refresh_token=payload["refresh_token"])
+    return result
+
+
+def admin_factors(secret, user_id):
+    status, listed = call("GET", f"/admin/users/{user_id}/factors", apikey=secret)
+    if status == 200 and isinstance(listed, list):
+        return status, listed
+    status, user = call("GET", f"/admin/users/{user_id}", apikey=secret)
+    return status, (user.get("factors") or []) if status == 200 else []
+
+
+def recover_v2(record):
+    secret = os.environ.get("PFT_M5_SECRET_KEY", "")
+    if not secret.startswith("sb_secret_"):
+        raise SystemExit("Set PFT_M5_SECRET_KEY (synthetic project secret key) in this terminal only.")
+    started = time.monotonic()
+
+    def step(name, **values):
+        record[name] = {"t_s": round(time.monotonic() - started, 1), **values}
+
+    email = input("Owner email (synthetic project): ").strip()
+    current = getpass.getpass("Current owner password: ")
+    # Two simulated attacker sessions: A1 stays password-only (aal1), A2 is raised to aal2.
+    status_a1, a1 = sign_in(email, current)
+    status_a2, a2 = sign_in(email, current)
+    record["attacker_sign_in_status"] = [status_a1, status_a2]
+
+    def abort(reason, session):
+        # Nothing has been changed yet; end the simulated sessions so none is left behind.
+        record["error"] = reason
+        record["cleanup_global_sign_out_status"] = call(
+            "POST", "/logout?scope=global", bearer=session["access_token"], body={})[0]
+
+    if status_a1 != 200 or status_a2 != 200:
+        record["error"] = error_label(a1 if status_a1 != 200 else a2)
+        if 200 in (status_a1, status_a2):
+            abort(record["error"], a1 if status_a1 == 200 else a2)
+        return
+    user_id = a1["user"]["id"]
+    verifier = OwnerTokenVerifier(AuthConfig(project_ref=REF, owner_sub=user_id))
+    _, factor, _ = verified_totp(a2["access_token"])
+    if factor is None:
+        abort("no verified TOTP factor: run flow first", a1)
+        return
+    code = getpass.getpass("Current 6-digit TOTP code (raises A2 to aal2): ").strip().replace(" ", "")
+    status, challenge = call("POST", f"/factors/{factor['id']}/challenge", bearer=a2["access_token"], body={})
+    status, upgraded = call("POST", f"/factors/{factor['id']}/verify", bearer=a2["access_token"],
+                            body={"challenge_id": challenge.get("id"), "code": code})
+    record["a2_verify_status"] = status
+    if status != 200:
+        abort(error_label(upgraded), a1)
+        return
+    a2.update(access_token=upgraded["access_token"], refresh_token=upgraded["refresh_token"])
+    record["a1_token_check"] = check(verifier, a1["access_token"])
+    record["a2_token_check"] = check(verifier, a2["access_token"])
+    step("before", a1=probe(a1), a2=probe(a2))
+
+    new_password = getpass.getpass("New owner password (long, unique): ")
+    status, _ = call("PUT", f"/admin/users/{user_id}", apikey=secret, body={"password": new_password})
+    step("after_admin_password_change", admin_status=status, old_password_sign_in=sign_in(email, current)[0],
+         a1=probe(a1), a2=probe(a2))
+
+    owner_status, owner = sign_in(email, new_password)
+    logout_status = None
+    if owner_status == 200:
+        logout_status = call("POST", "/logout?scope=global", bearer=owner["access_token"], body={})[0]
+    step("after_owner_global_sign_out", owner_sign_in=owner_status, logout_status=logout_status,
+         a1=probe(a1), a2=probe(a2), owner=probe(owner) if owner_status == 200 else None)
+
+    status, factors = admin_factors(secret, user_id)
+    deleted = [[f.get("factor_type"), f.get("status"),
+                call("DELETE", f"/admin/users/{user_id}/factors/{f['id']}", apikey=secret)[0]] for f in factors]
+    step("after_admin_delete_all_factors", list_status=status, deleted=deleted, a1=probe(a1), a2=probe(a2))
+
+    # F1 attack path: with no verified factor left, can the old aal1 session enrol its own?
+    status, enrolled = call("POST", "/factors", bearer=a1["access_token"],
+                            body={"factor_type": "totp", "friendly_name": "pft-m5-attacker-" + uuid.uuid4().hex[:8]})
+    record["a1_enrol_after_recovery"] = [status, None if status == 200 else error_label(enrolled)]
+    if status == 200:
+        record["a1_enrolled_factor_cleanup_status"] = call(
+            "DELETE", f"/admin/users/{user_id}/factors/{enrolled['id']}", apikey=secret)[0]
+    # Documented limit (F2): an unexpired access token still passes stateless verification.
+    try:
+        claims = verifier.verify("Bearer " + a2["access_token"])
+        record["a2_access_token_stateless_after_recovery"] = {
+            "accepted": True, "aal": claims.get("aal"), "seconds_until_exp": claims["exp"] - int(time.time())}
+    except AuthError as exc:
+        record["a2_access_token_stateless_after_recovery"] = {"accepted": False, "status": exc.status,
+                                                              "reason": exc.reason}
+    # Leave no live session behind if any step failed to revoke one.
+    for session in (a2, a1):
+        if call("GET", "/user", bearer=session["access_token"])[0] == 200:
+            record["cleanup_global_sign_out_status"] = call(
+                "POST", "/logout?scope=global", bearer=session["access_token"], body={})[0]
+            break
+    status, factors = admin_factors(secret, user_id)
+    record["factors_after"] = [status, len(factors)]
+
+
+def revocation(record):
+    secret = os.environ.get("PFT_M5_SECRET_KEY", "")
+    if not secret.startswith("sb_secret_"):
+        raise SystemExit("Set PFT_M5_SECRET_KEY (synthetic project secret key) in this terminal only.")
+    email = input("Owner email (synthetic project): ").strip()
+    current = getpass.getpass("Current owner password: ")
+    # U2: two password-only sessions; one signs out globally, the other is probed.
+    status_a, a = sign_in(email, current)
+    status_o, o = sign_in(email, current)
+    record["u2_sign_in_status"] = [status_a, status_o]
+    if status_a != 200 or status_o != 200:
+        record["error"] = error_label(a if status_a != 200 else o)
+        for status, session in ((status_a, a), (status_o, o)):
+            if status == 200:
+                record["cleanup_global_sign_out_status"] = call(
+                    "POST", "/logout?scope=global", bearer=session["access_token"], body={})[0]
+        return
+    user_id = a["user"]["id"]
+    _, _, factors = verified_totp(a["access_token"])
+    record["totp_factors_before"] = len(factors)
+    record["u2_other_session_before"] = probe(a)
+    record["u2_global_sign_out_status"] = call("POST", "/logout?scope=global", bearer=o["access_token"], body={})[0]
+    record["u2_other_session_after"] = probe(a)
+    record["u2_signing_session_after"] = probe(o)
+    # U1: a fresh password-only session, then the admin password change.
+    status, a1 = sign_in(email, current)
+    record["u1_sign_in_status"] = status
+    if status != 200:
+        record["error"] = error_label(a1)
+        return
+    record["u1_before"] = probe(a1)
+    new_password = getpass.getpass("New owner password (long, unique): ")
+    record["u1_admin_password_change_status"] = call(
+        "PUT", f"/admin/users/{user_id}", apikey=secret, body={"password": new_password})[0]
+    record["u1_after_password_change"] = probe(a1)
+    # U3: no verified factor exists, so a surviving session could enrol one (the F1 path).
+    status, enrolled = call("POST", "/factors", bearer=a1["access_token"],
+                            body={"factor_type": "totp", "friendly_name": "pft-m5-attacker-" + uuid.uuid4().hex[:8]})
+    record["u3_enrol_attempt"] = [status, None if status == 200 else error_label(enrolled)]
+    if status == 200:
+        record["u3_cleanup_delete_status"] = call(
+            "DELETE", f"/admin/users/{user_id}/factors/{enrolled['id']}", apikey=secret)[0]
+    record["old_password_sign_in_status"] = sign_in(email, current)[0]
+    status, owner = sign_in(email, new_password)
+    record["new_password_sign_in_status"] = status
+    # Leave no live session behind: any probe session that survived, then the owner's own.
+    for name, session in (("u2_other", a), ("a1", a1), ("owner", owner if status == 200 else None)):
+        if session and call("GET", "/user", bearer=session["access_token"])[0] == 200:
+            record[f"cleanup_{name}_global_sign_out_status"] = call(
+                "POST", "/logout?scope=global", bearer=session["access_token"], body={})[0]
+    status, factors = admin_factors(secret, user_id)
+    record["factors_after"] = [status, len(factors)]
+
+
 def negatives(record):
     status, settings = call("GET", "/settings")
     record["settings"] = {"disable_signup": settings.get("disable_signup"),
@@ -192,15 +367,18 @@ def negatives(record):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("command", choices=["flow", "recover", "negatives"])
+    parser.add_argument("command", choices=["flow", "recover", "recover-v2", "revocation", "negatives"])
     parser.add_argument("--out", required=True)
     args = parser.parse_args()
     if not sys.stdin.isatty():
         raise SystemExit("Run this in your own terminal, not through an agent.")
+    if os.path.exists(args.out):
+        raise SystemExit(f"{args.out} already exists; choose a new file name so earlier evidence is kept.")
     record = {"kind": "m5_owner_auth_" + args.command, "project_ref": REF,
               "started_unix": int(time.time())}
     try:
-        {"flow": flow, "recover": recover, "negatives": negatives}[args.command](record)
+        {"flow": flow, "recover": recover, "recover-v2": recover_v2, "revocation": revocation,
+         "negatives": negatives}[args.command](record)
     finally:
         with open(args.out, "w") as stream:
             json.dump(record, stream, indent=2)

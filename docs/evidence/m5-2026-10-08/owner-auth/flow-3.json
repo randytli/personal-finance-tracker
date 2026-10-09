@@ -1,0 +1,97 @@
+{
+  "kind": "m5_owner_auth_flow",
+  "project_ref": "acyghoemtdrilsdszolq",
+  "started_unix": 1791520820,
+  "password_sign_in_status": 200,
+  "aal1_token_check": {
+    "accepted": false,
+    "status": 403,
+    "reason": "aal2 required"
+  },
+  "totp_factors_before": 0,
+  "enroll_status": 200,
+  "fresh_challenge_wrong_code_status": [
+    422,
+    "mfa_verification_failed"
+  ],
+  "challenge_status": 200,
+  "verify_status": 200,
+  "aal2_token_check": {
+    "accepted": true,
+    "aal": "aal2",
+    "lifetime_s": 3600,
+    "claim_names": [
+      "aal",
+      "amr",
+      "app_metadata",
+      "aud",
+      "email",
+      "exp",
+      "iat",
+      "is_anonymous",
+      "iss",
+      "phone",
+      "role",
+      "session_id",
+      "sub",
+      "user_metadata"
+    ]
+  },
+  "reused_challenge_wrong_code_status": [
+    422,
+    "mfa_ip_address_mismatch"
+  ],
+  "refresh_status": 200,
+  "refreshed_token_check": {
+    "accepted": true,
+    "aal": "aal2",
+    "lifetime_s": 3600,
+    "claim_names": [
+      "aal",
+      "amr",
+      "app_metadata",
+      "aud",
+      "email",
+      "exp",
+      "iat",
+      "is_anonymous",
+      "iss",
+      "phone",
+      "role",
+      "session_id",
+      "sub",
+      "user_metadata"
+    ]
+  },
+  "rotated_refresh_token_reuse_status": 200,
+  "logout_status": 204,
+  "refresh_after_logout": [
+    400,
+    "refresh_token_not_found"
+  ],
+  "get_user_with_old_access_token_after_logout": [
+    403,
+    "session_not_found"
+  ],
+  "stateless_check_of_old_access_token_after_logout": {
+    "accepted": true,
+    "aal": "aal2",
+    "lifetime_s": 3600,
+    "claim_names": [
+      "aal",
+      "amr",
+      "app_metadata",
+      "aud",
+      "email",
+      "exp",
+      "iat",
+      "is_anonymous",
+      "iss",
+      "phone",
+      "role",
+      "session_id",
+      "sub",
+      "user_metadata"
+    ]
+  }
+}
