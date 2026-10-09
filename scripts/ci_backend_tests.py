@@ -23,6 +23,7 @@ REQUIRED_OPT_INS = {
     "PFT_SYNC_SYNTHETIC_TEST",
     "PFT_M3_SYNTHETIC_TEST",
     "PFT_M4_SYNTHETIC_TEST",
+    "PFT_LIFECYCLE_SYNTHETIC_TEST",
 }
 # M5 tests are present on integration branches before they reach main.
 OPT_INS = REQUIRED_OPT_INS | {
@@ -39,6 +40,7 @@ REQUIRED_CLASSES = {
     "test_dining_migration.DiningMigrationDatabaseTests",
     "test_m3_recovery.RecoveryDatabaseTests",
     "test_m4_jobs.JobsDatabaseTests",
+    "test_institution_lifecycle.LifecycleDatabaseTests",
 }
 REQUIRED_TESTS = {
     "test_sync_all.SyncAllDatabaseTests.test_global_failure_rolls_back_every_item_and_marker",

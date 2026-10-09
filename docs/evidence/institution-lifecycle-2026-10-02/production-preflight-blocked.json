@@ -1,0 +1,14 @@
+{
+  "applied": false,
+  "blockers": [],
+  "errors": [
+    "Production Items must all be active before this migration; found disabled=1, pending=1"
+  ],
+  "items_table": true,
+  "migration_may_run": false,
+  "status_counts": {
+    "active": 2,
+    "disabled": 1,
+    "pending": 1
+  }
+}

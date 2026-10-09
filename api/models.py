@@ -1,5 +1,5 @@
 from sqlalchemy import (
-    Boolean, CheckConstraint, Column, Date, DateTime, ForeignKey, Index, Numeric,
+    Boolean, CheckConstraint, Column, Computed, Date, DateTime, ForeignKey, Index, Numeric,
     String, Integer, UniqueConstraint, func, event,
 )
 from sqlalchemy.dialects.postgresql import JSONB
@@ -9,6 +9,23 @@ from api.label_schema import install_label_schema
 from api.benefit_categories import BENEFIT_CATEGORY_CHECK
 
 Base = declarative_base()
+
+# status is the only written lifecycle field; PostgreSQL derives both scope flags
+# from it, so they can never disagree. Sync (scheduled, catch-up and manual) reads
+# sync_enabled, which only Active Items have; the ledger and classification read
+# published. Pending Items ingest only through explicit onboarding actions.
+LIFECYCLE_STATES = {
+    "pending": (False, False),
+    "active": (True, True),
+    "deactivated": (False, True),
+    "disabled": (False, False),
+}
+SYNC_ENABLED_SQL = "status = 'active'"
+PUBLISHED_SQL = "status IN ('active', 'deactivated')"
+# Ingestion scopes. Every ingestion service takes one explicitly: the atomic sync
+# ingests Active Items, and explicit onboarding actions ingest Pending ones.
+ATOMIC_SYNC_STATUSES = ("active",)
+ONBOARDING_STATUSES = ("pending",)
 
 
 class ManualCategoryOverride(Base):
@@ -31,10 +48,11 @@ class Item(Base):
     __table_args__ = (
         UniqueConstraint("user_id", "institution_id", name="uq_items_user_institution"),
         CheckConstraint(
-            "status IN ('pending', 'active', 'disabled')",
+            "status IN ('pending', 'active', 'deactivated', 'disabled')",
             name="ck_items_status",
         ),
         Index("ix_items_user_status", "user_id", "status"),
+        Index("ix_items_user_lifecycle", "user_id", "sync_enabled", "published"),
         Index("ix_items_institution_id", "institution_id"),
     )
     item_id = Column(String, primary_key=True)
@@ -42,6 +60,13 @@ class Item(Base):
     institution_id = Column(String, nullable=False)
     institution_name = Column(String, nullable=False)
     status = Column(String, nullable=False, default="pending", server_default="pending")
+    sync_enabled = Column(Boolean, Computed(SYNC_ENABLED_SQL, persisted=True), nullable=False)
+    published = Column(Boolean, Computed(PUBLISHED_SQL, persisted=True), nullable=False)
+    activated_at = Column(DateTime(timezone=True))
+    deactivated_at = Column(DateTime(timezone=True))
+    activation_digest = Column(String)
+    # Set once the Plaid Item was removed (/item/remove); reactivation then needs a reconnect.
+    disconnected_at = Column(DateTime(timezone=True))
     access_token = Column(String, nullable=False)
     transactions_cursor = Column(String, nullable=True)
     sync_paused = Column(Boolean, nullable=False, default=False, server_default="false")

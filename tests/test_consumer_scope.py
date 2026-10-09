@@ -5,7 +5,7 @@ import uuid
 from contextlib import ExitStack
 from datetime import date
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from fastapi import HTTPException
 from fastapi.encoders import jsonable_encoder
@@ -14,10 +14,10 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 
 from api.consumer_scope import initial_consumer_scope, account_type_drift
-from api.models import Base, Account, Item, ManualClassificationOverride, ManualTransactionLabelOverride, RawTransaction, Transaction
+from api.models import ATOMIC_SYNC_STATUSES, Base, Account, Item, ManualClassificationOverride, ManualTransactionLabelOverride, RawTransaction, Transaction
 from api.migrations import migrate_consumer_scope
 from api.routes import plaid, review, analytics
-from api.services import derivation
+from api.services import derivation, lifecycle
 from api.services.derivation import normalize_item_transactions, classify_active_transactions
 from api.services.persistence import persist_account_metadata, persist_consumer_transactions
 from api.statement_semantics import lock_consumer_derivation
@@ -72,6 +72,22 @@ class ConsumerDatabaseTests(unittest.IsolatedAsyncioTestCase):
         async with self.engine.begin() as c:
             await migrate_consumer_scope(c)
 
+    # Item "i" is Active, so these stand in for the atomic sync's publish steps;
+    # the split onboarding routes refuse Active Items.
+    async def persist_metadata(self, item_id, accounts):
+        async with self.sessions.begin() as db:
+            return await persist_account_metadata(db, "scope-test", item_id, accounts,
+                                                  statuses=ATOMIC_SYNC_STATUSES)
+
+    async def persist_transactions(self, item_id, *args):
+        async with self.sessions.begin() as db:
+            return await persist_consumer_transactions(db, "scope-test", item_id, *args,
+                                                       statuses=ATOMIC_SYNC_STATUSES)
+
+    async def normalize(self, item_id):
+        async with self.sessions.begin() as db:
+            return await normalize_item_transactions(db, "scope-test", item_id, statuses=ATOMIC_SYNC_STATUSES)
+
     def account(self, ident, kind="credit", subtype="credit card"):
         return dict(account_id=ident, name="Synthetic " + ident, type=kind, subtype=subtype, mask="1234")
 
@@ -115,7 +131,7 @@ class ConsumerDatabaseTests(unittest.IsolatedAsyncioTestCase):
         async with self.sessions() as db:
             with self.assertRaises(HTTPException):
                 await plaid.validate_consumer_activation(db, "i")
-        result = await plaid.persist_account_metadata("i", [
+        result = await self.persist_metadata("i", [
             self.account("card"), self.account("bank", "depository", "checking"),
             self.account("invest", "investment", "brokerage"),
             self.account("crypto", "investment", "crypto exchange"),
@@ -125,28 +141,28 @@ class ConsumerDatabaseTests(unittest.IsolatedAsyncioTestCase):
                          [True, True, False, False, False, False])
         async with self.sessions.begin() as db:
             (await db.get(Account, "bank")).consumer_transactions_enabled = False
-        refresh = await plaid.persist_account_metadata("i", [
+        refresh = await self.persist_metadata("i", [
             self.account("card", "investment", "brokerage"), self.account("bank", "depository", "checking"),
             self.account("invest", "credit", "credit card")])
         self.assertEqual([a["consumer_transactions_enabled"] for a in refresh["accounts"]], [True, False, False])
         self.assertEqual(len(refresh["type_drift"]), 2)
         # Restore metadata, not the domain decisions.
-        await plaid.persist_account_metadata("i", [self.account("card"), self.account("invest", "investment", "brokerage")])
-        result = await plaid.persist_consumer_transactions("i", None,
+        await self.persist_metadata("i", [self.account("card"), self.account("invest", "investment", "brokerage")])
+        result = await self.persist_transactions("i", None,
             [self.tx("expense"), self.tx("skip", "invest")], [], [], "c1", 1)
         self.assertEqual(result["added_count"], 1)
         self.assertEqual(result["skipped_disabled_counts"]["added"], 1)
         self.assertEqual(len(result["added"]), 1)
         with self.assertRaises(HTTPException):
-            await plaid.persist_consumer_transactions("i", "c1", [self.tx("unknown", "missing")], [], [], "bad", 1)
+            await self.persist_transactions("i", "c1", [self.tx("unknown", "missing")], [], [], "bad", 1)
         async with self.sessions() as db:
             self.assertEqual((await db.get(Item, "i")).transactions_cursor, "c1")
             self.assertIsNone(await db.get(RawTransaction, "skip"))
-        result = await plaid.persist_consumer_transactions("i", "c1", [], [self.tx("skip", "invest")], [], "c2", 1)
+        result = await self.persist_transactions("i", "c1", [], [self.tx("skip", "invest")], [], "c2", 1)
         self.assertEqual(result["skipped_disabled_counts"]["modified"], 1)
         with self.assertRaises(HTTPException):
-            await plaid.persist_consumer_transactions("i", "c1", [], [], [], "stale", 1)
-        await plaid.normalize_transactions("i")
+            await self.persist_transactions("i", "c1", [], [], [], "stale", 1)
+        await self.normalize("i")
         await plaid.classify_transactions()
         before = analytics.summarize_monthly_transactions(await analytics._active_month_rows("2026-08"))
         # Seed excluded historical fixtures directly, never via consumer ingestion.
@@ -157,7 +173,7 @@ class ConsumerDatabaseTests(unittest.IsolatedAsyncioTestCase):
                 await db.flush()
                 db.add(Transaction(transaction_id=ident, account_id="invest", transaction_date=date(2026, 8, 1),
                     amount=amount, transaction_type=kind, is_spending=False, is_internal_transfer=False))
-        normalized = await plaid.normalize_transactions("i")
+        normalized = await self.normalize("i")
         self.assertEqual(normalized["normalized_count"], 1)
         classified = await plaid.classify_transactions()
         self.assertEqual(classified["classified_count"], 1)
@@ -182,7 +198,7 @@ class ConsumerDatabaseTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(HTTPException) as error:
                 await call
             self.assertEqual(error.exception.status_code, 404)
-        result = await plaid.persist_consumer_transactions("i", "c2", [], [],
+        result = await self.persist_transactions("i", "c2", [], [],
             [{"transaction_id": "disabled"}, {"transaction_id": "absent"}, {"transaction_id": "expense"}], "c3", 1)
         self.assertEqual(result["removed_count"], 1)
         self.assertEqual(result["skipped_disabled_counts"]["removed"], 1)
@@ -196,25 +212,25 @@ class ConsumerDatabaseTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_ownership_and_disabled_transfer_counterpart(self):
         await self.migrate()
-        await plaid.persist_account_metadata("i", [self.account("card"),
+        await self.persist_metadata("i", [self.account("card"),
             self.account("invest", "investment", "brokerage")])
         async with self.sessions.begin() as db:
             db.add(Item(item_id="other-item", user_id="scope-test", institution_id="ins_other",
                         institution_name="Other", status="active", access_token="synthetic"))
         with self.assertRaises(HTTPException):
-            await plaid.persist_account_metadata("other-item", [self.account("new"), self.account("card")])
+            await self.persist_metadata("other-item", [self.account("new"), self.account("card")])
         async with self.sessions() as db:
             self.assertIsNone(await db.get(Account, "new"))  # entire discovery rolled back
         credit = self.tx("credit", amount=-10)
         credit["personal_finance_category"]["primary"] = "TRANSFER_IN"
-        await plaid.persist_consumer_transactions("i", None, [credit], [], [], "c1", 1)
+        await self.persist_transactions("i", None, [credit], [], [], "c1", 1)
         for added, modified, removed in (
             ([self.tx("credit")], [], []),
             ([], [self.tx("credit")], []),
             ([], [], [{"transaction_id": "credit"}]),
         ):
             with self.assertRaises(HTTPException):
-                await plaid.persist_consumer_transactions("other-item", None, added, modified, removed, "bad", 1)
+                await self.persist_transactions("other-item", None, added, modified, removed, "bad", 1)
         async with self.sessions.begin() as db:
             db.add(RawTransaction(transaction_id="debit", item_id="i", account_id="invest",
                 transaction_date=date(2026, 8, 1), payload={}))
@@ -222,7 +238,7 @@ class ConsumerDatabaseTests(unittest.IsolatedAsyncioTestCase):
             db.add(Transaction(transaction_id="debit", account_id="invest",
                 transaction_date=date(2026, 8, 1), amount=-10, plaid_category="TRANSFER_OUT",
                 transaction_type="transfer", is_spending=False, is_internal_transfer=False))
-        await plaid.normalize_transactions("i")
+        await self.normalize("i")
         result = await plaid.classify_transactions()
         self.assertEqual(result["internal_transfer_matches"], 0)
         self.assertEqual(result["classified_count"], 1)
@@ -295,10 +311,12 @@ class ConsumerDatabaseTests(unittest.IsolatedAsyncioTestCase):
 
         with self.assertRaises(RollBack):
             async with self.sessions.begin() as db:
-                await persist_account_metadata(db, "scope-test", "i", [self.account("card")])
+                await persist_account_metadata(db, "scope-test", "i", [self.account("card")],
+                                               statuses=ATOMIC_SYNC_STATUSES)
                 await persist_consumer_transactions(db, "scope-test", "i", None,
-                    [self.tx("uncommitted")], [], [], "c1", 1)
-                self.assertEqual((await normalize_item_transactions(db, "scope-test", "i"))["normalized_count"], 1)
+                    [self.tx("uncommitted")], [], [], "c1", 1, statuses=ATOMIC_SYNC_STATUSES)
+                self.assertEqual((await normalize_item_transactions(
+                    db, "scope-test", "i", statuses=ATOMIC_SYNC_STATUSES))["normalized_count"], 1)
                 self.assertEqual((await classify_active_transactions(db, "scope-test"))["expense"], 1)
                 self.assertEqual((await db.get(Transaction, "uncommitted")).transaction_type, "expense")
                 raise RollBack
@@ -366,8 +384,16 @@ class ConsumerDatabaseTests(unittest.IsolatedAsyncioTestCase):
             self.assertIsNone((await db.get(Transaction, "active-payment-counterpart")).is_internal_transfer)
             self.assertEqual((await db.get(ManualTransactionLabelOverride,
                                           ("active-transfer", "MEMBERSHIP"))).decision, "include")
-        result = await plaid.update_item_status("pending", plaid.ItemStatusUpdate(status="active"))
-        self.assertEqual(result, {"item_id": "pending", "status": "active"})
+        with self.assertRaises(HTTPException) as retired:
+            await plaid.retired_item_status_mutation("pending")
+        self.assertEqual(retired.exception.status_code, 410)
+        # This seed has no synced source payloads; lifecycle tests cover the checks themselves.
+        with patch.object(lifecycle, "activation_checks_in_session", AsyncMock(return_value=[])):
+            preview = await plaid.preview_item_activation("pending")
+            result = await plaid.activate_item("pending", plaid.LifecycleConfirmation(
+                preview_digest=preview["digest"]))
+        self.assertEqual(result["status"], "active")
+        self.assertEqual(result["changed_existing_transactions"], preview["changed_existing_transactions"])
         async with self.sessions() as db:
             self.assertEqual((await db.get(Item, "pending")).status, "active")
             self.assertTrue((await db.get(Transaction, "pending-transfer")).is_internal_transfer)
@@ -386,9 +412,12 @@ class ConsumerDatabaseTests(unittest.IsolatedAsyncioTestCase):
             await classify(db, user_id)
             raise RuntimeError("synthetic failure")
 
-        with patch.object(derivation, "classify_active_transactions", new=fail_after_classification):
-            with self.assertRaisesRegex(RuntimeError, "synthetic failure"):
-                await plaid.update_item_status("pending", plaid.ItemStatusUpdate(status="active"))
+        with patch.object(lifecycle, "activation_checks_in_session", AsyncMock(return_value=[])):
+            preview = await plaid.preview_item_activation("pending")
+            with patch.object(lifecycle, "classify_active_transactions", new=fail_after_classification):
+                with self.assertRaisesRegex(RuntimeError, "synthetic failure"):
+                    await plaid.activate_item("pending", plaid.LifecycleConfirmation(
+                        preview_digest=preview["digest"]))
         async with self.sessions() as db:
             self.assertEqual((await db.get(Item, "pending")).status, "pending")
             self.assertIsNone((await db.get(Transaction, "pending-transfer")).transaction_type)
@@ -414,9 +443,9 @@ class ConsumerDatabaseTests(unittest.IsolatedAsyncioTestCase):
                                            "active-transfer")).transaction_type, "transfer")
 
     async def test_composed_services_use_current_rows_with_loaded_orm_objects(self):
-        await plaid.persist_account_metadata("i", [self.account("card")])
-        await plaid.persist_consumer_transactions("i", None, [self.tx("changed")], [], [], "c1", 1)
-        await plaid.normalize_transactions("i")
+        await self.persist_metadata("i", [self.account("card")])
+        await self.persist_transactions("i", None, [self.tx("changed")], [], [], "c1", 1)
+        await self.normalize("i")
         await plaid.classify_transactions()
         async with self.sessions.begin() as db:
             # Callers may retain ORM objects across the service calls.
@@ -424,8 +453,9 @@ class ConsumerDatabaseTests(unittest.IsolatedAsyncioTestCase):
             normalized = await db.get(Transaction, "changed")
             changed = self.tx("changed", amount=-25)
             changed["personal_finance_category"]["primary"] = "INCOME"
-            await persist_consumer_transactions(db, "scope-test", "i", "c1", [], [changed], [], "c2", 1)
-            await normalize_item_transactions(db, "scope-test", "i")
+            await persist_consumer_transactions(db, "scope-test", "i", "c1", [], [changed], [], "c2", 1,
+                                                statuses=ATOMIC_SYNC_STATUSES)
+            await normalize_item_transactions(db, "scope-test", "i", statuses=ATOMIC_SYNC_STATUSES)
             result = await classify_active_transactions(db, "scope-test")
             self.assertEqual(result["income"], 1)
             self.assertEqual(normalized.amount, 25)

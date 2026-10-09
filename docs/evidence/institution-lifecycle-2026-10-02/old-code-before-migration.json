@@ -1,0 +1,49 @@
+{
+  "analytics_digest": "fdaa94e24160a8989f7f73b3f587d3a623244ec269c6245d907f17b284a97f59",
+  "analytics_income_by_month": {
+    "2026-03": "3275.00",
+    "2026-04": "3275.00",
+    "2026-05": "3275.00",
+    "2026-06": "3275.00",
+    "2026-07": "3275.00",
+    "2026-08": "3275.00"
+  },
+  "analytics_months": [
+    "2026-03",
+    "2026-04",
+    "2026-05",
+    "2026-06",
+    "2026-07",
+    "2026-08"
+  ],
+  "analytics_rows": 284,
+  "classification_digest": "db7be4c258d6bd640921f0cd978615029e496a7fcbaa6ff64c119368e800172c",
+  "items": [
+    [
+      "ally",
+      "pending",
+      "ally-1",
+      "711adbd69cdd"
+    ],
+    [
+      "amex",
+      "active",
+      "amex-1",
+      "d5be828498bc"
+    ],
+    [
+      "chase",
+      "active",
+      "chase-1",
+      "299a92d42eec"
+    ],
+    [
+      "rejected",
+      "disabled",
+      null,
+      "d1eda3f0660b"
+    ]
+  ],
+  "raw_transactions_md5": "7688aeeed35047d160c6984ce9632889",
+  "transactions_md5": "ce63e0b500ef423e688b9631a3645148"
+}

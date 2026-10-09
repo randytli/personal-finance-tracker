@@ -231,3 +231,97 @@ async def migrate_multi_institution(connection):
         "CREATE INDEX IF NOT EXISTS ix_manual_overrides_updated_at "
         "ON manual_classification_overrides (updated_at)"
     ))
+
+
+
+
+LIFECYCLE_COLUMNS = ("sync_enabled", "published", "activated_at", "deactivated_at", "activation_digest",
+                     "disconnected_at")
+LIFECYCLE_STATUSES = ("pending", "active", "deactivated", "disabled")
+
+
+class LifecyclePreflightBlocked(RuntimeError):
+    def __init__(self, errors, report):
+        super().__init__("Institution lifecycle migration preflight blocked: " + "; ".join(errors))
+        self.errors = errors
+        self.report = report
+
+
+async def institution_lifecycle_preflight(connection):
+    """Describe whether the lifecycle migration may run, using only reads."""
+    report = {"items_table": False, "applied": False, "status_counts": {}, "blockers": []}
+    if await connection.scalar(text("SELECT to_regclass('items')")) is None:
+        return report
+    report["items_table"] = True
+    columns = set((await connection.execute(text(
+        "SELECT attname FROM pg_attribute WHERE attrelid='items'::regclass AND attnum>0 AND NOT attisdropped"
+    ))).scalars())
+    if "status" not in columns:
+        report["blockers"].append("items.status is missing")
+        return report
+    report["status_counts"] = dict((await connection.execute(text(
+        "SELECT coalesce(status, '<null>'), count(*) FROM items GROUP BY 1 ORDER BY 1"))).all())
+    present = [name for name in LIFECYCLE_COLUMNS if name in columns]
+    report["applied"] = len(present) == len(LIFECYCLE_COLUMNS)
+    if present and not report["applied"]:
+        report["blockers"].append("lifecycle columns are partially present: " + ", ".join(present))
+    unknown = sorted(status for status in report["status_counts"] if status not in LIFECYCLE_STATUSES)
+    if unknown:
+        report["blockers"].append("unsupported Item status: " + ", ".join(unknown))
+    if report["applied"] and not unknown:
+        from api.models import LIFECYCLE_STATES
+        expected = " OR ".join(
+            f"(status = '{status}' AND sync_enabled = {sync} AND published = {published})"
+            for status, (sync, published) in LIFECYCLE_STATES.items())
+        mismatched = await connection.scalar(text(f"SELECT count(*) FROM items WHERE NOT ({expected})"))
+        if mismatched:
+            report["blockers"].append(f"{mismatched} Items have lifecycle flags that differ from their status")
+    return report
+
+
+def lifecycle_preflight_errors(report, production):
+    errors = list(report["blockers"])
+    # Production must be exactly the expected baseline; nothing is promoted or reinterpreted.
+    if production and report["items_table"] and not report["applied"]:
+        other = {status: count for status, count in report["status_counts"].items() if status != "active"}
+        if other:
+            errors.append("Production Items must all be active before this migration; found "
+                          + ", ".join(f"{status}={count}" for status, count in sorted(other.items())))
+    return errors
+
+
+async def require_lifecycle_preflight(connection, *, production):
+    report = await institution_lifecycle_preflight(connection)
+    errors = lifecycle_preflight_errors(report, production)
+    if errors:
+        raise LifecyclePreflightBlocked(errors, report)
+    return report
+
+
+async def migrate_institution_lifecycle(connection):
+    """Derive lifecycle scope flags from status; no financial row is touched.
+
+    Generated columns keep status the single written field, so older images that
+    write only status stay consistent, and the flags equal the old status filters.
+    """
+    from api.models import PUBLISHED_SQL, SYNC_ENABLED_SQL
+    await require_lifecycle_preflight(connection, production=False)
+    await connection.execute(text(
+        "DO $$ BEGIN "
+        "IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='items'::regclass "
+        "AND conname='ck_items_status' AND pg_get_constraintdef(oid) LIKE '%deactivated%') THEN "
+        "ALTER TABLE items DROP CONSTRAINT IF EXISTS ck_items_status; "
+        "ALTER TABLE items ADD CONSTRAINT ck_items_status "
+        "CHECK (status IN ('pending','active','deactivated','disabled')); "
+        "END IF; END $$"
+    ))
+    for name, expression in (("sync_enabled", SYNC_ENABLED_SQL), ("published", PUBLISHED_SQL)):
+        await connection.execute(text(
+            f"ALTER TABLE items ADD COLUMN IF NOT EXISTS {name} BOOLEAN NOT NULL "
+            f"GENERATED ALWAYS AS ({expression}) STORED"))
+    for name in ("activated_at", "deactivated_at", "disconnected_at"):
+        await connection.execute(text(f"ALTER TABLE items ADD COLUMN IF NOT EXISTS {name} TIMESTAMPTZ"))
+    await connection.execute(text("ALTER TABLE items ADD COLUMN IF NOT EXISTS activation_digest VARCHAR"))
+    await connection.execute(text(
+        "CREATE INDEX IF NOT EXISTS ix_items_user_lifecycle ON items (user_id, sync_enabled, published)"
+    ))

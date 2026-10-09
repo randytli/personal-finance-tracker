@@ -2,7 +2,7 @@
 
 from fastapi import HTTPException
 from decimal import Decimal, InvalidOperation
-from sqlalchemy import and_, or_, select, text, update
+from sqlalchemy import and_, or_, select, text
 from sqlalchemy.orm.attributes import set_committed_value
 
 from api.card_benefits import AMERICAN_EXPRESS_INSTITUTION_ID, AMEX_MERCHANT_BENEFIT_ACCOUNT_NAMES
@@ -34,11 +34,10 @@ def validate_normalization_input(raw):
         raise NormalizationInputError("Invalid source category")
 
 
-async def normalize_item_transactions(db, user_id, item_id):
+async def normalize_item_transactions(db, user_id, item_id, *, statuses):
     await lock_consumer_derivation(db, user_id)
     item = await db.scalar(select(Item).where(
-        Item.item_id == item_id, Item.user_id == user_id,
-        Item.status.in_(("pending", "active")),
+        Item.item_id == item_id, Item.user_id == user_id, Item.status.in_(statuses),
     ).with_for_update().execution_options(populate_existing=True))
     if item is None:
         raise HTTPException(status_code=404, detail="Item not found")
@@ -223,13 +222,14 @@ async def _write_classifications(db, changed):
 
 async def classify_active_transactions(db, user_id):
     await lock_consumer_derivation(db, user_id)
-    await db.execute(select(Item).where(Item.user_id == user_id, Item.status == "active")
+    await db.execute(select(Item).where(Item.user_id == user_id, Item.published.is_(True))
                      .order_by(Item.item_id).with_for_update())
     await db.execute(select(Account).join(Item, Item.item_id == Account.item_id)
-                     .where(Item.user_id == user_id, Item.status == "active",
+                     .where(Item.user_id == user_id, Item.published.is_(True),
                             Account.consumer_transactions_enabled.is_(True))
                      .order_by(Account.account_id).with_for_update(of=Account))
-    inputs = await _classification_inputs(db, user_id, Item.status == "active")
+    # Deactivated Items stay published, so they keep feeding classification.
+    inputs = await _classification_inputs(db, user_id, Item.published.is_(True))
     transactions, stored_rows = inputs[0], inputs[5]
     classifications, refund_matches = build_classifications(
         *inputs[:4], active_manual_types=inputs[4],
@@ -271,7 +271,7 @@ async def preview_pending_classification(db, user_id, item_id):
     ))
     if item is None:
         raise HTTPException(404, "Pending Item not found")
-    scope = or_(Item.status == "active", and_(Item.status == "pending", Item.item_id == item_id))
+    scope = or_(Item.published.is_(True), and_(Item.status == "pending", Item.item_id == item_id))
     inputs = await _classification_inputs(db, user_id, scope)
     classifications, _ = build_classifications(*inputs[:4], active_manual_types=inputs[4])
     return {
@@ -312,17 +312,3 @@ async def validate_consumer_activation(db, item_id):
             if (legacy is None or legacy.item_id != item_id or legacy.account_id != raw.account_id
                     or (normalized and legacy.normalized_account_id != normalized.account_id)):
                 raise HTTPException(409, "New disabled-account consumer data requires investigation")
-
-
-async def activate_item(db, user_id, item_id):
-    await lock_consumer_derivation(db, user_id)
-    item = await db.scalar(select(Item).where(
-        Item.item_id == item_id, Item.user_id == user_id,
-        Item.status.in_(("pending", "active", "disabled")),
-    ).with_for_update().execution_options(populate_existing=True))
-    if item is None:
-        raise HTTPException(404, "Item not found")
-    await validate_consumer_activation(db, item_id)
-    await db.execute(update(Item).where(Item.item_id == item_id).values(status="active"))
-    await classify_active_transactions(db, user_id)
-    return {"item_id": item_id, "status": "active"}

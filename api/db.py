@@ -8,7 +8,8 @@ from api.models import Base
 from api.migrations import (migrate_multi_institution, migrate_manual_categories,
                             migrate_consumer_scope, migrate_statement_imports,
                             migrate_transaction_labels, migrate_benefit_categories,
-                            migrate_sync_runs)
+                            migrate_sync_runs, migrate_institution_lifecycle,
+                            require_lifecycle_preflight)
 
 class _LazyEngine:
     """Keep imported engine references stable without reading configuration yet."""
@@ -79,6 +80,10 @@ SessionLocal = _LazySessionFactory()
 
 async def init_db():
     async with engine.begin() as connection:
+        # Mandatory read-only gate: Production stops here, before any DDL, unless
+        # every Item is in a state the lifecycle migration supports.
+        await require_lifecycle_preflight(
+            connection, production=os.environ.get("PLAID_ENV", "").lower() == "production")
         await connection.run_sync(Base.metadata.create_all)
         await migrate_multi_institution(connection)
         await migrate_manual_categories(connection)
@@ -87,6 +92,7 @@ async def init_db():
         await migrate_transaction_labels(connection)
         await migrate_benefit_categories(connection)
         await migrate_sync_runs(connection)
+        await migrate_institution_lifecycle(connection)
 
 
 async def verify_database_name():

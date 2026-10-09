@@ -1,7 +1,8 @@
 'use client'
 
+import Link from 'next/link'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ChevronDown, TriangleAlert } from 'lucide-react'
+import { ChevronDown, ChevronRight, TriangleAlert } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 export type SyncStatus = {
@@ -152,6 +153,11 @@ export function SyncHealth({ status, error, onRetry }: { status: SyncStatus | nu
           {item.next_retry_at && <> · Retry: {time(item.next_retry_at)}</>}
           </div>
           </details>
+          <Link href={`/plaid/items/${encodeURIComponent(item.item_id)}`} aria-label={`Manage ${item.institution_name}`}
+            className="-ml-1 inline-flex min-h-9 items-center gap-0.5 rounded-full px-1 text-xs font-semibold text-info hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+            Manage institution
+            <ChevronRight aria-hidden="true" className="size-3.5" />
+          </Link>
         </li>)}
         </ul>
       </div>}

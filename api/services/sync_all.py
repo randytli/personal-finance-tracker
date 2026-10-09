@@ -21,7 +21,7 @@ from plaid.model.transactions_sync_request import TransactionsSyncRequest
 from sqlalchemy import func, select, text, update
 from urllib3.exceptions import HTTPError as TransportError
 
-from api.models import Account, Item, RawTransaction, SyncItemRun, SyncRun, SyncRuntimeState, Transaction
+from api.models import ATOMIC_SYNC_STATUSES, Account, Item, RawTransaction, SyncItemRun, SyncRun, SyncRuntimeState, Transaction
 from api.routes.plaid import decrypt_access_token
 from api.services.derivation import (
     NormalizationInputError, classify_active_transactions, normalize_item_transactions,
@@ -251,7 +251,7 @@ async def _revalidate(db, snapshot):
     item = await db.scalar(select(Item).where(Item.item_id == snapshot.item_id)
                            .with_for_update().execution_options(populate_existing=True))
     if (item is None or item.user_id != snapshot.user_id or item.institution_id != snapshot.institution_id
-            or item.status != "active"
+            or not item.sync_enabled
             or item.sync_paused or item.transactions_cursor != snapshot.cursor
             or item.access_token != snapshot.token):
         raise ItemProblem("blocked", "stale_item", "publish")
@@ -265,7 +265,8 @@ async def _revalidate(db, snapshot):
 async def _publish_item(db, snapshot, buffer):
     await _revalidate(db, snapshot)
     if buffer.metadata is not None:
-        result = await persist_account_metadata(db, snapshot.user_id, snapshot.item_id, buffer.metadata)
+        result = await persist_account_metadata(db, snapshot.user_id, snapshot.item_id, buffer.metadata,
+                                                statuses=ATOMIC_SYNC_STATUSES)
         if result["type_drift"]:
             raise ItemProblem("blocked", "account_type_drift", "metadata")
     # A repaired response must resolve every transaction account before cursor advance.
@@ -289,9 +290,10 @@ async def _publish_item(db, snapshot, buffer):
             raise ItemProblem("blocked", "invalid_removal", "validate")
     result = await persist_consumer_transactions(
         db, snapshot.user_id, snapshot.item_id, snapshot.cursor,
-        buffer.added, buffer.modified, buffer.removed, buffer.cursor, buffer.pages)
+        buffer.added, buffer.modified, buffer.removed, buffer.cursor, buffer.pages, statuses=ATOMIC_SYNC_STATUSES)
     try:
-        normalized = await normalize_item_transactions(db, snapshot.user_id, snapshot.item_id)
+        normalized = await normalize_item_transactions(db, snapshot.user_id, snapshot.item_id,
+                                                       statuses=ATOMIC_SYNC_STATUSES)
     except NormalizationInputError as exc:
         raise ItemProblem("blocked", "normalization_input", "normalize") from exc
     return result, normalized["normalized_count"]
@@ -463,7 +465,7 @@ async def sync_all(user_id, *, trigger_source="one_shot", client=None, session_f
                     state = await locked_state(db, user_id)
                     if state.handled_sequence >= request_sequence or state.running_sequence != request_sequence:
                         return {"status": "idle", "run_id": None, "items": {}}
-                query = select(Item).where(Item.user_id == user_id, Item.status == "active",
+                query = select(Item).where(Item.user_id == user_id, Item.sync_enabled.is_(True),
                                            Item.sync_paused.is_(False)).order_by(Item.item_id)
                 if item_ids is not None:
                     query = query.where(Item.item_id.in_(item_ids))

@@ -16,7 +16,8 @@ from fastapi import HTTPException
 from sqlalchemy import select, text, func, update
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 
-from api.models import (Base, Item, Account, RawTransaction, Transaction, StatementImportBatch,
+from api.services.derivation import normalize_item_transactions
+from api.models import (ATOMIC_SYNC_STATUSES, Base, Item, Account, RawTransaction, Transaction, StatementImportBatch,
                         StatementImportRow, ManualClassificationOverride, ManualCategoryOverride)
 from api.migrations import migrate_statement_imports
 from api.routes import plaid, analytics, review
@@ -175,7 +176,9 @@ class StatementDatabaseTests(unittest.IsolatedAsyncioTestCase):
             db.add(ManualClassificationOverride(transaction_id=tid, transaction_type="adjustment", created_by="test", updated_by="test"))
             db.add(ManualCategoryOverride(transaction_id=tid, category="TRAVEL", created_by="test", updated_by="test"))
             (await db.get(Item, "i")).status = "active"
-        await plaid.normalize_transactions(item_id="i")
+        # Now Active, so normalization is the atomic sync's step, not the onboarding route.
+        async with self.sessions.begin() as db:
+            await normalize_item_transactions(db, "test", "i", statuses=ATOMIC_SYNC_STATUSES)
         await plaid.classify_transactions()
         async with self.sessions() as db:
             t = await db.get(Transaction, tid)

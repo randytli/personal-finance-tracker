@@ -25,7 +25,7 @@ from statement_imports.persistence import external_classifications
 USER = "synthetic-user"
 
 
-async def legacy_normalize_item_transactions(db, user_id, item_id):
+async def legacy_normalize_item_transactions(db, user_id, item_id, **_scope):
     await lock_consumer_derivation(db, user_id)
     item = await db.scalar(select(Item).where(
         Item.item_id == item_id, Item.user_id == user_id,

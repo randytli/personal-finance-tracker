@@ -77,7 +77,7 @@ function AppMark() {
 }
 
 // Compact pill bar on phones and tablets; a left sidebar from lg up (see .pft-app grid in globals.css).
-export function PageNavigation({ current }: { current: 'Overview' | 'Review' | 'Memberships' }) {
+export function PageNavigation({ current }: { current?: 'Overview' | 'Review' | 'Memberships' }) {
   return <header data-app-nav className="sticky top-[env(safe-area-inset-top)] z-20 border-b bg-background/85 backdrop-blur-md lg:static lg:self-stretch lg:border-b-0 lg:border-r lg:bg-card/40 lg:backdrop-blur-none">
     <nav aria-label="Main navigation" className="mx-auto flex max-w-6xl items-center gap-2 px-4 py-2 sm:px-6 lg:sticky lg:top-0 lg:h-dvh lg:flex-col lg:items-stretch lg:gap-7 lg:px-3 lg:py-6">
       <Link href="/" className="mr-auto inline-flex shrink-0 items-center gap-2.5 rounded-full text-[17px] font-bold tracking-tight focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring lg:mr-0 lg:px-2">

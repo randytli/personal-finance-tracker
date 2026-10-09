@@ -42,7 +42,9 @@ def migration_sql(dataset_id, *, schema=SCHEMA, source=SOURCE, jobs_role=JOBS_RO
                           for index in sorted(table.indexes, key=lambda index: index.name))
     by_name = {table.name: table for table in tables}
     for name in COPIED:
-        columns = ", ".join(f'"{column.name}"' for column in by_name[name].columns)
+        # Generated columns (lifecycle's sync_enabled/published) are derived, never copied.
+        columns = ", ".join(f'"{column.name}"' for column in by_name[name].columns
+                            if column.computed is None)
         statements.append(f"INSERT INTO {schema}.{name} ({columns}) SELECT {columns} FROM {source}.{name}")
     # A fresh synthetic owner: nothing is due until a scenario makes it due.
     statements.append(f"UPDATE {schema}.items SET user_id = '{USER_ID}', last_sync_success_at = now(), "
