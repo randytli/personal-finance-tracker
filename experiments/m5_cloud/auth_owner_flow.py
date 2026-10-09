@@ -5,8 +5,9 @@ writes the TOTP enrolment secret only to /dev/tty, and records only status codes
 claim names and booleans in the evidence file (no tokens, passwords or secrets).
 
 Subcommands (python -m experiments.m5_cloud.auth_owner_flow <cmd> --out FILE):
-  flow       password sign-in (aal1 must be refused) -> TOTP enrol or verify -> aal2 accepted
-             -> refresh -> global sign-out -> old refresh token refused
+  flow       password sign-in (aal1 must be refused) -> TOTP enrol or verify (a wrong code on a
+             fresh challenge must be refused) -> aal2 accepted -> refresh -> global sign-out
+             -> old refresh token refused
   recover    trusted-machine recovery (P3-3): needs PFT_M5_SECRET_KEY in the environment.
              Signs in, deletes the TOTP factor with the admin API, checks the session is gone,
              sets a new password, checks old password refused and new one accepted.
@@ -99,9 +100,16 @@ def flow(record):
         tty("\nAdd this TOTP secret to your authenticator (shown only here):\n  "
             + enrolled["totp"]["uri"] + "\n")
         factor = {"id": enrolled["id"]}
+    # Read the code before creating any challenge: a slow authenticator setup expired the
+    # challenge in the first 2026-10-08 attempt (mfa_challenge_expired).
+    code = getpass.getpass("Current 6-digit TOTP code: ").strip().replace(" ", "")
+    wrong_code = f"{(int(code) + 500000) % 1000000:06d}" if code.isdigit() else "000000"
+    status, challenge = call("POST", f"/factors/{factor['id']}/challenge", bearer=session["access_token"], body={})
+    status, wrong = call("POST", f"/factors/{factor['id']}/verify", bearer=session["access_token"],
+                         body={"challenge_id": challenge.get("id"), "code": wrong_code})
+    record["fresh_challenge_wrong_code_status"] = [status, error_label(wrong)]
     status, challenge = call("POST", f"/factors/{factor['id']}/challenge", bearer=session["access_token"], body={})
     record["challenge_status"] = status
-    code = getpass.getpass("Current 6-digit TOTP code: ").strip()
     status, upgraded = call("POST", f"/factors/{factor['id']}/verify", bearer=session["access_token"],
                             body={"challenge_id": challenge.get("id"), "code": code})
     record["verify_status"] = status

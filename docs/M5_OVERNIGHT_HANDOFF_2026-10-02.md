@@ -196,8 +196,8 @@ owner 说明“密钥稍后再做，其余批准”。据此执行了以下操�
 
 按 owner 指示（“遇到超出范围的操作、设计决定或需要本人处理的凭据操作，不等待，记在这里，继续下一项”），以下事项 agent 没有执行：
 
-1. **合成项目 Auth 控制台设置（owner，控制台）**：项目 `acyghoemtdrilsdszolq` 当前 `disable_signup=false`（注册开放，2026-10-03 01:47 UTC 只读 `/auth/v1/settings` 实测）。匿名登录已关、无社交登录、邮件确认已开。需要：关闭 “Allow new users to sign up”；在 Authentication → Users 手工建一个合成 owner 用户（勾选 auto-confirm）；确认 MFA 里 TOTP 为启用。MCP 没有 Auth 配置接口，也不应绕过 CLI 调管理 API。
-2. **Auth 流程实测（owner，本人终端，不经 agent）**：用独立 venv 运行 `experiments/m5_cloud/auth_owner_flow.py`（脚本拒绝在非 TTY 下运行，TOTP 秘密只写 `/dev/tty`，证据只含状态码）。顺序：`negatives`（注册关闭后才会测注册/匿名）→ `flow`（登录、aal1 被拒、TOTP 注册与验证、aal2 通过、刷新、登出）→ `recover`（需要在该终端设 `PFT_M5_SECRET_KEY`，删 TOTP 因子、重设密码）→ 再 `flow` 一次重新绑定 TOTP。命令：
+1. **【2026-10-08 已完成，见 [owner-auth 验收记录](PFT_M5_OWNER_AUTH_ACCEPTANCE_2026-10-08.md)】合成项目 Auth 控制台设置（owner，控制台）**：项目 `acyghoemtdrilsdszolq` 当前 `disable_signup=false`（注册开放，2026-10-03 01:47 UTC 只读 `/auth/v1/settings` 实测）。匿名登录已关、无社交登录、邮件确认已开。需要：关闭 “Allow new users to sign up”；在 Authentication → Users 手工建一个合成 owner 用户（勾选 auto-confirm）；确认 MFA 里 TOTP 为启用。MCP 没有 Auth 配置接口，也不应绕过 CLI 调管理 API。
+2. **【2026-10-08 已执行，见 [owner-auth 验收记录](PFT_M5_OWNER_AUTH_ACCEPTANCE_2026-10-08.md)。下面的命令已作废：其中的 venv 路径已随 job 被清理；`--out` 指向的 `auth-negatives.json` 是 Cron S1 的证据，照用会把它覆盖。实际使用的是 worktree 内的 `.venv`，证据放在 `docs/evidence/m5-2026-10-08/owner-auth/`。G6 仍未通过：恢复流程会留下仍然有效的会话（F1），应用集成路径也还没有实测】Auth 流程实测（owner，本人终端，不经 agent）**：用独立 venv 运行 `experiments/m5_cloud/auth_owner_flow.py`（脚本拒绝在非 TTY 下运行，TOTP 秘密只写 `/dev/tty`，证据只含状态码）。顺序：`negatives`（注册关闭后才会测注册/匿名）→ `flow`（登录、aal1 被拒、TOTP 注册与验证、aal2 通过、刷新、登出）→ `recover`（需要在该终端设 `PFT_M5_SECRET_KEY`，删 TOTP 因子、重设密码）→ 再 `flow` 一次重新绑定 TOTP。命令：
    `cd ~/code/pft-m5-remaining && /home/randyli/.claude/jobs/fd07ef9c/tmp/authvenv/bin/python -m experiments.m5_cloud.auth_owner_flow <negatives|flow|recover> --out docs/evidence/m5-2026-10-02/cloud/auth-<cmd>.json`
    （该 venv 在 job 删除时会被清理；没有它时：`python3 -m venv /tmp/x && /tmp/x/bin/pip install 'PyJWT[crypto]' cryptography==41.0.7`。）
 3. **Vercel 清理（owner）**：`vercel env rm`、`vercel rm` 被权限规则禁止，agent 不做。需要删除：jobs 项目 preview 环境变量 `M5_CRON_ENABLED`、`M5_TRIGGER_AUDIENCE`、`M5_CRON_DATASET_ID`、`M5_CRON_DATABASE_URL`、`M5_TRIGGER_KEYS`；本次部署的 preview（清单见验收文档）；jobs 项目上的两条 automation bypass（本次一条、2026-10-01 一条），在 Project Settings → Deployment Protection 撤销。旧实验的 `DATABASE_URL` 内的 `pft_m5_jobs` 密码已在本次轮换，旧值不再可用。
@@ -387,7 +387,7 @@ owner 说明“密钥稍后再做，其余批准”。据此执行了以下操�
 
 1. **G7 备份**：P1-1 到 P1-5 已全部拍板；剩下的是需要批准的云端和账号操作（见第 6 项）。之后在合成项目上跑一次真实链路：PG17 dump 经 Supavisor（包括验证 `--snapshot` 能否穿过 session pooler）、上传、换机下载、恢复、指纹比对。
 2. **R4 Cron**：在合成项目上启用 pg_cron、pg_net 和 Vault；核实 `pg_net.max_timeout_ms` 和 body 的实际字节；测重复投递、超时和过期场景。
-3. **G6 Auth**：P3-1 到 P3-4 已拍板（2026-10-02）。下一步是 M6 的实现，以及在合成项目上跑反向测试矩阵，各自都需要单独批准。
+3. **G6 Auth**：P3-1 到 P3-4 已拍板（2026-10-02）。下一步是 M6 的实现，以及在合成项目上跑反向测试矩阵，各自都需要单独批准。**2026-10-08 更新**：Supabase 提供方层面的 owner 流程已在合成项目上实测（[验收记录](PFT_M5_OWNER_AUTH_ACCEPTANCE_2026-10-08.md)），G6 仍未通过。还缺：A1 加固恢复顺序并实测 recover-v2（F1：用 admin 删除因子后，已有会话仍然有效）；A2 应用集成的最小 Auth probe（Next.js 会话 → 服务器路由 → Vercel 上的 FastAPI 验签）；A3 对已部署的 FastAPI 跑反向测试矩阵。
 4. **文档要求但今晚没做的**：R8（云端 catch-up、重试、部分失败的余量测试）、R9（应用 deadline 取值）、R10（取消后 `running` 状态的缺口，需要先给设计和策略）、R11（硬终止）、R13（分类的 O(n²) CPU）、R14（多实例连接预算）、R15（诚实的状态模型）、R19（$0 账单证据）、R21（M5 一次性资源的清理时间）。
 5. 建议的下一步（P1-1 和 P1-2 定下之后）：在本地起草 workflow 和备份适配器（不需要任何云端操作）；再定 P1-4（加密格式），因为 workflow 里用哪个加密工具取决于它。需要你批准的云端操作见上方 P1 列表。
 

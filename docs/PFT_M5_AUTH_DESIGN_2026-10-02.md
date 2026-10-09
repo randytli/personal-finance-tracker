@@ -2,6 +2,8 @@
 
 **Status: design only; no code.** This does not close SERVERLESS_GO criterion G6. The plan requires measured login, refresh and logout plus negative tests on the synthetic project (plan §13.1–13.3). Nothing was configured on any provider. Doc facts were looked up on 2026-10-02.
 
+**Update 2026-10-08:** provider-level flows were measured on the synthetic project ([owner-auth acceptance](PFT_M5_OWNER_AUTH_ACCEPTANCE_2026-10-08.md)). G6 is still not passed. The §4 recovery order is contradicted by measurement (finding F1, noted in §4).
+
 Legend: **[D]** official documentation quote; **[E]** inference; **未核实** not verified; **[R]** repository fact.
 
 ## 1. Today's boundary (Tailscale, Phase 2 Core)
@@ -74,6 +76,13 @@ Rules:
 - The owner *is* a team member, so reset mail to the owner address should deliver, but only best-effort [E].
 - "Custom SMTP server" is Included on Free [D]. It needs a free SMTP sender, which is 未核实 and an owner choice.
 - **Proposed primary recovery: no email at all.** The owner signs in to the Supabase dashboard (its own MFA), then from a trusted machine calls `auth.admin.updateUserById(<owner uuid>, { password })` with the project's secret/service-role key held only in that process. The docs show exactly this `password` example and state it "should only be called on a server. Never expose your `service_role` key in the browser" [D, [updateUserById](https://supabase.com/docs/reference/javascript/auth-admin-updateuserbyid), 2026-10-02]. A lost TOTP factor is removed with [`auth.admin.mfa.deleteFactor`](https://supabase.com/docs/reference/javascript/auth-admin-mfa-deletefactor) (`id`, `userId`), which "will log the user out of all active sessions if the deleted factor was verified". Source: official JS reference via the docs search index, 2026-10-02 (the page itself returned 404 to direct fetch); also confirmed by the owner. The owner then signs in and re-enrols TOTP. Recreating the Auth user is no longer the normal fallback.
+- **Measured 2026-10-08 — contradicts the quoted reference (acceptance F1):** after the admin API deleted the verified TOTP factor, an existing password-only (`aal1`) session could still refresh. An attacker session can therefore survive this recovery and enrol its own factor. Proposed order, not yet measured:
+  1. Set a new password.
+  2. Sign in with it and call `POST /logout?scope=global`. The admin `signOut` needs the user's JWT; there is no revoke by user ID.
+  3. Delete **all** factors.
+  4. Re-enrol.
+
+  Adopt this only after the recover-v2 measurement.
 - If the Auth user is recreated, update `PFT_OWNER_AUTH_SUB`. `PLAID_PILOT_USER_ID` stays unchanged (plan §16.1).
 - **Decision P3-3.**
 
