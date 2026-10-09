@@ -164,22 +164,24 @@ def build_classifications(
         )
         for transaction in transactions
     }
-    expenses = [
-        transaction
-        for transaction in transactions
-        if classifications[transaction.transaction_id][0] == "expense"
-    ]
+    # Every refund candidate shares the credit's account and absolute amount, so
+    # expenses are indexed by that key. Buckets keep input order.
+    expenses_by_key = {}
+    for transaction in transactions:
+        if classifications[transaction.transaction_id][0] == "expense":
+            expenses_by_key.setdefault(
+                (transaction.account_id, abs(transaction.amount)), []
+            ).append(transaction)
     refund_matches = 0
 
     for credit in transactions:
         if credit.amount <= 0 or classifications[credit.transaction_id][0] is not None:
             continue
+        candidates = expenses_by_key.get((credit.account_id, credit.amount), ())
         same_day_candidates = [
             expense
-            for expense in expenses
-            if expense.account_id == credit.account_id
-            and expense.transaction_date == credit.transaction_date
-            and abs(expense.amount) == credit.amount
+            for expense in candidates
+            if expense.transaction_date == credit.transaction_date
             and expense.plaid_category == credit.plaid_category
             and _has_exact_merchant_or_description(expense, credit)
         ]
@@ -190,10 +192,8 @@ def build_classifications(
 
         historical_candidates = [
             expense
-            for expense in expenses
-            if expense.account_id == credit.account_id
-            and expense.transaction_date < credit.transaction_date
-            and abs(expense.amount) == credit.amount
+            for expense in candidates
+            if expense.transaction_date < credit.transaction_date
             and _is_same_merchant_or_description(expense, credit)
         ]
         if len(historical_candidates) == 1:
@@ -270,18 +270,24 @@ def build_classifications(
         for transaction in transactions
         if transaction.transaction_id in transfer_candidates
     ]
-    for index, transaction in enumerate(eligible_transfers):
-        for counterpart in eligible_transfers[index + 1:]:
-            if (
-                transaction.account_id != counterpart.account_id
-                and transaction.amount == -counterpart.amount
-                and transaction.amount != 0
-                and abs(
-                    (transaction.transaction_date - counterpart.transaction_date).days
-                ) <= 3
-            ):
-                transfer_candidates[transaction.transaction_id].append(counterpart)
-                transfer_candidates[counterpart.transaction_id].append(transaction)
+    # A pair needs amount == -counterpart.amount != 0, so only rows with the same
+    # absolute amount are compared. Buckets keep input order.
+    transfers_by_amount = {}
+    for transaction in eligible_transfers:
+        if transaction.amount != 0:
+            transfers_by_amount.setdefault(abs(transaction.amount), []).append(transaction)
+    for bucket in transfers_by_amount.values():
+        for index, transaction in enumerate(bucket):
+            for counterpart in bucket[index + 1:]:
+                if (
+                    transaction.account_id != counterpart.account_id
+                    and transaction.amount == -counterpart.amount
+                    and abs(
+                        (transaction.transaction_date - counterpart.transaction_date).days
+                    ) <= 3
+                ):
+                    transfer_candidates[transaction.transaction_id].append(counterpart)
+                    transfer_candidates[counterpart.transaction_id].append(transaction)
 
     for transaction in eligible_transfers:
         candidates = transfer_candidates[transaction.transaction_id]
