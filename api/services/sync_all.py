@@ -402,7 +402,10 @@ def _schedule_result(item, outcome, now):
 
 
 async def _assert_lock_owner(connection, backend_pid):
-    if await connection.scalar(text("SELECT pg_backend_pid()")) != backend_pid:
+    current_pid = await connection.scalar(text("SELECT pg_backend_pid()"))
+    # Do not keep a snapshot open on the lock connection (M5 S7); the session lock survives.
+    await connection.commit()
+    if current_pid != backend_pid:
         raise RuntimeError("Sync lock connection was lost")
 
 
