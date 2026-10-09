@@ -217,15 +217,20 @@ def create_app(settings, *, verifier=None, engine=None, http=None, instance=None
                 project_ref = await owner.connection.scalar(IDENTITY_SQL)
                 diag.data_queries += 1
                 diag.timed("data", data_started)
+            diag.timed("total", started)
+            claims = owner.claims
+            body = {
+                "kind": "m5_auth_whoami", "aal": claims.get("aal"), "iat": claims.get("iat"),
+                "exp": claims.get("exp"), "seconds_until_exp": int(claims["exp"] - time.time()),
+                "session_check": settings.session_check,
+                "identity_ok": project_ref == settings.project_ref, "timings_ms": diag.timings_ms}
         except ProbeError as error:
             return diag.respond(error.status, {"error": error.reason})
-        diag.timed("total", started)
-        claims = owner.claims
-        return diag.respond(200, {
-            "kind": "m5_auth_whoami", "aal": claims.get("aal"), "iat": claims.get("iat"),
-            "exp": claims.get("exp"), "seconds_until_exp": int(claims["exp"] - time.time()),
-            "session_check": settings.session_check,
-            "identity_ok": project_ref == settings.project_ref, "timings_ms": diag.timings_ms})
+        except Exception:
+            # Last boundary: an unexpected failure still fails closed with no-store and this request's
+            # counters, and echoes no detail. Cancellation is a BaseException and still propagates.
+            return diag.respond(500, {"error": "internal error"})
+        return diag.respond(200, body)
 
     @app.exception_handler(StarletteHTTPException)
     async def http_error(request, exc):

@@ -1,9 +1,15 @@
 """M5 owner-auth probe: deployed negative matrix, A5 samples and cleanup (design §5.2–§5.3).
 
 Run by the OWNER in their own terminal, never through an agent. Refuses non-TTY stdin and an
-existing --out file. Secrets (Vercel bypass value, password, TOTP codes, the synthetic sb_secret
+existing --out file; the file is reserved before the first prompt and records `completed` or
+`aborted_by`. Secrets (Vercel bypass value, password, TOTP codes, the synthetic sb_secret
 key) are read with getpass and stay in memory; the evidence records statuses, error labels,
 request IDs, counters and timings, never tokens.
+
+samples: per mode until 30 valid warm samples, at most 60 requests or 3 failures in a row. The
+first response from an x-probe-instance id is a cold candidate, later ones are warm (owner
+decision A). Timeouts, 5xx, 429, other statuses and malformed 200s stay in the evidence and fail
+the criteria (design §5.3); `criteria_met` is true only for a completed run where both modes pass.
 
   python -m experiments.m5_cloud.auth_api_matrix matrix  --api-url URL --wrong-owner-url URL --out FILE
   python -m experiments.m5_cloud.auth_api_matrix samples --api-url URL --auth-url URL --out FILE
@@ -14,7 +20,6 @@ import base64
 import getpass
 import json
 import math
-import os
 import re
 import secrets
 import statistics
@@ -36,6 +41,9 @@ NONOWNER_PREFIX, NONOWNER_DOMAIN = "m5-nonowner-", "@example.invalid"
 PROBE_HEADERS = ("x-probe-request-id", "x-probe-instance", "x-probe-db-connections",
                  "x-probe-session-checks", "x-probe-data-queries")
 BODY_FIELDS = ("aal", "session_check", "identity_ok", "seconds_until_exp", "timings_ms")
+USER_PAGE_SIZE, USER_PAGE_LIMIT = 50, 20
+SAMPLE_WARM, SAMPLE_LIMIT, SAMPLE_FAILURE_STOP = 30, 60, 3   # per mode; design §5.3, owner decision A
+TIMINGS = ("total", "connect", "session_check", "data")
 
 
 def b64(data):
@@ -97,13 +105,32 @@ def _stats(values):
 
 
 def summarize(runs):
-    ok = [run for run in runs if run["status"] == 200]
-    return {"n": len(runs), "non_200": len(runs) - len(ok),
-            "status_429": sum(run["status"] == 429 for run in runs),
-            "client_ms": _stats([run["client_ms"] for run in ok]),
-            **{f"{name}_ms": _stats([run["timings_ms"][name] for run in ok])
-               for name in ("total", "connect", "session_check", "data")},
-            "note": "p95 of about 30 samples is a sample statistic, not a stable tail estimate"}
+    """Design §5.3: statistics of valid warm samples and cold candidates, failure counts, criteria."""
+    good = [run for run in runs if run["status"] == 200 and "invalid" not in run]
+    warm = [run for run in good if run["class"] == "warm"]
+    cold = [run for run in good if run["class"] == "cold_candidate"]
+    counts = {
+        "n": len(runs), "warm": len(warm),
+        "cold_candidates": sum(run["class"] == "cold_candidate" for run in runs),
+        "timeouts": sum(run["status"] is None and run["error"] == "timeout" for run in runs),
+        "request_errors": sum(run["status"] is None and run["error"] != "timeout" for run in runs),
+        "status_5xx": sum((run["status"] or 0) >= 500 for run in runs),
+        "status_429": sum(run["status"] == 429 for run in runs),
+        "other_status": sum(run["status"] not in (None, 200, 429) and run["status"] < 500 for run in runs),
+        "invalid_200": sum(run["status"] == 200 and "invalid" in run for run in runs)}
+    criteria = {"warm_at_least_30": len(warm) >= SAMPLE_WARM,
+                **{f"no_{name}": counts[name] == 0 for name in (
+                    "timeouts", "request_errors", "status_5xx", "status_429", "other_status", "invalid_200")}}
+
+    def timings(group):
+        return {"client_ms": _stats([run["client_ms"] for run in group]),
+                **{f"{name}_ms": _stats([run["timings_ms"][name] for run in group]) for name in TIMINGS}}
+
+    return {**counts, "warm_ms": timings(warm), "cold_candidate_ms": timings(cold),
+            "criteria": criteria, "criteria_met": all(criteria.values()),
+            "note": "p95 of about 30 samples is a sample statistic, not a stable tail estimate. A cold "
+                    "candidate is the first response seen from an instance id; that instance may already "
+                    "have been warm, so cold candidates over-count cold starts and never enter warm."}
 
 
 class TerminalIO:
@@ -243,17 +270,101 @@ def matrix(evidence, args, io, client):
                                          else f"refresh {status}")
 
 
-def samples(evidence, args, io, client, count=30):
+def sample(api, url, bearer):
+    """One request, recorded whatever happens: a timeout or request error is a failed sample."""
+    started = time.perf_counter()
+    try:
+        return api.get(url, authorization=bearer)
+    except httpx.TimeoutException:
+        error = "timeout"
+    except httpx.RequestError:
+        error = "request error"
+    return {"status": None, "error": error, "client_ms": round((time.perf_counter() - started) * 1000, 1)}
+
+
+def valid_timing(value):
+    return (isinstance(value, (int, float)) and not isinstance(value, bool)
+            and math.isfinite(value) and value >= 0)
+
+
+def sample_problem(entry, mode):
+    """Why a 200 response cannot be a timing sample for this mode, or None."""
+    timings = entry.get("timings_ms")
+    if not isinstance(timings, dict) or not all(valid_timing(timings.get(name)) for name in TIMINGS):
+        return "timings invalid"
+    if not entry.get("instance"):
+        return "instance missing"
+    if entry.get("identity_ok") is not True:
+        return "identity not confirmed"
+    if entry.get("session_check") != mode:
+        return "wrong session-check mode"
+    return None
+
+
+def sample_mode(api, url, bearer, mode, runs):
+    """Owner decision A: the first response from an instance id is a cold candidate and later ones are
+    warm. Stops at SAMPLE_WARM valid warm samples, SAMPLE_LIMIT requests or SAMPLE_FAILURE_STOP
+    failures in a row; appends to `runs` as it goes so an interrupted run keeps its samples."""
+    seen, warm, failing = set(), 0, 0
+    while warm < SAMPLE_WARM and len(runs) < SAMPLE_LIMIT and failing < SAMPLE_FAILURE_STOP:
+        entry = sample(api, url, bearer)
+        instance = entry.get("instance") or None   # an empty header is no instance id
+        entry["class"] = "unclassified" if instance is None else "warm" if instance in seen else "cold_candidate"
+        if instance is not None:
+            seen.add(instance)
+        if entry["status"] == 200 and (problem := sample_problem(entry, mode)):
+            entry["invalid"] = problem
+        if entry["status"] is None or entry["status"] >= 500 or entry["status"] == 429:
+            failing += 1
+        else:
+            failing = 0
+        if entry["class"] == "warm" and entry["status"] == 200 and "invalid" not in entry:
+            warm += 1
+        runs.append(entry)
+
+
+def samples(evidence, args, io, client):
     bypass = io.secret("Vercel automation-bypass value for the API project: ")
     email = io.ask("Owner email (synthetic project): ").strip()
     password = io.secret("Current owner password: ")
     supabase, api = Supabase(client), Api(client, bypass)
     session = supabase.owner_session(email, password, io)
-    bearer = "Bearer " + session["access_token"]
-    for mode, url in (("db", args.api_url), ("auth", args.auth_url)):
-        runs = [api.get(url, authorization=bearer) for _ in range(count + 1)]
-        evidence[mode] = {"first": runs[0], "warm": runs[1:], "summary": summarize(runs[1:])}
-    evidence["sign_out_status"] = supabase.logout(session["access_token"])
+    evidence["criteria_met"] = False   # only a completed run with both modes passing sets it
+    try:
+        for mode, url in (("db", args.api_url), ("auth", args.auth_url)):
+            evidence[mode] = {"samples": []}
+            sample_mode(api, url, "Bearer " + session["access_token"], mode, evidence[mode]["samples"])
+            evidence[mode]["summary"] = summarize(evidence[mode]["samples"])
+        evidence["criteria_met"] = all(evidence[mode]["summary"]["criteria_met"] for mode in ("db", "auth"))
+    finally:
+        evidence["sign_out_status"] = "not finished"   # stays if the sign-out itself is interrupted
+        try:
+            evidence["sign_out_status"] = supabase.logout(session["access_token"])
+        except httpx.RequestError as exc:
+            evidence["sign_out_status"] = "failed: " + type(exc).__name__
+
+
+def listed_user(user):
+    """A user row cleanup can act on: a non-empty string id and an email that is a string or null."""
+    return (isinstance(user, dict) and isinstance(user.get("id"), str) and user["id"] != ""
+            and "email" in user and (user["email"] is None or isinstance(user["email"], str)))
+
+
+def list_users(supabase, secret_key):
+    """Every user, page by page until an empty page; a failed or malformed page stops the run."""
+    users = []
+    for page in range(1, USER_PAGE_LIMIT + 1):
+        status, listed = supabase.call("GET", f"/admin/users?page={page}&per_page={USER_PAGE_SIZE}",
+                                       apikey=secret_key)
+        if status != 200:
+            raise SystemExit(f"listing users failed: {status}")
+        batch = listed.get("users") if isinstance(listed, dict) else None
+        if not isinstance(batch, list) or not all(listed_user(user) for user in batch):
+            raise SystemExit("listing users failed: malformed user list")
+        if not batch:
+            return users
+        users += batch
+    raise SystemExit("more users than the page limit; no count reported")
 
 
 def cleanup(evidence, args, io, client):
@@ -261,13 +372,12 @@ def cleanup(evidence, args, io, client):
     if not secret_key.startswith("sb_secret_"):
         raise SystemExit("sb_secret key required")
     supabase = Supabase(client)
-    status, listed = supabase.call("GET", "/admin/users?page=1&per_page=1000", apikey=secret_key)
-    users = listed.get("users", []) if isinstance(listed, dict) else []
-    doomed = [user for user in users if is_temporary(user.get("email"))]
-    evidence["list_status"] = status
+    doomed = [user for user in list_users(supabase, secret_key) if is_temporary(user.get("email"))]
     evidence["deleted"] = [supabase.call("DELETE", f"/admin/users/{user['id']}", apikey=secret_key)[0]
                            for user in doomed]
-    evidence["remaining_users"] = len(users) - len(doomed)
+    remaining = list_users(supabase, secret_key)  # counted again, never inferred from delete statuses
+    evidence["remaining_users"] = len(remaining)
+    evidence["remaining_temporary_users"] = sum(is_temporary(user.get("email")) for user in remaining)
 
 
 COMMANDS = {"matrix": (matrix, ("api_url", "wrong_owner_url")),
@@ -285,21 +395,31 @@ def main(argv=None, io=None, client=None):
     args = parser.parse_args(argv)
     if not sys.stdin.isatty():
         raise SystemExit("Run this in your own terminal, not through an agent.")
-    if os.path.exists(args.out):
-        raise SystemExit(f"{args.out} already exists; choose a new file name so earlier evidence is kept.")
     command, required = COMMANDS[args.command]
     for name in required:
         # Match the original input so normalization cannot hide ports or path components.
         if not PREVIEW_URL_RE.fullmatch(getattr(args, name) or ""):
             raise SystemExit(f"--{name.replace('_', '-')} must be an https preview URL of pft-m5-auth-api-20261009")
-    evidence = {"kind": "m5_auth_probe_" + args.command, "project_ref": REF, "started_unix": int(time.time())}
     try:
-        with (client or httpx.Client(timeout=20.0)) as http:
-            command(evidence, args, io or TerminalIO(), http)
-    finally:
-        with open(args.out, "w") as stream:
+        # Reserve the file before any prompt: a later run with the same name fails here instead of
+        # overwriting this run's evidence when it finishes.
+        stream = open(args.out, "x")
+    except FileExistsError:
+        raise SystemExit(f"{args.out} already exists; choose a new file name so earlier evidence is kept.") from None
+    evidence = {"kind": "m5_auth_probe_" + args.command, "project_ref": REF, "started_unix": int(time.time())}
+    with stream:
+        try:
+            with (client or httpx.Client(timeout=20.0)) as http:
+                command(evidence, args, io or TerminalIO(), http)
+            evidence["completed"] = True
+        except BaseException as exc:
+            evidence["completed"], evidence["aborted_by"] = False, type(exc).__name__
+            if "criteria_met" in evidence:
+                evidence["criteria_met"] = False   # an aborted run never claims a passing measurement
+            raise
+        finally:
             json.dump(evidence, stream, indent=2)
-        print(json.dumps(evidence, indent=2))
+            print(json.dumps(evidence, indent=2))
 
 
 if __name__ == "__main__":

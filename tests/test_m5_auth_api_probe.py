@@ -7,6 +7,7 @@ import base64
 import json
 import time
 import unittest
+from unittest.mock import Mock
 import urllib.error
 import uuid
 
@@ -207,6 +208,21 @@ class DbModeTests(ProbeCase):
         self.assertEqual((response.status_code, response.json()["error"]), (503, "data unavailable"))
         self.assert_counters(response, 1, 1, 0)
         self.assertEqual(self.engine.closed, 1)
+
+    async def test_unexpected_errors_are_generic_500_with_diagnostics(self):
+        # The last boundary: every response keeps no-store and its counters, and no detail is echoed.
+        self.engine.data_result = RuntimeError("detail-from-the-data-path")
+        response = await self.call("Bearer " + mint(self.key))
+        self.assertEqual((response.status_code, response.json()), (500, {"error": "internal error"}))
+        self.assertNotIn("detail-from", response.text)
+        self.assert_counters(response, 1, 1, 0)
+        self.assertEqual(self.engine.closed, 1)
+        self.verifier.verify = Mock(side_effect=RuntimeError("detail-from-the-verifier"))
+        response = await self.call("Bearer " + mint(self.key))
+        self.assertEqual((response.status_code, response.json()), (500, {"error": "internal error"}))
+        self.assertNotIn("detail-from", response.text)
+        self.assert_counters(response, 0, 0, 0)
+        self.assertEqual(len(self.engine.connections), 1)
 
     async def test_no_caching_between_requests(self):
         token = "Bearer " + mint(self.key)
