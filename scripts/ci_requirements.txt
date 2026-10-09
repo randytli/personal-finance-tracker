@@ -1,2 +1,4 @@
 # CI-only dependency for the unmounted M5 owner-auth prototype tests.
 PyJWT[crypto]==2.10.1
+# CI-only ASGI/mock HTTP client for the M5 owner-auth probe tests; also staged into the probe bundle.
+httpx==0.28.1
