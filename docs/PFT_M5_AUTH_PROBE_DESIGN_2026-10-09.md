@@ -15,6 +15,7 @@
 | 7. A3 coverage | Two evidence tiers: local trusted test key vs. deployed trust boundary. Full claim list. "Changed owner setting" added as a deployed case; no test-key entry in the cloud verifier (§5.2) |
 | Small fixes | Status mapping includes 200; per-request IDs and counters replace per-instance totals; failure and cleanup paths (§3, §6) |
 | Added by the agent | A JWKS fetch failure returns 503, not 500. The new database test needs a CI opt-in, so the CI inventory must be updated |
+| B8 clarification (owner-approved 2026-10-09) | A page restored from the browser's back-forward cache may appear after **Back**; the requirement is that nothing new is fetched (whoami 401) and a reload lands on `/login` |
 
 Inputs:
 - [owner-auth acceptance](PFT_M5_OWNER_AUTH_ACCEPTANCE_2026-10-08.md) §3–§4, gaps A2, A3 and A5;
