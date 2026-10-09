@@ -146,3 +146,44 @@ class OwnerTokenVerifierTests(unittest.TestCase):
         entry = json.loads(jwt.algorithms.ECAlgorithm.to_jwk(other.public_key()))
         self.jwks = {"keys": [{**entry, "kid": "kid-1"}, {"kty": "oct", "k": "c2VjcmV0", "kid": "kid-1"}]}
         self.rejected(401, self.token())
+
+    def test_failed_refresh_preserves_usable_cached_key_and_throttles_missing_key(self):
+        from unittest.mock import Mock
+        token = self.token()
+        self.verifier.verify(token)
+        self.now[0] += 60
+        fetch = Mock(side_effect=OSError("offline"))
+        self.verifier._fetch = fetch
+        for _ in range(2):
+            self.assertEqual(self.rejected(503, self.token(kid="new-key")), "auth keys unavailable")
+        self.assertEqual(fetch.call_count, 1)
+        self.verifier.verify(token)  # A previously validated signing key remains usable.
+        fetch.side_effect = None
+        fetch.return_value = self.jwks
+        self.now[0] += 60
+        self.assertEqual(self.rejected(401, self.token(kid="new-key")), "unknown signing key")
+        self.assertEqual(self.rejected(401, self.token(kid="new-key")), "unknown signing key")
+        self.assertEqual(fetch.call_count, 2)
+
+    def test_concurrent_first_verifications_wait_for_one_fetch(self):
+        # The API verifies in worker threads; callers arriving while the first JWKS fetch is in
+        # flight must wait for it, not see the throttle set over an empty key cache (401).
+        from concurrent.futures import ThreadPoolExecutor
+
+        def slow_fetch(url):
+            time.sleep(0.05)
+            return self.fetched(url)
+
+        verifier = OwnerTokenVerifier(self.config, fetch=slow_fetch, clock=lambda: self.now[0])
+        token = self.token()
+
+        def attempt(_):
+            try:
+                return verifier.verify(token)["sub"]
+            except AuthError as exc:
+                return (exc.status, exc.reason)
+
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            outcomes = list(pool.map(attempt, range(8)))
+        self.assertEqual(outcomes, [OWNER] * 8)
+        self.assertEqual(verifier.fetches, 1)

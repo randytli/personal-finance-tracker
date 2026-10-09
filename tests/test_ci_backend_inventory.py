@@ -18,7 +18,8 @@ class CIInventoryTests(unittest.TestCase):
         self.assertEqual(self.discover(REQUIRED_OPT_INS), REQUIRED_OPT_INS)
 
     def test_m5_inventory(self):
-        flags = REQUIRED_OPT_INS | {"PFT_" + name + "_SYNTHETIC_TEST" for name in ("M5_BACKUP", "M5_TRIGGER")}
+        flags = REQUIRED_OPT_INS | {"PFT_" + name + "_SYNTHETIC_TEST"
+                                    for name in ("M5_BACKUP", "M5_TRIGGER", "M5_AUTH")}
         self.assertEqual(self.discover(flags), flags)
 
     def test_unknown_flag_is_rejected(self):

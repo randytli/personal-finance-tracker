@@ -16,6 +16,7 @@ CLI (read-only, public endpoint): python -m experiments.m5_cloud.auth_probe jwks
 from dataclasses import dataclass
 import json
 import sys
+import threading
 import time
 import urllib.request
 
@@ -60,26 +61,39 @@ class OwnerTokenVerifier:
         self._clock = clock
         self._keys = {}
         self._fetched_at = None
+        self._fetch_failed = False
+        self._lock = threading.Lock()
         self.fetches = 0
 
     def _refresh(self):
         self.fetches += 1
         self._fetched_at = self._clock()
-        keys = {}
-        for entry in self._fetch(self.config.jwks_url).get("keys", []):
-            # Only P-256 signing keys can verify ES256; anything else is ignored.
-            if entry.get("kty") == "EC" and entry.get("crv") == "P-256" and entry.get("alg", ALGORITHM) == ALGORITHM \
-                    and entry.get("use", "sig") == "sig" and isinstance(entry.get("kid"), str):
-                keys[entry["kid"]] = jwt.PyJWK(entry, algorithm=ALGORITHM).key
+        try:
+            keys = {}
+            for entry in self._fetch(self.config.jwks_url).get("keys", []):
+                # Only P-256 signing keys can verify ES256; anything else is ignored.
+                if entry.get("kty") == "EC" and entry.get("crv") == "P-256" and entry.get("alg", ALGORITHM) == ALGORITHM \
+                        and entry.get("use", "sig") == "sig" and isinstance(entry.get("kid"), str):
+                    keys[entry["kid"]] = jwt.PyJWK(entry, algorithm=ALGORITHM).key
+        except Exception:
+            # Preserve usable cached keys, but do not mislabel an outage as a bad token.
+            self._fetch_failed = True
+            raise AuthError(503, "auth keys unavailable") from None
         self._keys = keys
+        self._fetch_failed = False
 
     def _key(self, kid):
-        if kid not in self._keys and (self._fetched_at is None
-                                      or self._clock() - self._fetched_at >= REFETCH_SECONDS):
-            self._refresh()
-        if kid not in self._keys:
-            raise AuthError(401, "unknown signing key")
-        return self._keys[kid]
+        # Callers run in worker threads: one lock covers check, refresh and lookup, so a caller
+        # never sees the refetch throttle already set over a key cache that is still empty.
+        with self._lock:
+            if kid not in self._keys and (self._fetched_at is None
+                                          or self._clock() - self._fetched_at >= REFETCH_SECONDS):
+                self._refresh()
+            if kid not in self._keys:
+                if self._fetch_failed:
+                    raise AuthError(503, "auth keys unavailable")
+                raise AuthError(401, "unknown signing key")
+            return self._keys[kid]
 
     def verify(self, authorization):
         if not isinstance(authorization, str) or not authorization.startswith("Bearer "):

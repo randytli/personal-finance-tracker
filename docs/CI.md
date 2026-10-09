@@ -44,7 +44,7 @@ docker stop pft-ci-postgres
 ```
 
 The backend entry point fixes synthetic database/Plaid/owner settings and enables
-the seven required `PFT_*_SYNTHETIC_TEST` switches plus the two registered M5
+the seven required `PFT_*_SYNTHETIC_TEST` switches plus the three registered M5
 switches when their tests are present. It discovers every `tests/test_*.py`,
 including existing mocked cloud experiment tests; it never runs a cloud probe
 or a scheduler. Plaid SDK HTTP requests fail if a test misses its mock. Python
@@ -53,8 +53,8 @@ HTTP fixtures created during the test run. Unregistered local ports, external
 addresses, wildcard HTTP binds and closed fixtures are rejected. Recovery tests
 generate synthetic archives in temporary directories and use matching PG16 tools.
 
-The workflow installs checksum-pinned age v1.3.2 and a CI-only pinned PyJWT
-dependency for the M5 backup/auth prototype tests. `PFT_AGE_BIN` is derived from
+The workflow installs checksum-pinned age v1.3.2 and CI-only pinned PyJWT and httpx
+dependencies for the M5 backup/auth prototype and probe tests. `PFT_AGE_BIN` is derived from
 the installed `age` on PATH after inherited application settings are cleared.
 These dependencies do not change the application runtime requirements or mount
 the Auth prototype. PostgreSQL subprocesses and temporary roles use the explicit

@@ -28,6 +28,7 @@ REQUIRED_OPT_INS = {
 OPT_INS = REQUIRED_OPT_INS | {
     "PFT_M5_BACKUP_SYNTHETIC_TEST",
     "PFT_M5_TRIGGER_SYNTHETIC_TEST",
+    "PFT_M5_AUTH_SYNTHETIC_TEST",
 }
 REQUIRED_CLASSES = {
     "test_category_overrides.CategoryDatabaseTests",
