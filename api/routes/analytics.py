@@ -11,7 +11,7 @@ from sqlalchemy import select, text
 from api.classification import ALLOWED_TRANSACTION_TYPES, effective_classification
 from api.categories import active_category, effective_category, category_editable
 from api.benefit_categories import active_benefit_category, effective_benefit_category
-from api.labels import ALLOWED_LABELS, label_result, load_label_overrides
+from api.labels import ALLOWED_LABELS, label_result, load_label_overrides, accessible_label
 from api.models import ManualCategoryOverride, ManualBenefitCategoryOverride
 from api.db import SessionLocal
 from api.models import Account, Item, ManualClassificationOverride, RawTransaction, Transaction
@@ -689,12 +689,12 @@ async def analytics_transactions(
         raise HTTPException(status_code=422, detail="choose membership_view or transaction_type")
     if transaction_type is not None and transaction_type not in DETAIL_TYPES:
         raise HTTPException(status_code=422, detail="unsupported transaction type")
-    if label is not None and label not in ALLOWED_LABELS:
-        raise HTTPException(status_code=422, detail="unsupported transaction label")
     if benefit_category is not None and benefit_category not in BENEFIT_CATEGORIES:
         raise HTTPException(status_code=422, detail="unsupported benefit category")
     async with SessionLocal() as db:
         await db.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY"))
+        if label is not None and label not in ALLOWED_LABELS:
+            await accessible_label(db, label, os.environ.get("PLAID_PILOT_USER_ID", "local-sandbox-user"))
         return await _analytics_transactions_in_snapshot(
             db, month, category, transaction_type, limit, offset, institution_id,
             account_id, benefit_category, label, start_month, end_month, membership_view,

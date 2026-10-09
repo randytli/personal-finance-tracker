@@ -1,0 +1,53 @@
+{
+  "checks": [
+    {
+      "width": 390,
+      "path": "/review",
+      "label_options": 6,
+      "focus_trap": true,
+      "escape_close": true,
+      "horizontal_overflow": false
+    },
+    {
+      "width": 390,
+      "path": "/memberships",
+      "label_options": 6,
+      "focus_trap": true,
+      "escape_close": true,
+      "horizontal_overflow": false
+    },
+    {
+      "width": 768,
+      "path": "/review",
+      "label_options": 6,
+      "focus_trap": true,
+      "escape_close": true,
+      "horizontal_overflow": false
+    },
+    {
+      "width": 768,
+      "path": "/memberships",
+      "label_options": 6,
+      "focus_trap": true,
+      "escape_close": true,
+      "horizontal_overflow": false
+    },
+    {
+      "width": 1440,
+      "path": "/review",
+      "label_options": 6,
+      "focus_trap": true,
+      "escape_close": true,
+      "horizontal_overflow": false
+    },
+    {
+      "width": 1440,
+      "path": "/memberships",
+      "label_options": 6,
+      "focus_trap": true,
+      "escape_close": true,
+      "horizontal_overflow": false
+    }
+  ],
+  "page_errors": []
+}

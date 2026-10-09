@@ -1,11 +1,11 @@
 from sqlalchemy import (
     Boolean, CheckConstraint, Column, Computed, Date, DateTime, ForeignKey, Index, Numeric,
-    String, Integer, UniqueConstraint, func,
+    String, Integer, UniqueConstraint, func, event,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import declarative_base
 from api.categories import CATEGORY_CHECK
-from api.labels import LABEL_CHECK
+from api.label_schema import install_label_schema
 from api.benefit_categories import BENEFIT_CATEGORY_CHECK
 
 Base = declarative_base()
@@ -223,16 +223,45 @@ class ManualClassificationOverride(Base):
     cleared_at = Column(DateTime, nullable=True)
 
 
+class TransactionLabelDefinition(Base):
+    __tablename__ = "transaction_label_definitions"
+    __table_args__ = (
+        UniqueConstraint("user_id", "normalized_name", name="uq_label_owner_name"),
+        CheckConstraint("name = btrim(name) AND char_length(name) BETWEEN 1 AND 80 "
+                        "AND char_length(normalized_name) > 0", name="ck_label_name"),
+        CheckConstraint("(is_system AND user_id IS NULL AND label_id IN ('CHINA','MEMBERSHIP') "
+                        "AND archived_at IS NULL AND color IS NULL) OR "
+                        "(NOT is_system AND user_id IS NOT NULL AND label_id NOT IN ('CHINA','MEMBERSHIP') "
+                        "AND lower(name) NOT IN ('china','membership') "
+                        "AND normalized_name NOT IN ('china','membership'))", name="ck_label_owner"),
+        CheckConstraint("color IS NULL OR color IN ('info','success','warning','muted')", name="ck_label_color"),
+    )
+    label_id = Column(String, primary_key=True)
+    user_id = Column(String, index=True)
+    name = Column(String(80), nullable=False)
+    normalized_name = Column(String, nullable=False)
+    color = Column(String)
+    is_system = Column(Boolean, nullable=False, default=False, server_default="false")
+    archived_at = Column(DateTime)
+    created_by = Column(String, nullable=False)
+    created_at = Column(DateTime, nullable=False, server_default=func.now())
+    updated_by = Column(String, nullable=False)
+    updated_at = Column(DateTime, nullable=False, server_default=func.now())
+
+
+Index("uq_label_owner_lower_name", TransactionLabelDefinition.user_id,
+      func.lower(TransactionLabelDefinition.name), unique=True)
+
+
 class ManualTransactionLabelOverride(Base):
     __tablename__ = "manual_transaction_label_overrides"
     __table_args__ = (
-        CheckConstraint(LABEL_CHECK, name="ck_manual_transaction_label"),
         CheckConstraint("decision IS NULL OR decision IN ('include','exclude')",
                         name="ck_manual_transaction_label_decision"),
         Index("ix_manual_transaction_labels_updated_at", "updated_at"),
     )
     transaction_id = Column(String, ForeignKey("transactions.transaction_id"), primary_key=True)
-    label = Column(String, primary_key=True)
+    label = Column(String, ForeignKey("transaction_label_definitions.label_id", name="fk_manual_transaction_label"), primary_key=True)
     decision = Column(String)
     created_by = Column(String, nullable=False)
     created_at = Column(DateTime, nullable=False, server_default=func.now())
@@ -293,3 +322,7 @@ class StatementImportRow(Base):
     disposition = Column(String, nullable=False)
     canonical = Column(JSONB, nullable=False)
     source_evidence = Column(JSONB, nullable=False)
+
+
+# Includes DB ownership guards in isolated create_all schemas as well as upgrades.
+event.listen(Base.metadata, "after_create", install_label_schema)

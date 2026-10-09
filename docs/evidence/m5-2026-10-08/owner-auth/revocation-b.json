@@ -1,0 +1,74 @@
+{
+  "kind": "m5_owner_auth_revocation",
+  "project_ref": "acyghoemtdrilsdszolq",
+  "started_unix": 1791520569,
+  "u2_sign_in_status": [
+    200,
+    200
+  ],
+  "totp_factors_before": 0,
+  "u2_other_session_before": {
+    "user": [
+      200,
+      null
+    ],
+    "refresh": [
+      200,
+      null
+    ]
+  },
+  "u2_global_sign_out_status": 204,
+  "u2_other_session_after": {
+    "user": [
+      403,
+      "session_not_found"
+    ],
+    "refresh": [
+      400,
+      "refresh_token_not_found"
+    ]
+  },
+  "u2_signing_session_after": {
+    "user": [
+      403,
+      "session_not_found"
+    ],
+    "refresh": [
+      400,
+      "refresh_token_not_found"
+    ]
+  },
+  "u1_sign_in_status": 200,
+  "u1_before": {
+    "user": [
+      200,
+      null
+    ],
+    "refresh": [
+      200,
+      null
+    ]
+  },
+  "u1_admin_password_change_status": 200,
+  "u1_after_password_change": {
+    "user": [
+      403,
+      "session_not_found"
+    ],
+    "refresh": [
+      400,
+      "refresh_token_not_found"
+    ]
+  },
+  "u3_enrol_attempt": [
+    403,
+    "session_not_found"
+  ],
+  "old_password_sign_in_status": 400,
+  "new_password_sign_in_status": 200,
+  "cleanup_owner_global_sign_out_status": 204,
+  "factors_after": [
+    200,
+    0
+  ]
+}

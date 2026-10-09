@@ -1,0 +1,182 @@
+{
+  "kind": "m5_pooler_advisory_lock_leak_probe_runs",
+  "date": "2026-10-02",
+  "script": "experiments/m5_cloud/pooler_lock_probe.py",
+  "summary": {
+    "sigkill_trials": 3,
+    "sigkill_lock_released_s": [
+      0.0963,
+      0.094,
+      0.0985
+    ],
+    "sigkill_backend_ended": "never within 60-120 s; backend reused by 9/9 fresh clients",
+    "reentry_observed": false,
+    "sigstop_90s_lock_held_whole_time": true,
+    "sigstop_with_session_idle_session_timeout_20s": "backend ended and lock released at 20.01 s"
+  },
+  "runs": [
+    {
+      "kind": "m5_pooler_advisory_lock_leak_probe",
+      "project_ref": "acyghoemtdrilsdszolq",
+      "endpoint": "aws-0-us-east-1.pooler.supabase.com:5432 (session pooler)",
+      "role": "pft_m5_jobs",
+      "client": "local WSL2, asyncpg",
+      "started_unix": 1790974847,
+      "trials": [
+        {
+          "mode": "sigkill",
+          "lock_held_before": true,
+          "lock_released_after_s": 0.09633826598292217,
+          "backend_ended_after_s": null,
+          "observer_samples": 345,
+          "observation_limit_s": 120,
+          "fresh_connections": [
+            {
+              "backend_pid_reused": true,
+              "lock_already_held_by_this_backend": false
+            },
+            {
+              "backend_pid_reused": true,
+              "lock_already_held_by_this_backend": false
+            },
+            {
+              "backend_pid_reused": true,
+              "lock_already_held_by_this_backend": false
+            }
+          ],
+          "lock_rows_at_end": 0
+        }
+      ],
+      "note": "stdout transcribed verbatim from the session; this run was not written to a file"
+    },
+    {
+      "kind": "m5_pooler_advisory_lock_leak_probe",
+      "project_ref": "acyghoemtdrilsdszolq",
+      "endpoint": "aws-0-us-east-1.pooler.supabase.com:5432 (session pooler)",
+      "role": "pft_m5_jobs",
+      "client": "local WSL2, asyncpg",
+      "started_unix": 1790974981,
+      "trials": [
+        {
+          "mode": "sigkill",
+          "lock_held_before": true,
+          "lock_released_after_s": 0.0940374190104194,
+          "backend_ended_after_s": null,
+          "observer_samples": 162,
+          "observation_limit_s": 60,
+          "fresh_connections": [
+            {
+              "backend_pid_reused": true,
+              "lock_already_held_by_this_backend": false
+            },
+            {
+              "backend_pid_reused": true,
+              "lock_already_held_by_this_backend": false
+            },
+            {
+              "backend_pid_reused": true,
+              "lock_already_held_by_this_backend": false
+            }
+          ],
+          "lock_rows_at_end": 0
+        },
+        {
+          "mode": "sigkill",
+          "lock_held_before": true,
+          "lock_released_after_s": 0.09845305298222229,
+          "backend_ended_after_s": null,
+          "observer_samples": 170,
+          "observation_limit_s": 60,
+          "fresh_connections": [
+            {
+              "backend_pid_reused": true,
+              "lock_already_held_by_this_backend": false
+            },
+            {
+              "backend_pid_reused": true,
+              "lock_already_held_by_this_backend": false
+            },
+            {
+              "backend_pid_reused": true,
+              "lock_already_held_by_this_backend": false
+            }
+          ],
+          "lock_rows_at_end": 0
+        },
+        {
+          "mode": "sigstop",
+          "lock_held_before": true,
+          "while_frozen": {
+            "lock_released_after_s": null,
+            "backend_ended_after_s": null,
+            "observer_samples": 251,
+            "observation_limit_s": 90
+          },
+          "after_kill": {
+            "lock_released_after_s": 0.10329467302653939,
+            "backend_ended_after_s": null,
+            "observer_samples": 167,
+            "observation_limit_s": 60
+          },
+          "fresh_connections": [
+            {
+              "backend_pid_reused": true,
+              "lock_already_held_by_this_backend": false
+            },
+            {
+              "backend_pid_reused": true,
+              "lock_already_held_by_this_backend": false
+            },
+            {
+              "backend_pid_reused": true,
+              "lock_already_held_by_this_backend": false
+            }
+          ],
+          "lock_rows_at_end": 0
+        }
+      ]
+    },
+    {
+      "kind": "m5_pooler_advisory_lock_leak_probe",
+      "project_ref": "acyghoemtdrilsdszolq",
+      "endpoint": "aws-0-us-east-1.pooler.supabase.com:5432 (session pooler)",
+      "role": "pft_m5_jobs",
+      "client": "local WSL2, asyncpg",
+      "started_unix": 1790975305,
+      "trials": [
+        {
+          "mode": "sigstop",
+          "child_idle_session_timeout_s": 20,
+          "lock_held_before": true,
+          "while_frozen": {
+            "lock_released_after_s": 20.01050930999918,
+            "backend_ended_after_s": 20.01050930999918,
+            "observer_samples": 52,
+            "observation_limit_s": 60
+          },
+          "after_kill": {
+            "lock_released_after_s": 0.09842662495793775,
+            "backend_ended_after_s": 0.09842662495793775,
+            "observer_samples": 1,
+            "observation_limit_s": 30
+          },
+          "fresh_connections": [
+            {
+              "backend_pid_reused": false,
+              "lock_already_held_by_this_backend": false
+            },
+            {
+              "backend_pid_reused": false,
+              "lock_already_held_by_this_backend": false
+            },
+            {
+              "backend_pid_reused": false,
+              "lock_already_held_by_this_backend": false
+            }
+          ],
+          "lock_rows_at_end": 0
+        }
+      ]
+    }
+  ]
+}

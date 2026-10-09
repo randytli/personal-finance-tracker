@@ -1,0 +1,40 @@
+{
+  "kind": "local_synthetic_age_backup_drill_no_cloud",
+  "measured_at": "2026-10-02T05:11:23Z",
+  "postgres": "16.15 loopback disposable cluster (cloud target is 17.x)",
+  "age": "v1.3.2 (release digest verified)",
+  "store": "LocalDirectoryStore (GitHub store exercised only against a local fake API)",
+  "recipients": 2,
+  "runs": [
+    {
+      "seeded_raw_rows": 2611,
+      "tables": 15,
+      "archive_bytes": 281500,
+      "stored_asset_bytes": {
+        "backup.dump.age": 281862,
+        "manifest.json.age": 1159,
+        "fingerprint.txt.age": 22090
+      },
+      "create_s": 0.208,
+      "download_restore_verify_s": 0.333,
+      "restored_with": "emergency key only",
+      "equal": true,
+      "mismatches": []
+    },
+    {
+      "seeded_raw_rows": 35601,
+      "tables": 15,
+      "archive_bytes": 3313724,
+      "stored_asset_bytes": {
+        "backup.dump.age": 3314822,
+        "manifest.json.age": 1160,
+        "fingerprint.txt.age": 22092
+      },
+      "create_s": 1.09,
+      "download_restore_verify_s": 1.377,
+      "restored_with": "emergency key only",
+      "equal": true,
+      "mismatches": []
+    }
+  ]
+}

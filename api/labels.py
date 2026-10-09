@@ -6,6 +6,7 @@ from sqlalchemy import select
 from api.card_benefits import membership_benefit
 
 
+# Legacy constant names the built-in rule IDs; custom IDs are owner-scoped definitions.
 ALLOWED_LABELS = ("CHINA", "MEMBERSHIP")
 LABEL_CHECK = "label IN (" + ",".join("'" + label + "'" for label in ALLOWED_LABELS) + ")"
 
@@ -131,3 +132,25 @@ async def load_label_overrides(db, transaction_ids):
     for row in rows:
         result.setdefault(row.transaction_id, []).append(row)
     return result
+
+
+def label_definition_result(definition):
+    return {"value": definition.label_id, "label": definition.name,
+            "color": definition.color, "is_system": definition.is_system,
+            "archived": definition.archived_at is not None}
+
+
+async def accessible_label(db, label_id, user_id, *, for_update=False):
+    from api.models import TransactionLabelDefinition
+    from sqlalchemy import or_
+    from fastapi import HTTPException
+    statement = select(TransactionLabelDefinition).where(
+        TransactionLabelDefinition.label_id == label_id,
+        or_(TransactionLabelDefinition.is_system.is_(True),
+            TransactionLabelDefinition.user_id == user_id))
+    if for_update:
+        statement = statement.with_for_update()
+    definition = (await db.execute(statement)).scalar_one_or_none()
+    if definition is None:
+        raise HTTPException(422, "unsupported transaction label")
+    return definition

@@ -1,0 +1,62 @@
+-- M5 Supabase Cron -> signed jobs trigger. TEMPLATE ONLY.
+-- Apply only through a reviewed migration on an owner-approved project.
+-- {crypto} is the schema holding pgcrypto ("extensions" on Supabase; 未核实
+-- for the target project). Secrets live in Vault and are never written here.
+-- tests/test_m5_trigger_auth.py renders this file against a disposable local
+-- cluster and checks that api.trigger_auth.verify accepts its signatures.
+
+CREATE SCHEMA IF NOT EXISTS pft_ops;
+REVOKE ALL ON SCHEMA pft_ops FROM PUBLIC;
+
+CREATE OR REPLACE FUNCTION pft_ops.trigger_signature(
+    p_secret text, p_audience text, p_kid text, p_path text, p_kind text)
+RETURNS text LANGUAGE plpgsql VOLATILE SECURITY INVOKER SET search_path = '' AS $fn$
+DECLARE
+    v_ts bigint := floor(extract(epoch FROM clock_timestamp()));
+    v_nonce text := encode({crypto}.gen_random_bytes(16), 'hex');
+    v_body text;
+BEGIN
+    IF p_kind !~ '^[a-z]+$' OR p_kid !~ '^[a-z0-9_-]{1,32}$' THEN
+        RAISE EXCEPTION 'invalid trigger kind or key id';
+    END IF;
+    -- Canonical JSON of {"kind": p_kind}; must equal api.trigger_auth.canonical_body.
+    v_body := '{"kind":"' || p_kind || '"}';
+    RETURN format('kid=%s,ts=%s,nonce=%s,sig=%s', p_kid, v_ts, v_nonce, encode({crypto}.hmac(
+        convert_to(concat_ws(E'\n', 'pft-trigger-v1', p_audience, p_kid, v_ts::text, v_nonce,
+                             'POST', p_path,
+                             encode({crypto}.digest(convert_to(v_body, 'UTF8'), 'sha256'), 'hex')),
+                   'UTF8'),
+        convert_to(p_secret, 'UTF8'), 'sha256'), 'hex'));
+END
+$fn$;
+REVOKE ALL ON FUNCTION pft_ops.trigger_signature(text, text, text, text, text) FROM PUBLIC;
+
+-- Single-use nonces for api.trigger_auth.SqlNonceStore (jobs role: INSERT/DELETE only).
+CREATE TABLE IF NOT EXISTS pft_ops.trigger_nonces (
+    nonce text PRIMARY KEY,
+    expires_at timestamptz NOT NULL
+);
+
+-- Schedule: NOT executed by this template. Enable only after approval.
+-- timeout_milliseconds >= function maxDuration so pg_net does not record a
+-- timeout while Python is still running; upstream pg_net.max_timeout_ms
+-- defaults to 600000 (the Supabase project's value is 未核实).
+-- The net response is delivery evidence only; durable sync_runs state is the
+-- source of truth for completion.
+--
+-- SELECT cron.schedule('pft-jobs-tick', '*/5 * * * *', $cron$
+--   SELECT net.http_post(
+--     url := 'https://<pinned-jobs-host>/trigger',
+--     headers := jsonb_build_object(
+--       'Content-Type', 'application/json',
+--       'x-pft-trigger-signature', pft_ops.trigger_signature(
+--         (SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name = 'pft_trigger_key_v1'),
+--         '<audience>', 'v1', '/trigger', 'tick')),
+--     body := '{"kind":"tick"}'::jsonb,
+--     timeout_milliseconds := 300000);
+-- $cron$);
+--
+-- Bounded history (job_run_details is never cleaned automatically):
+-- SELECT cron.schedule('pft-cron-history-prune', '17 3 * * *', $cron$
+--   DELETE FROM cron.job_run_details WHERE end_time < now() - interval '14 days';
+-- $cron$);

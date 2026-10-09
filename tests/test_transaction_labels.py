@@ -18,7 +18,7 @@ from api.labels import (ALLOWED_LABELS, automatic_labels, effective_labels,
                         label_result, normalize_label_text)
 from api.models import (Base, Account, Item, RawTransaction, Transaction,
                         ManualCategoryOverride, ManualBenefitCategoryOverride,
-                        ManualClassificationOverride, ManualTransactionLabelOverride)
+                        ManualClassificationOverride, ManualTransactionLabelOverride, TransactionLabelDefinition)
 from api.migrations import migrate_transaction_labels
 from api.routes import analytics, plaid, review
 from api.statement_semantics import lock_consumer_derivation
@@ -214,7 +214,7 @@ class LabelDatabaseTests(unittest.IsolatedAsyncioTestCase):
 
     async def asyncSetUp(self):
         from api.db import engine
-        self.assertEqual(engine.url.port, 55439)
+        self.assertEqual(engine.url.port, int(os.environ.get("PFT_LABEL_TEST_PORT", "55439")))
         self.assertNotEqual(os.environ.get("PLAID_ENV"), "production")
         self.schema = "label_test_" + uuid.uuid4().hex
         self.admin = create_async_engine(engine.url)
@@ -343,10 +343,8 @@ class LabelDatabaseTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(row.updated_at, updated_after_clear)
 
     async def test_api_review_analytics_filter_and_financial_invariance(self):
-        self.assertEqual(await review.label_options(), {"labels": [
-            {"value": "CHINA", "label": "China"},
-            {"value": "MEMBERSHIP", "label": "Membership"},
-        ]})
+        self.assertEqual([(option["value"], option["label"]) for option in (await review.label_options())["labels"]],
+                         [("CHINA", "China"), ("MEMBERSHIP", "Membership")])
         await review.mutate_label("generic", "CHINA", "include")
         async with self.sessions.begin() as db:
             (await db.get(Item, "item")).status = "active"
@@ -588,7 +586,7 @@ class LabelDatabaseTests(unittest.IsolatedAsyncioTestCase):
                         before.created_by, before.created_at, before.updated_at)
         async with self.engine.begin() as connection:
             await connection.execute(text("ALTER TABLE manual_transaction_label_overrides "
-                "DROP CONSTRAINT ck_manual_transaction_label"))
+                "DROP CONSTRAINT fk_manual_transaction_label"))
             await connection.execute(text("ALTER TABLE manual_transaction_label_overrides "
                 "ADD CONSTRAINT ck_manual_transaction_label CHECK (label IN ('CHINA'))"))
             await migrate_transaction_labels(connection)
@@ -608,3 +606,211 @@ class LabelDatabaseTests(unittest.IsolatedAsyncioTestCase):
                 async with db.begin():
                     db.add(ManualTransactionLabelOverride(transaction_id="china", label="TRAVEL",
                            decision="include", created_by="test", updated_by="test"))
+
+
+    async def _create_custom(self, name="tech", color=None):
+        return await review.create_label(review.LabelDefinitionRequest(name=name, color=color))
+
+    async def _custom_details(self, label, **changes):
+        values = dict(month="2026-09", category=None, transaction_type=None,
+                      limit=1, offset=0, label=label)
+        return await analytics.analytics_transactions(**{**values, **changes})
+
+    async def test_custom_names_colors_scope_and_concurrent_duplicates(self):
+        first = await self._create_custom("  TeCh  ", "success")
+        self.assertEqual((first["label"], first["color"]), ("TeCh", "success"))
+        for value in ("tech", " TECH "):
+            with self.assertRaises(HTTPException) as error:
+                await self._create_custom(value)
+            self.assertEqual(error.exception.status_code, 409)
+        for name in (" ", "china", " MEMBERSHIP ", "x" * 81):
+            with self.assertRaises(ValidationError):
+                review.LabelDefinitionRequest(name=name)
+        with self.assertRaises(ValidationError):
+            review.LabelDefinitionRequest(name="valid", color="#ffffff")
+        outcomes = await asyncio.gather(self._create_custom("gear"), self._create_custom("GEAR"), return_exceptions=True)
+        self.assertEqual(sum(isinstance(result, dict) for result in outcomes), 1)
+        self.assertEqual(sum(isinstance(result, HTTPException) and result.status_code == 409 for result in outcomes), 1)
+        await self._create_custom("Straße")
+        with self.assertRaises(HTTPException):
+            await self._create_custom("STRASSE")
+        with patch.dict(os.environ, {"PLAID_PILOT_USER_ID": "another-user"}):
+            own = await self._create_custom("tech")
+            options = (await review.label_options())["labels"]
+            self.assertIn(own["value"], [option["value"] for option in options])
+            self.assertNotIn(first["value"], [option["value"] for option in options])
+            for operation in (review.rename_label(first["value"], review.LabelDefinitionRequest(name="stolen")),
+                              review.archive_label(first["value"]),
+                              review.mutate_label("china", first["value"], "include"),
+                              self._custom_details(first["value"])):
+                with self.assertRaises(HTTPException):
+                    await operation
+
+    async def test_custom_multilabel_atomic_bulk_and_financial_invariance(self):
+        label = (await self._create_custom())["value"]
+        other = (await self._create_custom("equipment"))["value"]
+        async with self.sessions.begin() as db:
+            (await db.get(Item, "item")).status = "active"
+        for ident, amount, kind in (("monitor", "-100", "expense"), ("mic", "-30", "expense"),
+                                   ("refund", "10", "refund"), ("rebate", "5", "reimbursement"),
+                                   ("benefit", "2", "card_benefit"), ("movement", "-90", "transfer")):
+            await self._add_bulk_row(ident, amount=amount, kind=kind, description=ident)
+        baseline = await analytics.monthly_spending(month="2026-09")
+        ids = ["monitor", "mic", "refund", "rebate", "benefit", "movement"]
+        result = await review.bulk_edit_transactions(review.BulkEditRequest(
+            transaction_ids=ids + ["monitor"], operation="include_label", label=label))
+        self.assertEqual((result["selected_count"], result["changed_count"]), (6, 6))
+        await review.bulk_edit_transactions(review.BulkEditRequest(transaction_ids=ids, operation="include_label", label=other))
+        await review.mutate_label("monitor", "CHINA", "include")
+        await review.mutate_label("monitor", "MEMBERSHIP", "include")
+        details = await self._custom_details(label)
+        self.assertEqual((details["total"], details["transaction_count"], details["contributing_transaction_count"]), (6, 1, 5))
+        self.assertEqual(details["component_totals"]["net_spending"], "113.00")
+        self.assertEqual((await self._custom_details(label, offset=1))["component_totals"], details["component_totals"])
+        self.assertEqual(await analytics.monthly_spending(month="2026-09"), baseline)
+        with self.assertRaises(HTTPException):
+            await review.bulk_edit_transactions(review.BulkEditRequest(transaction_ids=["monitor", "unavailable"], operation="exclude_label", label=label))
+        self.assertEqual((await self._custom_details(label))["total"], 6)
+        await review.bulk_edit_transactions(review.BulkEditRequest(transaction_ids=ids, operation="exclude_label", label=label))
+        self.assertEqual((await self._custom_details(label))["total"], 0)
+        self.assertEqual((await self._custom_details(other))["total"], 6)
+        self.assertEqual(await analytics.monthly_spending(month="2026-09"), baseline)
+
+    async def test_custom_rename_archive_remove_restore_preserve_audit_and_history(self):
+        label = (await self._create_custom())["value"]
+        await review.mutate_label("china", label, "include")
+        async with self.sessions() as db:
+            row = await db.get(ManualTransactionLabelOverride, ("china", label))
+            audit = row.created_by, row.created_at, row.updated_at
+        changed = await review.rename_label(label, review.LabelDefinitionRequest(name="  Dev equipment ", color="warning"))
+        self.assertEqual((changed["value"], changed["label"]), (label, "Dev equipment"))
+        async with self.sessions() as db:
+            row = await db.get(ManualTransactionLabelOverride, ("china", label))
+            self.assertEqual((row.created_by, row.created_at, row.updated_at), audit)
+        async with self.sessions.begin() as db:
+            (await db.get(Item, "item")).status = "active"
+        archived = await review.archive_label(label)
+        self.assertTrue(archived["archived"])
+        self.assertEqual((await analytics.analytics_transactions(month="2026-07", category=None,
+            transaction_type=None, limit=10, offset=0, label=label))["total"], 1)
+        with self.assertRaises(HTTPException):
+            await review.mutate_label("generic", label, "include")
+        with self.assertRaises(HTTPException):
+            await review.bulk_edit_transactions(review.BulkEditRequest(transaction_ids=["china", "generic"], operation="include_label", label=label))
+        await review.bulk_edit_transactions(review.BulkEditRequest(transaction_ids=["china", "generic"], operation="restore_label_auto", label=label))
+        restored = await review.mutate_label("china", label, None)
+        self.assertNotIn(label, restored["effective_labels"])
+        self.assertIn("CHINA", restored["effective_labels"])
+        async with self.sessions() as db:
+            row = await db.get(ManualTransactionLabelOverride, ("china", label))
+            self.assertIsNone(row.decision)
+            self.assertIsNotNone(row.cleared_at)
+            self.assertEqual((row.created_by, row.created_at), audit[:2])
+        await review.mutate_label("china", label, "exclude")
+        await review.bulk_edit_transactions(review.BulkEditRequest(transaction_ids=["china"], operation="exclude_label", label=label))
+        with self.assertRaises(HTTPException):
+            await self._create_custom("dev EQUIPMENT")
+        await review.rename_label(label, review.LabelDefinitionRequest(name="Historical gear"))
+        for system in ("CHINA", "MEMBERSHIP"):
+            with self.assertRaises(HTTPException):
+                await review.archive_label(system)
+            with self.assertRaises(HTTPException):
+                await review.rename_label(system, review.LabelDefinitionRequest(name="changed"))
+
+    async def test_custom_db_rejects_cross_owner_identity_changes_reparent_and_archived_include(self):
+        label = (await self._create_custom())["value"]
+        with patch.dict(os.environ, {"PLAID_PILOT_USER_ID": "another-user"}):
+            foreign = (await self._create_custom())["value"]
+        async with self.sessions.begin() as db:
+            db.add(Item(item_id="foreign-item", user_id="another-user", institution_id="foreign", institution_name="Synthetic", status="active", access_token="synthetic"))
+        async def rejected(statement, parameters):
+            with self.assertRaises(IntegrityError):
+                async with self.sessions.begin() as db:
+                    await db.execute(text(statement), parameters)
+        insert_sql = """INSERT INTO manual_transaction_label_overrides
+          (transaction_id, label, decision, created_by, updated_by)
+          VALUES (:transaction, :label, 'include', 'synthetic', 'synthetic')"""
+        await rejected(insert_sql, {"transaction": "china", "label": foreign})
+        await review.mutate_label("china", label, "include")
+        for statement, parameters in (
+            ("UPDATE transaction_label_definitions SET user_id='another-user' WHERE label_id=:label", {"label": label}),
+            ("UPDATE items SET user_id='another-user' WHERE item_id='item'", {}),
+            ("UPDATE raw_transactions SET item_id='foreign-item' WHERE transaction_id='china'", {}),
+            ("DELETE FROM transaction_label_definitions WHERE label_id=:label", {"label": label}),
+            ("UPDATE transaction_label_definitions SET name='Changed' WHERE label_id='CHINA'", {}),
+        ):
+            await rejected(statement, parameters)
+        await review.archive_label(label)
+        await rejected(insert_sql, {"transaction": "generic", "label": label})
+        await review.mutate_label("china", label, None)
+        await rejected("UPDATE manual_transaction_label_overrides SET decision='include', cleared_at=NULL WHERE transaction_id='china' AND label=:label", {"label": label})
+        await rejected("UPDATE transaction_label_definitions SET archived_at=NULL WHERE label_id=:label", {"label": label})
+
+    async def test_custom_archive_waits_for_inflight_include_and_blocks_following_include(self):
+        label = (await self._create_custom())["value"]
+        async with self.sessions.begin() as holder:
+            await holder.execute(select(TransactionLabelDefinition).where(TransactionLabelDefinition.label_id == label).with_for_update())
+            result, _ = await review._apply_label(holder, await holder.get(Transaction, "china"), label, "include", "label-user")
+            self.assertIn(label, result["effective_labels"])
+            task = asyncio.create_task(review.archive_label(label))
+            await asyncio.sleep(0.1)
+            self.assertFalse(task.done())
+        self.assertTrue((await asyncio.wait_for(task, 5))["archived"])
+        with self.assertRaises(HTTPException):
+            await review.mutate_label("generic", label, "include")
+        async with self.sessions() as db:
+            self.assertEqual((await db.get(ManualTransactionLabelOverride, ("china", label))).decision, "include")
+
+    async def test_custom_upgrade_preserves_legacy_decisions_and_totals(self):
+        await review.mutate_label("china", "CHINA", "exclude")
+        await review.mutate_label("generic", "MEMBERSHIP", "include")
+        async with self.sessions.begin() as db:
+            (await db.get(Item, "item")).status = "active"
+        baseline = await analytics.monthly_spending(month="2026-07")
+        membership = await analytics.membership_costs("2026-07", "ytd")
+        async with self.sessions() as db:
+            original = (await db.execute(text("SELECT to_jsonb(o) FROM manual_transaction_label_overrides o ORDER BY transaction_id,label"))).scalars().all()
+        async with self.engine.begin() as connection:
+            await connection.execute(text("ALTER TABLE manual_transaction_label_overrides DROP CONSTRAINT fk_manual_transaction_label"))
+            await connection.execute(text("DROP TABLE transaction_label_definitions CASCADE"))
+            await connection.execute(text("ALTER TABLE manual_transaction_label_overrides ADD CONSTRAINT ck_manual_transaction_label CHECK (label IN ('CHINA','MEMBERSHIP'))"))
+            await migrate_transaction_labels(connection)
+            await migrate_transaction_labels(connection)
+        async with self.sessions() as db:
+            upgraded = (await db.execute(text("SELECT to_jsonb(o) FROM manual_transaction_label_overrides o ORDER BY transaction_id,label"))).scalars().all()
+        self.assertEqual(original, upgraded)
+        self.assertEqual(await analytics.monthly_spending(month="2026-07"), baseline)
+        self.assertEqual(await analytics.membership_costs("2026-07", "ytd"), membership)
+        await review.mutate_label("china", (await self._create_custom())["value"], "include")
+
+
+    async def test_custom_runtime_requires_enabled_ownership_guards(self):
+        from api import db as database
+        with patch.object(database, "engine", self.engine):
+            await database.verify_runtime_schema()
+            async with self.engine.begin() as connection:
+                await connection.execute(text("ALTER TABLE manual_transaction_label_overrides DISABLE TRIGGER pft_label_association_guard"))
+            with self.assertRaisesRegex(RuntimeError, "pft_label_association_guard"):
+                await database.verify_runtime_schema()
+
+    async def test_custom_db_case_insensitive_name_uniqueness(self):
+        await self._create_custom("tech")
+        with self.assertRaises(IntegrityError):
+            async with self.sessions.begin() as db:
+                db.add(TransactionLabelDefinition(label_id="other-id", name="TECH", normalized_name="intentionally-wrong",
+                    user_id="label-user", is_system=False, created_by="synthetic", updated_by="synthetic"))
+
+
+    async def test_custom_provenance_may_move_within_same_owner(self):
+        label = (await self._create_custom())["value"]
+        await review.mutate_label("china", label, "include")
+        async with self.sessions.begin() as db:
+            db.add(Item(item_id="same-owner-item", user_id="label-user", institution_id="same-owner", institution_name="Synthetic", status="active", access_token="synthetic"))
+            await db.flush()
+            db.add(Account(account_id="same-owner-card", item_id="same-owner-item", name="Synthetic", type="credit", consumer_transactions_enabled=True))
+            await db.flush()
+            raw = await db.get(RawTransaction, "china")
+            raw.item_id, raw.account_id = "same-owner-item", "same-owner-card"
+            (await db.get(Transaction, "china")).account_id = "same-owner-card"
+        result = await review.mutate_label("china", label, "include")
+        self.assertIn(label, result["effective_labels"])

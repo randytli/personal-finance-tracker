@@ -1,0 +1,54 @@
+{
+  "results": [
+    {
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "label": "17514082-6864-4539-9232-f781bf6fd166",
+      "created": "tech",
+      "renamed": "Dev equipment",
+      "matched": 20,
+      "net_spending": "368.00",
+      "archived_restore_remaining": 19,
+      "writes": 8,
+      "errors": [],
+      "details_requests": [
+        "http://127.0.0.1:3019/api/pft/analytics/transactions?month=2026-10&limit=10&offset=0&canonical_category=GENERAL_MERCHANDISE&spending_component=net",
+        "http://127.0.0.1:3019/api/pft/analytics/transactions?month=2026-10&limit=10&offset=0&canonical_category=GENERAL_MERCHANDISE&spending_component=net",
+        "http://127.0.0.1:3019/api/pft/analytics/transactions?month=2026-10&limit=10&offset=0&canonical_category=GENERAL_MERCHANDISE&spending_component=net",
+        "http://127.0.0.1:3019/api/pft/analytics/transactions?month=2026-10&limit=10&offset=10&canonical_category=GENERAL_MERCHANDISE&spending_component=net",
+        "http://127.0.0.1:3019/api/pft/analytics/transactions?month=2026-10&limit=10&offset=0&label=17514082-6864-4539-9232-f781bf6fd166",
+        "http://127.0.0.1:3019/api/pft/analytics/transactions?month=2026-10&limit=200&label=17514082-6864-4539-9232-f781bf6fd166",
+        "http://127.0.0.1:3019/api/pft/analytics/transactions?month=2026-10&limit=10&offset=10&label=17514082-6864-4539-9232-f781bf6fd166",
+        "http://127.0.0.1:3019/api/pft/analytics/transactions?month=2026-10&limit=200&label=17514082-6864-4539-9232-f781bf6fd166",
+        "http://127.0.0.1:3019/api/pft/analytics/transactions?month=2026-10&limit=10&offset=10&label=17514082-6864-4539-9232-f781bf6fd166"
+      ]
+    },
+    {
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "label": "9760e656-a5a5-4ffb-9145-7dcf10bcc6d8",
+      "created": "tech desktop",
+      "renamed": "Desktop equipment",
+      "matched": 23,
+      "net_spending": "713.00",
+      "archived_restore_remaining": 22,
+      "writes": 7,
+      "errors": [],
+      "details_requests": [
+        "http://127.0.0.1:3019/api/pft/analytics/transactions?month=2026-10&limit=100&offset=0&canonical_category=GENERAL_MERCHANDISE&spending_component=net",
+        "http://127.0.0.1:3019/api/pft/analytics/transactions?month=2026-10&limit=100&offset=0&canonical_category=GENERAL_MERCHANDISE&spending_component=net",
+        "http://127.0.0.1:3019/api/pft/analytics/transactions?month=2026-10&limit=100&offset=0&label=9760e656-a5a5-4ffb-9145-7dcf10bcc6d8",
+        "http://127.0.0.1:3019/api/pft/analytics/transactions?month=2026-10&limit=200&label=9760e656-a5a5-4ffb-9145-7dcf10bcc6d8",
+        "http://127.0.0.1:3019/api/pft/analytics/transactions?month=2026-10&limit=200&label=9760e656-a5a5-4ffb-9145-7dcf10bcc6d8",
+        "http://127.0.0.1:3019/api/pft/analytics/transactions?month=2026-10&limit=100&offset=0&label=9760e656-a5a5-4ffb-9145-7dcf10bcc6d8"
+      ]
+    }
+  ],
+  "narrow_width": 320,
+  "empty_error_long_name": true,
+  "external_service_calls": 0
+}

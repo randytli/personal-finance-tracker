@@ -1,7 +1,9 @@
 """M4 scheduling tests use only disposable PostgreSQL schemas and mock syncs."""
 
 import asyncio
+import errno
 import os
+import subprocess
 import threading
 import unittest
 import uuid
@@ -210,6 +212,42 @@ class JobsDatabaseTests(unittest.IsolatedAsyncioTestCase):
             state = await db.get(SyncRuntimeState, "synthetic-user")
             self.assertEqual(state.last_backup_at, self.clock)
             self.assertIsNone(state.last_backup_error)
+
+    async def test_backup_failure_log_names_the_step_without_paths_or_credentials(self):
+        async def sync(user_id, **kwargs):
+            return {"status": "success"}
+
+        pg_dump = ["/usr/lib/postgresql/16/bin/pg_dump", "-h", "db", "-p", "5432",
+                   "-U", "synthetic_user", "-Fc", "-d", "pft_synthetic"]
+        cases = [
+            # tempfile.mkstemp in a backup directory the jobs user cannot write
+            (PermissionError(errno.EACCES, "Permission denied", "/backups/.pft-incomplete-k3j2h1"),
+             "PermissionError errno=EACCES file=.pft-incomplete-k3j2h1"),
+            # Path.replace of the finished archive
+            (PermissionError(errno.EACCES, "Permission denied", "/backups/.pft-incomplete-k3j2h1",
+                             None, "/backups/pft-daily-20261008T203220525958Z.dump"),
+             "PermissionError errno=EACCES file=.pft-incomplete-k3j2h1 "
+             "file2=pft-daily-20261008T203220525958Z.dump"),
+            # Calls on a descriptor report its number instead of a path.
+            (OSError(errno.EBADF, "Bad file descriptor", 3), "OSError errno=EBADF"),
+            (subprocess.CalledProcessError(1, pg_dump, stderr=b'FATAL:  password authentication '
+                                           b'failed for user "synthetic_user"'),
+             "CalledProcessError command=pg_dump returncode=1"),
+            (subprocess.TimeoutExpired(["/usr/lib/postgresql/16/bin/pg_restore", "-l",
+                                        "/backups/.pft-incomplete-k3j2h1"], 1800),
+             "TimeoutExpired command=pg_restore"),
+            # Messages can embed the database URL, so other errors log the type only.
+            (RuntimeError("postgresql://synthetic_user:synthetic-secret@db/pft_synthetic"),
+             "RuntimeError"),
+        ]
+        for exc, expected in cases:
+            def failed_backup(kind, exc=exc):
+                raise exc
+
+            with self.subTest(expected=expected):
+                with self.assertLogs("api.jobs", "ERROR") as logs:
+                    await self.poll(sync, backup_fn=failed_backup)
+                self.assertEqual(logs.output, ["ERROR:api.jobs:Daily backup failed: " + expected])
 
     async def test_dedup_midrun_and_restart(self):
         first = await self.request(["a"])
@@ -442,6 +480,30 @@ class JobsDatabaseTests(unittest.IsolatedAsyncioTestCase):
                 "SELECT pg_try_advisory_lock(hashtextextended(:key,0))"), {"key": key}))
             await other.scalar(text("SELECT pg_advisory_unlock(hashtextextended(:key,0))"), {"key": key})
 
+    async def test_lock_inherited_by_reused_backend_is_refused_and_cleared(self):
+        # Supavisor hands a dead client's backend to the next client (measured in M5). If its
+        # lock survived, re-entering would succeed and unlocking would leave a count behind.
+        key = "pft-jobs:synthetic-user"
+        async with self.engine.connect() as leaked:
+            self.assertTrue(await leaked.scalar(text(
+                "SELECT pg_try_advisory_lock(hashtextextended(:key,0))"), {"key": key}))
+            leaked_pid = await leaked.scalar(text("SELECT pg_backend_pid()"))
+            await leaked.commit()
+        sync = Mock(side_effect=AssertionError("sync must not run"))
+        with self.assertRaisesRegex(RuntimeError, "already held"):
+            await self.poll(sync)
+        async with self.admin.connect() as other:
+            self.assertFalse(await other.scalar(text(
+                "SELECT count(*) > 0 FROM pg_stat_activity WHERE pid = :pid"), {"pid": leaked_pid}))
+            self.assertTrue(await other.scalar(text(
+                "SELECT pg_try_advisory_lock(hashtextextended(:key,0))"), {"key": key}))
+            await other.scalar(text("SELECT pg_advisory_unlock(hashtextextended(:key,0))"), {"key": key})
+            await other.commit()
+
+        async def idle(*args, **kwargs):
+            return {"status": "idle", "run_id": None, "items": {}}
+        self.assertEqual((await self.poll(idle))["status"], "idle")
+
     async def test_global_rollback_records_retry_without_publication(self):
         await self.request(["a"])
         with patch.object(service, "classify_active_transactions", side_effect=RuntimeError("synthetic")):
@@ -483,3 +545,45 @@ class JobsDatabaseTests(unittest.IsolatedAsyncioTestCase):
             self.assertIsNone(state.running_sequence)
             item = await db.get(Item, "a")
             self.assertEqual((item.transactions_cursor, item.sync_retry_count), ("start", 0))
+
+
+@unittest.skipUnless(os.environ.get("PFT_M4_SYNTHETIC_TEST") == "1", "isolated PostgreSQL opt-in")
+class LockConnectionIdleTests(unittest.IsolatedAsyncioTestCase):
+    """M5 S7: owner checks must not leave the lock connection idle in transaction."""
+
+    async def asyncSetUp(self):
+        from api.db import engine as default_engine
+        self.assertEqual(default_engine.url.port, 55439)
+        self.engine = create_async_engine(default_engine.url)
+
+    async def asyncTearDown(self):
+        await self.engine.dispose()
+
+    async def state_of(self, backend_pid):
+        async with self.engine.connect() as observer:
+            return await observer.scalar(text(
+                "SELECT state FROM pg_stat_activity WHERE pid = :pid"), {"pid": backend_pid})
+
+    async def test_jobs_and_sync_owner_checks_leave_the_lock_connection_idle(self):
+        from api.jobs import _assert_owner
+        from api.services.sync_all import _assert_lock_owner
+
+        for check in (_assert_owner, _assert_lock_owner):
+            key = "idle-test:" + uuid.uuid4().hex
+            async with self.engine.connect() as owner:
+                acquired, backend_pid = await acquire_session_lock(owner, key)
+                self.assertTrue(acquired)
+                try:
+                    await check(owner, backend_pid)
+                    with self.subTest(check=check.__name__):
+                        self.assertEqual(await self.state_of(backend_pid), "idle")
+                        self.assertFalse(owner.in_transaction())
+                        # The session lock survives the commit.
+                        async with self.engine.connect() as other:
+                            self.assertFalse(await other.scalar(text(
+                                "SELECT pg_try_advisory_lock(hashtextextended(:key, 0))"), {"key": key}))
+                            await other.rollback()
+                finally:
+                    await owner.scalar(text("SELECT pg_advisory_unlock(hashtextextended(:key, 0))"),
+                                       {"key": key})
+                    await owner.commit()
