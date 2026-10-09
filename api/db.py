@@ -1,7 +1,8 @@
 import os
+from threading import Lock
 
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine, async_sessionmaker
 
 from api.models import Base
 from api.migrations import (migrate_multi_institution, migrate_manual_categories,
@@ -9,10 +10,72 @@ from api.migrations import (migrate_multi_institution, migrate_manual_categories
                             migrate_transaction_labels, migrate_benefit_categories,
                             migrate_sync_runs)
 
-DATABASE_URL = os.environ["DATABASE_URL"]   # postgresql+asyncpg://supabase:...
+class _LazyEngine:
+    """Keep imported engine references stable without reading configuration yet."""
 
-engine = create_async_engine(DATABASE_URL, echo=False, pool_pre_ping=True)
-SessionLocal = async_sessionmaker(engine, expire_on_commit=False)
+    def __init__(self):
+        self._engine = None
+        self._lock = Lock()
+
+    def _get(self):
+        with self._lock:
+            if self._engine is None:
+                url = os.environ.get("DATABASE_URL")
+                if not url or not url.strip():
+                    raise RuntimeError("DATABASE_URL is required before using the database")
+                self._engine = create_async_engine(url, echo=False, pool_pre_ping=True)
+            return self._engine
+
+    def __getattr__(self, name):
+        return getattr(self._get(), name)
+
+    # __getattr__ does not cover special methods. AsyncEngine defines only
+    # __eq__/__hash__ beyond object, so forward those and report the engine type
+    # (without constructing it) for isinstance checks.
+    @property
+    def __class__(self):
+        return AsyncEngine
+
+    def __eq__(self, other):
+        if isinstance(other, _LazyEngine) and type(other) is _LazyEngine:
+            other = other._get()
+        return self._get() == other
+
+    def __hash__(self):
+        return hash(self._get())
+
+    def __repr__(self):
+        return repr(self._engine) if self._engine is not None else "<lazy AsyncEngine (not created)>"
+
+
+class _LazySessionFactory:
+    """Defer the sessionmaker while retaining SessionLocal() and .begin().
+
+    Like the former eager module, the factory binds the engine that exists at
+    first use; patching api.db.engine afterwards does not rebind it."""
+
+    def __init__(self):
+        self._factory = None
+        self._lock = Lock()
+
+    def _get(self):
+        with self._lock:
+            if self._factory is None:
+                bind = engine._get() if isinstance(engine, _LazyEngine) else engine
+                self._factory = async_sessionmaker(bind, expire_on_commit=False)
+            return self._factory
+
+    def __call__(self, **kwargs):
+        return self._get()(**kwargs)
+
+    def __getattr__(self, name):
+        return getattr(self._get(), name)
+
+
+# Stable objects preserve `from api.db import ...` callers. Helpers below still
+# look up the public engine, so patch.object(database, "engine", ...) works.
+engine = _LazyEngine()
+SessionLocal = _LazySessionFactory()
 
 async def init_db():
     async with engine.begin() as connection:
